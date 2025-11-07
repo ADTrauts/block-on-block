@@ -58,11 +58,19 @@ router.use(checkHRModuleInstalled);  // HR module must be installed
 
 // Employee Management (Available on Business Advanced+)
 router.get('/admin/employees', checkHRAdmin, hrController.getAdminEmployees);
+router.get('/admin/employees/filter-options', checkHRAdmin, hrController.getEmployeeFilterOptions);
 router.get('/admin/employees/:id', checkHRAdmin, hrController.getAdminEmployee);
+router.get('/admin/employees/:id/audit-logs', checkHRAdmin, hrController.getEmployeeAuditLogs);
 router.post('/admin/employees', checkHRAdmin, hrController.createEmployee);
 router.put('/admin/employees/:id', checkHRAdmin, hrController.updateEmployee);
 router.delete('/admin/employees/:id', checkHRAdmin, hrController.deleteEmployee);
 router.post('/admin/employees/:id/terminate', checkHRAdmin, hrController.terminateEmployee);
+
+// Time-off calendar (admin view)
+router.get('/admin/time-off/calendar', checkHRAdmin, hrController.getTimeOffCalendar);
+
+// Time-off reports (admin view)
+router.get('/admin/time-off/reports', checkHRAdmin, hrController.getTimeOffReports);
 
 // Employee Import/Export (Available on Business Advanced+)
 router.post('/admin/employees/import', 
@@ -167,6 +175,12 @@ router.post('/team/time-off/:id/approve',
   hrController.approveTeamTimeOff
 );
 
+// Time-off calendar (admins and managers)
+router.get('/team/time-off/calendar',
+  checkManagerAccess,
+  hrController.getTimeOffCalendar
+);
+
 // ============================================================================
 // EMPLOYEE ROUTES (Self-Service)
 // Route: /api/hr/me/*
@@ -195,6 +209,11 @@ router.get('/me/time-off/balance',
 router.get('/me/time-off/requests',
   checkEmployeeAccess,
   hrController.getMyTimeOffRequests
+);
+
+router.post('/me/time-off/:id/cancel',
+  checkEmployeeAccess,
+  hrController.cancelTimeOffRequest
 );
 
 // View own pay stubs (framework stub)

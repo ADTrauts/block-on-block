@@ -29,12 +29,17 @@ export default function HREmployeesPage() {
   const initialTab = (searchParams?.get('status') || 'active').toLowerCase() === 'terminated' ? 'terminated' : 'active';
   const [tab, setTab] = useState<'active' | 'terminated'>(initialTab);
   const [q, setQ] = useState<string>(searchParams?.get('q') || '');
+  const [departmentId, setDepartmentId] = useState<string>(searchParams?.get('departmentId') || '');
+  const [positionId, setPositionId] = useState<string>(searchParams?.get('positionId') || '');
+  const [sortBy, setSortBy] = useState<string>(searchParams?.get('sortBy') || 'createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>((searchParams?.get('sortOrder') || 'desc') as 'asc' | 'desc');
   const [page, setPage] = useState<number>(Number(searchParams?.get('page') || 1));
   const [pageSize] = useState<number>(20);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeData, setActiveData] = useState<{ items: ActiveEmployee[]; count: number }>({ items: [], count: 0 });
   const [terminatedData, setTerminatedData] = useState<{ items: TerminatedEmployee[]; count: number }>({ items: [], count: 0 });
+  const [filterOptions, setFilterOptions] = useState<{ departments: Array<{ id: string; name: string }>; positions: Array<{ id: string; title: string }> }>({ departments: [], positions: [] });
   const [showEdit, setShowEdit] = useState<boolean>(false);
   const [showDetail, setShowDetail] = useState<boolean>(false);
   const [showImport, setShowImport] = useState<boolean>(false);
@@ -45,17 +50,40 @@ export default function HREmployeesPage() {
   const [editingId, setEditingId] = useState<string | null>(null); // employeePositionId
   const [form, setForm] = useState<{ hireDate?: string; employeeType?: string; workLocation?: string; emergencyContact?: string; personalInfo?: string }>({});
   const [detailEmployee, setDetailEmployee] = useState<ActiveEmployee | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Array<{ field: string; message: string }>>([]);
+  const [auditLogs, setAuditLogs] = useState<Array<{ id: string; action: string; timestamp: Date; user: { name: string | null; email: string }; details: string }>>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState<boolean>(false);
   
   const statusParam = useMemo(() => (tab === 'terminated' ? 'TERMINATED' : 'ACTIVE'), [tab]);
+
+  // Load filter options on mount
+  useEffect(() => {
+    async function loadFilterOptions() {
+      try {
+        const res = await fetch(`/api/hr/admin/employees/filter-options?businessId=${encodeURIComponent(businessId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setFilterOptions({ departments: data.departments || [], positions: data.positions || [] });
+        }
+      } catch (e) {
+        console.error('[HR/employees] Failed to load filter options:', e);
+      }
+    }
+    if (businessId) loadFilterOptions();
+  }, [businessId]);
 
   useEffect(() => {
     const sp = new URLSearchParams();
     if (tab === 'terminated') sp.set('status', 'terminated');
     if (q) sp.set('q', q);
+    if (departmentId) sp.set('departmentId', departmentId);
+    if (positionId) sp.set('positionId', positionId);
+    if (sortBy !== 'createdAt') sp.set('sortBy', sortBy);
+    if (sortOrder !== 'desc') sp.set('sortOrder', sortOrder);
     if (page > 1) sp.set('page', String(page));
     const query = sp.toString();
     router.replace(`/business/${businessId}/admin/hr/employees${query ? `?${query}` : ''}`);
-  }, [tab, q, page, businessId, router]);
+  }, [tab, q, departmentId, positionId, sortBy, sortOrder, page, businessId, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +91,18 @@ export default function HREmployeesPage() {
       try {
         setLoading(true);
         setError(null);
-        const url = `/api/hr/admin/employees?businessId=${encodeURIComponent(businessId)}&status=${encodeURIComponent(statusParam)}&page=${page}&pageSize=${pageSize}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+        const params = new URLSearchParams({
+          businessId,
+          status: statusParam,
+          page: String(page),
+          pageSize: String(pageSize),
+          sortBy,
+          sortOrder
+        });
+        if (q) params.set('q', q);
+        if (departmentId) params.set('departmentId', departmentId);
+        if (positionId) params.set('positionId', positionId);
+        const url = `/api/hr/admin/employees?${params.toString()}`;
         const res = await fetch(url, { method: 'GET' });
         if (!res.ok) throw new Error(`Failed to load employees (${res.status})`);
         const data = await res.json();
@@ -83,7 +122,7 @@ export default function HREmployeesPage() {
     return () => {
       cancelled = true;
     };
-  }, [businessId, statusParam, page, pageSize, q]);
+  }, [businessId, statusParam, page, pageSize, q, departmentId, positionId, sortBy, sortOrder]);
 
   const [terminating, setTerminating] = useState<string | null>(null);
   
@@ -133,10 +172,88 @@ export default function HREmployeesPage() {
 
   const [submittingEdit, setSubmittingEdit] = useState(false);
   
+  const submitEdit = async () => {
+    if (!editingId) return;
+    
+    setSubmittingEdit(true);
+    setValidationErrors([]);
+    try {
+      const body: Record<string, unknown> = {};
+      if (form.hireDate) body.hireDate = form.hireDate;
+      if (form.employeeType) body.employeeType = form.employeeType;
+      if (form.workLocation) body.workLocation = form.workLocation;
+      if (form.emergencyContact) {
+        try { 
+          body.emergencyContact = JSON.parse(form.emergencyContact); 
+        } catch { 
+          toast.error('Emergency Contact must be valid JSON');
+          setValidationErrors([{ field: 'emergencyContact', message: 'Must be valid JSON' }]);
+          return;
+        }
+      }
+      if (form.personalInfo) {
+        try { 
+          body.personalInfo = JSON.parse(form.personalInfo); 
+        } catch { 
+          toast.error('Personal Info must be valid JSON');
+          setValidationErrors([{ field: 'personalInfo', message: 'Must be valid JSON' }]);
+          return;
+        }
+      }
+      
+      const res = await fetch(`/api/hr/admin/employees/${encodeURIComponent(editingId)}?businessId=${encodeURIComponent(businessId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Update failed' }));
+        
+        // Handle validation errors
+        if (res.status === 400 && errorData.details) {
+          const errors = Array.isArray(errorData.details) 
+            ? errorData.details.map((err: { path: string[]; message: string }) => ({
+                field: err.path.join('.'),
+                message: err.message
+              }))
+            : [{ field: 'general', message: errorData.error || 'Validation failed' }];
+          setValidationErrors(errors);
+          toast.error('Please fix validation errors');
+          return;
+        }
+        
+        throw new Error(errorData.error || `Update failed (${res.status})`);
+      }
+      
+      setShowEdit(false);
+      setEditingId(null);
+      setForm({});
+      setValidationErrors([]);
+      setPage(1);
+      // Refresh employee list
+      window.location.reload();
+      toast.success('Employee information updated successfully');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Update failed';
+      toast.error(errorMsg);
+      console.error('[HR/employees] Update error:', err);
+    } finally {
+      setSubmittingEdit(false);
+    }
+  };
+  
   const handleExport = async () => {
     try {
       const statusParam = active ? 'ACTIVE' : 'TERMINATED';
-      const url = `/api/hr/admin/employees/export?businessId=${encodeURIComponent(businessId)}&status=${statusParam}&q=${encodeURIComponent(q || '')}`;
+      const params = new URLSearchParams({
+        businessId,
+        status: statusParam
+      });
+      if (q) params.set('q', q);
+      if (departmentId) params.set('departmentId', departmentId);
+      if (positionId) params.set('positionId', positionId);
+      const url = `/api/hr/admin/employees/export?${params.toString()}`;
       
       const response = await fetch(url);
       if (!response.ok) throw new Error('Export failed');
@@ -194,56 +311,6 @@ export default function HREmployeesPage() {
       setImporting(false);
     }
   };
-  
-  const submitEdit = async () => {
-    if (!editingId) return;
-    
-    setSubmittingEdit(true);
-    try {
-      const body: Record<string, unknown> = {};
-      if (form.hireDate) body.hireDate = form.hireDate;
-      if (form.employeeType) body.employeeType = form.employeeType;
-      if (form.workLocation) body.workLocation = form.workLocation;
-      if (form.emergencyContact) {
-        try { 
-          body.emergencyContact = JSON.parse(form.emergencyContact); 
-        } catch { 
-          toast.error('Emergency Contact must be valid JSON');
-          return;
-        }
-      }
-      if (form.personalInfo) {
-        try { 
-          body.personalInfo = JSON.parse(form.personalInfo); 
-        } catch { 
-          toast.error('Personal Info must be valid JSON');
-          return;
-        }
-      }
-      
-      const res = await fetch(`/api/hr/admin/employees/${encodeURIComponent(editingId)}?businessId=${encodeURIComponent(businessId)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Update failed' }));
-        throw new Error(errorData.error || `Update failed (${res.status})`);
-      }
-      
-      setShowEdit(false);
-      setEditingId(null);
-      setPage(1);
-      toast.success('Employee information updated successfully');
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Update failed';
-      toast.error(errorMsg);
-      console.error('[HR/employees] Update error:', err);
-    } finally {
-      setSubmittingEdit(false);
-    }
-  };
 
   const active = tab === 'active';
   const items = active ? activeData.items : terminatedData.items;
@@ -272,7 +339,7 @@ export default function HREmployeesPage() {
             Terminated
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             value={q}
             onChange={(e) => {
@@ -292,6 +359,45 @@ export default function HREmployeesPage() {
               title="Clear search"
             >
               ✕
+            </button>
+          )}
+          <select
+            value={departmentId}
+            onChange={(e) => {
+              setDepartmentId(e.target.value);
+              setPage(1);
+            }}
+            className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Departments</option>
+            {filterOptions.departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>{dept.name}</option>
+            ))}
+          </select>
+          <select
+            value={positionId}
+            onChange={(e) => {
+              setPositionId(e.target.value);
+              setPage(1);
+            }}
+            className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Titles</option>
+            {filterOptions.positions.map((pos) => (
+              <option key={pos.id} value={pos.id}>{pos.title}</option>
+            ))}
+          </select>
+          {(departmentId || positionId) && (
+            <button
+              onClick={() => {
+                setDepartmentId('');
+                setPositionId('');
+                setPage(1);
+              }}
+              className="text-gray-500 hover:text-gray-700 text-sm"
+              title="Clear filters"
+            >
+              Clear Filters
             </button>
           )}
           <button
@@ -319,9 +425,57 @@ export default function HREmployeesPage() {
 
       <div className="border rounded">
         <div className="grid grid-cols-12 bg-gray-50 px-3 py-2 text-sm font-medium">
-          <div className="col-span-4">Employee</div>
-          <div className="col-span-3">Title</div>
-          <div className="col-span-3">Department</div>
+          <div className="col-span-4">
+            <button
+              onClick={() => {
+                if (sortBy === 'name') {
+                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                } else {
+                  setSortBy('name');
+                  setSortOrder('asc');
+                }
+                setPage(1);
+              }}
+              className="flex items-center gap-1 hover:text-blue-600"
+            >
+              Employee
+              {sortBy === 'name' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+            </button>
+          </div>
+          <div className="col-span-3">
+            <button
+              onClick={() => {
+                if (sortBy === 'title') {
+                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                } else {
+                  setSortBy('title');
+                  setSortOrder('asc');
+                }
+                setPage(1);
+              }}
+              className="flex items-center gap-1 hover:text-blue-600"
+            >
+              Title
+              {sortBy === 'title' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+            </button>
+          </div>
+          <div className="col-span-3">
+            <button
+              onClick={() => {
+                if (sortBy === 'department') {
+                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                } else {
+                  setSortBy('department');
+                  setSortOrder('asc');
+                }
+                setPage(1);
+              }}
+              className="flex items-center gap-1 hover:text-blue-600"
+            >
+              Department
+              {sortBy === 'department' && (sortOrder === 'asc' ? ' ↑' : ' ↓')}
+            </button>
+          </div>
           <div className="col-span-2 text-right">Actions</div>
         </div>
         {loading ? (
@@ -350,11 +504,24 @@ export default function HREmployeesPage() {
               <div key={idx} className="grid grid-cols-12 px-3 py-2 border-t text-sm items-center">
                 <div className="col-span-4">
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (active) {
                         setViewingId((record as ActiveEmployee).id);
                         setDetailEmployee(record as ActiveEmployee);
                         setShowDetail(true);
+                        // Load audit logs
+                        setLoadingAuditLogs(true);
+                        try {
+                          const res = await fetch(`/api/hr/admin/employees/${encodeURIComponent((record as ActiveEmployee).id)}/audit-logs?businessId=${encodeURIComponent(businessId)}`);
+                          if (res.ok) {
+                            const data = await res.json();
+                            setAuditLogs(data.auditLogs || []);
+                          }
+                        } catch (e) {
+                          console.error('[HR/employees] Failed to load audit logs:', e);
+                        } finally {
+                          setLoadingAuditLogs(false);
+                        }
                       }
                     }}
                     className="text-left hover:underline font-medium text-blue-600 hover:text-blue-800"
@@ -419,14 +586,38 @@ export default function HREmployeesPage() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-5">
             <div className="text-lg font-semibold mb-3">Edit HR Profile</div>
+            
+            {validationErrors.length > 0 && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded">
+                <div className="text-sm font-semibold text-red-800 mb-2">Validation Errors:</div>
+                <ul className="list-disc list-inside text-sm text-red-700">
+                  {validationErrors.map((err, idx) => (
+                    <li key={idx}>{err.field}: {err.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
             <div className="grid gap-3">
               <div>
-                <label className="block text-sm mb-1">Hire Date</label>
-                <input type="date" value={form.hireDate || ''} onChange={(e) => setForm((f) => ({ ...f, hireDate: e.target.value }))} className="w-full border rounded px-3 py-2" />
+                <label className="block text-sm mb-1">Hire Date (YYYY-MM-DD)</label>
+                <input 
+                  type="date" 
+                  value={form.hireDate || ''} 
+                  onChange={(e) => setForm((f) => ({ ...f, hireDate: e.target.value }))} 
+                  className={`w-full border rounded px-3 py-2 ${validationErrors.some(e => e.field === 'hireDate') ? 'border-red-500' : ''}`}
+                />
+                {validationErrors.filter(e => e.field === 'hireDate').map((err, idx) => (
+                  <p key={idx} className="text-red-600 text-xs mt-1">{err.message}</p>
+                ))}
               </div>
               <div>
                 <label className="block text-sm mb-1">Employment Type</label>
-                <select value={form.employeeType || ''} onChange={(e) => setForm((f) => ({ ...f, employeeType: e.target.value }))} className="w-full border rounded px-3 py-2">
+                <select 
+                  value={form.employeeType || ''} 
+                  onChange={(e) => setForm((f) => ({ ...f, employeeType: e.target.value }))} 
+                  className={`w-full border rounded px-3 py-2 ${validationErrors.some(e => e.field === 'employeeType') ? 'border-red-500' : ''}`}
+                >
                   <option value="">Select…</option>
                   <option value="FULL_TIME">Full-time</option>
                   <option value="PART_TIME">Part-time</option>
@@ -435,6 +626,9 @@ export default function HREmployeesPage() {
                   <option value="TEMPORARY">Temporary</option>
                   <option value="SEASONAL">Seasonal</option>
                 </select>
+                {validationErrors.filter(e => e.field === 'employeeType').map((err, idx) => (
+                  <p key={idx} className="text-red-600 text-xs mt-1">{err.message}</p>
+                ))}
               </div>
               <div>
                 <label className="block text-sm mb-1">Work Location</label>
@@ -558,6 +752,64 @@ export default function HREmployeesPage() {
                   Terminate Employee
                 </button>
               </div>
+            </div>
+
+            {/* Audit Log */}
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-3">Change History</h3>
+              {loadingAuditLogs ? (
+                <div className="flex items-center justify-center py-4">
+                  <Spinner size={24} />
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <p className="text-gray-500 text-sm">No changes recorded</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {auditLogs.map((log) => {
+                    let details: Record<string, unknown> = {};
+                    try {
+                      details = JSON.parse(log.details);
+                    } catch {
+                      // Ignore parse errors
+                    }
+                    
+                    const actionLabels: Record<string, string> = {
+                      'HR_EMPLOYEE_CREATED': 'Created',
+                      'HR_EMPLOYEE_UPDATED': 'Updated',
+                      'HR_EMPLOYEE_TERMINATED': 'Terminated'
+                    };
+                    
+                    return (
+                      <div key={log.id} className="border rounded p-3 text-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium">{actionLabels[log.action] || log.action}</span>
+                          <span className="text-gray-500 text-xs">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-gray-600 text-xs">
+                          by {log.user.name || log.user.email}
+                        </div>
+                        {(() => {
+                          const changes = details.changes;
+                          if (changes && typeof changes === 'object' && !Array.isArray(changes)) {
+                            return (
+                              <div className="mt-2 text-xs">
+                                {Object.entries(changes as Record<string, { from: unknown; to: unknown }>).map(([field, change]) => (
+                                  <div key={field} className="text-gray-600">
+                                    <span className="font-medium">{field}:</span> {String(change.from ?? 'N/A')} → {String(change.to ?? 'N/A')}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -172,6 +172,8 @@ model HRModuleSettings {
   // ============================================================================
   // Time-off policies
   timeOffSettings Json?  // { defaultPTODays, accrualRules, carryoverPolicy, etc. }
+  // Calendar integration
+  scheduleCalendarId String?
   
   // Work week configuration
   workWeekSettings Json?  // { daysPerWeek, hoursPerDay, startDayOfWeek, etc. }

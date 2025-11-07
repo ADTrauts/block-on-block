@@ -8,6 +8,34 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
+import { AuditService } from '../services/auditService';
+import { syncTimeOffRequestCalendar } from '../services/hrScheduleService';
+
+// ============================================================================
+// VALIDATION SCHEMAS
+// ============================================================================
+
+const employeeTypeEnum = z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'TEMPORARY', 'SEASONAL']);
+
+const employeeUpdateSchema = z.object({
+  hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Hire date must be in YYYY-MM-DD format').optional(),
+  employeeType: employeeTypeEnum.optional(),
+  workLocation: z.string().max(255, 'Work location must be 255 characters or less').optional(),
+  emergencyContact: z.record(z.unknown()).optional(),
+  personalInfo: z.record(z.unknown()).optional()
+}).refine((data) => {
+  // At least one field must be provided
+  return Object.keys(data).length > 0;
+}, { message: 'At least one field must be provided for update' });
+
+const employeeCreateSchema = z.object({
+  employeePositionId: z.string().uuid('Invalid employee position ID'),
+  hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Hire date must be in YYYY-MM-DD format').optional(),
+  employeeType: employeeTypeEnum.optional(),
+  workLocation: z.string().max(255, 'Work location must be 255 characters or less').optional(),
+  emergencyContact: z.record(z.unknown()).optional(),
+  personalInfo: z.record(z.unknown()).optional()
+});
 
 // ============================================================================
 // ADMIN CONTROLLERS (Business Admin Dashboard)
@@ -26,16 +54,51 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
     
     const status = (req.query.status as string) || 'ACTIVE';
     const q = (req.query.q as string) || '';
+    const departmentId = req.query.departmentId as string | undefined;
+    const positionId = req.query.positionId as string | undefined;
+    const sortBy = (req.query.sortBy as string) || 'createdAt';
+    const sortOrder = (req.query.sortOrder as string) || 'desc';
     const page = Number(req.query.page || 1);
     const pageSize = Math.min(100, Number(req.query.pageSize || 20));
     const skip = (page - 1) * pageSize;
     
+    // Build orderBy clause - Prisma supports nested relations for sorting
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let orderBy: any = { createdAt: 'desc' }; // default
+    if (sortBy === 'name') {
+      orderBy = { user: { name: sortOrder } };
+    } else if (sortBy === 'email') {
+      orderBy = { user: { email: sortOrder } };
+    } else if (sortBy === 'title') {
+      orderBy = { position: { title: sortOrder } };
+    } else if (sortBy === 'department') {
+      // For department, we'll sort by department name through position relation
+      orderBy = { position: { department: { name: sortOrder } } };
+    } else if (sortBy === 'hireDate') {
+      orderBy = { hrProfile: { hireDate: sortOrder } };
+    } else {
+      orderBy = { [sortBy]: sortOrder };
+    }
+    
     if (status === 'TERMINATED') {
-      // Build where clause
+      // Build where clause for terminated employees
       const where: Record<string, unknown> = {
         businessId,
         employmentStatus: 'TERMINATED'
       };
+      
+      // Add filters
+      if (departmentId) {
+        where.employeePosition = {
+          position: { departmentId }
+        };
+      }
+      if (positionId) {
+        where.employeePosition = {
+          ...(where.employeePosition as Record<string, unknown> || {}),
+          positionId
+        };
+      }
       
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const [hrProfiles, totalCount] = await Promise.all([
@@ -76,12 +139,26 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
       active: true
     };
     
+    // Add search query
     if (q) {
       where.OR = [
         { user: { name: { contains: q, mode: 'insensitive' } } },
         { user: { email: { contains: q, mode: 'insensitive' } } },
         { position: { title: { contains: q, mode: 'insensitive' } } }
       ];
+    }
+    
+    // Add department filter
+    if (departmentId) {
+      where.position = {
+        ...((where.position as Record<string, unknown>) || {}),
+        departmentId
+      };
+    }
+    
+    // Add position/title filter
+    if (positionId) {
+      where.positionId = positionId;
     }
 
     const [employees, totalCount] = await Promise.all([
@@ -92,7 +169,7 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
           position: { include: { department: true, tier: true } },
           hrProfile: true
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: pageSize
       }),
@@ -110,6 +187,49 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching employees:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch employees';
+    res.status(500).json({ error: errorMessage });
+  }
+};
+
+/**
+ * Get filter options (departments and positions) for employee directory
+ */
+export const getEmployeeFilterOptions = async (req: Request, res: Response) => {
+  try {
+    const businessId = req.query.businessId as string;
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const [departments, positions] = await Promise.all([
+      prisma.department.findMany({
+        where: { businessId },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' }
+      }),
+      prisma.position.findMany({
+        where: { 
+          businessId,
+          employeePositions: {
+            some: {
+              active: true,
+              businessId
+            }
+          }
+        },
+        select: { id: true, title: true },
+        orderBy: { title: 'asc' },
+        distinct: ['title']
+      })
+    ]);
+
+    return res.json({
+      departments,
+      positions
+    });
+  } catch (error) {
+    console.error('Error fetching filter options:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch filter options';
     res.status(500).json({ error: errorMessage });
   }
 };
@@ -159,21 +279,36 @@ export const getAdminEmployee = async (req: Request, res: Response) => {
 export const createEmployee = async (req: Request, res: Response) => {
   try {
     const businessId = req.query.businessId as string;
-    const { employeePositionId, hireDate, employeeType, workLocation, emergencyContact, personalInfo } = req.body as {
-      employeePositionId: string;
-      hireDate?: string;
-      employeeType?: string;
-      workLocation?: string;
-      emergencyContact?: unknown;
-      personalInfo?: unknown;
-    };
+    const userId = (req.user as { id: string })?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // Validate input
+    const validationResult = employeeCreateSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationResult.error.errors 
+      });
+    }
+
+    const { employeePositionId, hireDate, employeeType, workLocation, emergencyContact, personalInfo } = validationResult.data;
 
     const position = await prisma.employeePosition.findFirst({
-      where: { id: employeePositionId, businessId }
+      where: { id: employeePositionId, businessId },
+      include: { user: { select: { id: true, name: true, email: true } } }
     });
     if (!position) {
       return res.status(400).json({ error: 'Invalid employeePositionId for this business' });
     }
+
+    // Get existing HR profile if any (for audit comparison)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingProfile = await (prisma as any).employeeHRProfile.findUnique({
+      where: { employeePositionId }
+    });
 
     // Create HR profile if not exists
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -215,10 +350,43 @@ export const createEmployee = async (req: Request, res: Response) => {
       }
     });
 
+    // Log audit trail
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: existingProfile ? 'HR_EMPLOYEE_UPDATED' : 'HR_EMPLOYEE_CREATED',
+          resourceType: 'HR_EMPLOYEE',
+          resourceId: employeePositionId,
+          details: JSON.stringify({
+            businessId,
+            employeeUserId: position.userId,
+            employeeName: position.user?.name || position.user?.email,
+            changes: {
+              hireDate: hireDate || null,
+              employeeType: employeeType || null,
+              workLocation: workLocation || null,
+              emergencyContact: emergencyContact || null,
+              personalInfo: personalInfo || null
+            },
+            previousValues: existingProfile ? {
+              hireDate: existingProfile.hireDate,
+              employeeType: existingProfile.employeeType,
+              workLocation: existingProfile.workLocation
+            } : null
+          })
+        }
+      });
+    } catch (auditError) {
+      console.error('Error logging audit entry:', auditError);
+      // Don't fail the main operation if audit logging fails
+    }
+
     return res.json({ message: 'Employee profile created', hrProfile });
   } catch (error) {
     console.error('Error creating employee:', error);
-    res.status(500).json({ error: 'Failed to create employee' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create employee';
+    res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -230,38 +398,101 @@ export const updateEmployee = async (req: Request, res: Response) => {
   try {
     const businessId = req.query.businessId as string;
     const { id } = req.params; // employeePositionId
-    const { hireDate, employeeType, workLocation, emergencyContact, personalInfo } = req.body as {
-      hireDate?: string;
-      employeeType?: string;
-      workLocation?: string;
-      emergencyContact?: unknown;
-      personalInfo?: unknown;
-    };
+    const userId = (req.user as { id: string })?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
-    const position = await prisma.employeePosition.findFirst({ where: { id, businessId } });
+    // Validate input
+    const validationResult = employeeUpdateSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationResult.error.errors 
+      });
+    }
+
+    const { hireDate, employeeType, workLocation, emergencyContact, personalInfo } = validationResult.data;
+
+    const position = await prisma.employeePosition.findFirst({ 
+      where: { id, businessId },
+      include: { user: { select: { id: true, name: true, email: true } } }
+    });
     if (!position) {
       return res.status(404).json({ error: 'Employee position not found' });
     }
 
+    // Get existing profile for audit comparison
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingProfile = await (prisma as any).employeeHRProfile.findUnique({
+      where: { employeePositionId: id }
+    });
+
+    if (!existingProfile) {
+      return res.status(404).json({ error: 'HR profile not found for this employee' });
+    }
+
+    // Build update data with only provided fields
+    const updateData: Record<string, unknown> = {};
+    if (hireDate !== undefined) updateData.hireDate = new Date(hireDate);
+    if (employeeType !== undefined) updateData.employeeType = employeeType;
+    if (workLocation !== undefined) updateData.workLocation = workLocation;
+    if (emergencyContact !== undefined) updateData.emergencyContact = emergencyContact;
+    if (personalInfo !== undefined) updateData.personalInfo = personalInfo;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updated = await (prisma as any).employeeHRProfile.update({
       where: { employeePositionId: id },
-      data: {
-        hireDate: hireDate ? new Date(hireDate) : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        employeeType: employeeType as any,
-        workLocation,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        emergencyContact: emergencyContact as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        personalInfo: personalInfo as any
-      }
+      data: updateData
     });
+
+    // Track field-level changes for audit
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+    if (hireDate !== undefined && existingProfile.hireDate?.toISOString() !== new Date(hireDate).toISOString()) {
+      changes.hireDate = { from: existingProfile.hireDate, to: hireDate };
+    }
+    if (employeeType !== undefined && existingProfile.employeeType !== employeeType) {
+      changes.employeeType = { from: existingProfile.employeeType, to: employeeType };
+    }
+    if (workLocation !== undefined && existingProfile.workLocation !== workLocation) {
+      changes.workLocation = { from: existingProfile.workLocation, to: workLocation };
+    }
+    if (emergencyContact !== undefined) {
+      changes.emergencyContact = { from: existingProfile.emergencyContact, to: emergencyContact };
+    }
+    if (personalInfo !== undefined) {
+      changes.personalInfo = { from: existingProfile.personalInfo, to: personalInfo };
+    }
+
+    // Log audit trail
+    if (Object.keys(changes).length > 0) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            action: 'HR_EMPLOYEE_UPDATED',
+            resourceType: 'HR_EMPLOYEE',
+            resourceId: id,
+            details: JSON.stringify({
+              businessId,
+              employeeUserId: position.userId,
+              employeeName: position.user?.name || position.user?.email,
+              changes
+            })
+          }
+        });
+      } catch (auditError) {
+        console.error('Error logging audit entry:', auditError);
+        // Don't fail the main operation if audit logging fails
+      }
+    }
 
     return res.json({ message: 'Employee profile updated', hrProfile: updated });
   } catch (error) {
     console.error('Error updating employee:', error);
-    res.status(500).json({ error: 'Failed to update employee' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to update employee';
+    res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -293,6 +524,60 @@ export const deleteEmployee = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting employee:', error);
     res.status(500).json({ error: 'Failed to delete employee' });
+  }
+};
+
+/**
+ * Get audit logs for an employee
+ */
+export const getEmployeeAuditLogs = async (req: Request, res: Response) => {
+  try {
+    const businessId = req.query.businessId as string;
+    const { id } = req.params; // employeePositionId
+    
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    // Verify employee belongs to business
+    const position = await prisma.employeePosition.findFirst({
+      where: { id, businessId },
+      include: { user: { select: { id: true, name: true, email: true } } }
+    });
+    
+    if (!position) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Get audit logs for this employee
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        resourceType: 'HR_EMPLOYEE',
+        resourceId: id,
+        OR: [
+          { action: 'HR_EMPLOYEE_CREATED' },
+          { action: 'HR_EMPLOYEE_UPDATED' },
+          { action: 'HR_EMPLOYEE_TERMINATED' }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 100
+    });
+
+    return res.json({ auditLogs });
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch audit logs';
+    res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -345,8 +630,34 @@ export const terminateEmployee = async (req: Request, res: Response) => {
       data: {
         active: false,
         endDate: terminationDate
-      }
+      },
+      include: { user: { select: { id: true, name: true, email: true } } }
     });
+
+    // Log audit trail
+    const userId = (req.user as { id: string })?.id;
+    if (userId) {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            action: 'HR_EMPLOYEE_TERMINATED',
+            resourceType: 'HR_EMPLOYEE',
+            resourceId: id,
+            details: JSON.stringify({
+              businessId,
+              employeeUserId: employeePosition.userId,
+              terminationDate: terminationDate.toISOString(),
+              terminationReason: reason || null,
+              terminationNotes: notes || null
+            })
+          }
+        });
+      } catch (auditError) {
+        console.error('Error logging audit entry:', auditError);
+        // Don't fail the main operation if audit logging fails
+      }
+    }
 
     return res.json({
       message: 'Employee terminated; position vacated',
@@ -610,11 +921,130 @@ export const getTimeOffContext = async (req: Request, res: Response) => {
 // TIME-OFF IMPLEMENTATION (Phase 3)
 // ==========================================================================
 
+/**
+ * Helper function to calculate time-off balance
+ * Returns balance without sending HTTP response
+ * Supports accrual rules and carryover
+ */
+async function calculateTimeOffBalance(
+  userId: string,
+  businessId: string,
+  employeePositionId: string,
+  type?: string
+): Promise<{ available: number; used: number; allotment: number; accrued: number; pending: number }> {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const endOfYear = new Date(now.getFullYear(), 11, 31);
+  
+  // Get employee HR profile for custom allotments
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hrProfile = await (prisma as any).employeeHRProfile.findUnique({
+    where: { employeePositionId },
+    select: { hireDate: true }
+  });
+  
+  // Calculate base allotment (defaults by type)
+  const defaultAllotments: Record<string, number> = {
+    PTO: 15,
+    SICK: 10,
+    PERSONAL: 5,
+    UNPAID: 0
+  };
+  
+  let allotment = type ? (defaultAllotments[type] || 0) : 15;
+  
+  // If employee was hired mid-year, prorate allotment
+  if (hrProfile?.hireDate && type === 'PTO') {
+    const hireDate = new Date(hrProfile.hireDate);
+    if (hireDate > startOfYear) {
+      const daysInYear = 365;
+      const daysSinceHire = Math.floor((now.getTime() - hireDate.getTime()) / (24 * 60 * 60 * 1000));
+      const prorated = Math.floor((allotment * daysSinceHire) / daysInYear);
+      allotment = Math.max(0, prorated);
+    }
+  }
+  
+  // Get approved requests for this year
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const approved = await (prisma as any).timeOffRequest.findMany({
+    where: { 
+      businessId, 
+      employeePositionId, 
+      status: 'APPROVED',
+      ...(type ? { type } : {}),
+      startDate: { gte: startOfYear, lte: endOfYear }
+    }
+  });
+  
+  // Get pending requests (for display purposes)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pending = await (prisma as any).timeOffRequest.findMany({
+    where: { 
+      businessId, 
+      employeePositionId, 
+      status: 'PENDING',
+      ...(type ? { type } : {}),
+      startDate: { gte: startOfYear, lte: endOfYear }
+    }
+  });
+  
+  // Calculate used days from approved requests
+  const usedDays = approved.reduce((acc: number, r: any) => {
+    const one = 24 * 60 * 60 * 1000;
+    const days = Math.max(1, Math.round((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / one) + 1);
+    return acc + days;
+  }, 0);
+  
+  // Calculate pending days
+  const pendingDays = pending.reduce((acc: number, r: any) => {
+    const one = 24 * 60 * 60 * 1000;
+    const days = Math.max(1, Math.round((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / one) + 1);
+    return acc + days;
+  }, 0);
+  
+  // Calculate accrued (for accrual-based systems - monthly accrual)
+  // For now, simple calculation: (months into year / 12) * allotment
+  const monthsIntoYear = now.getMonth() + 1;
+  const accrued = Math.floor((allotment * monthsIntoYear) / 12);
+  
+  // Available = accrued - used (or simple allotment - used for non-accrual)
+  // For simplicity, using allotment - used, but accrued is available for future use
+  const available = Math.max(0, allotment - usedDays);
+  
+  return { 
+    available, 
+    used: usedDays, 
+    allotment,
+    accrued,
+    pending: pendingDays
+  };
+}
+
 export const requestTimeOff = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const businessId = req.query.businessId as string;
     const { type, startDate, endDate, reason } = req.body as { type: string; startDate: string; endDate: string; reason?: string };
+
+    // Validate input
+    if (!type || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Type, start date, and end date are required' });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    if (start > end) {
+      return res.status(400).json({ error: 'Start date must be before or equal to end date' });
+    }
+
+    if (start < new Date()) {
+      return res.status(400).json({ error: 'Cannot request time off in the past' });
+    }
 
     // Find the employee's active position in this business
     const employeePosition = await prisma.employeePosition.findFirst({
@@ -622,6 +1052,52 @@ export const requestTimeOff = async (req: Request, res: Response) => {
     });
     if (!employeePosition) {
       return res.status(400).json({ error: 'No active employee position found for user' });
+    }
+
+    // Check for overlapping requests (excluding canceled)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const overlapping = await (prisma as any).timeOffRequest.findFirst({
+      where: {
+        businessId,
+        employeePositionId: employeePosition.id,
+        status: { not: 'CANCELED' },
+        OR: [
+          {
+            AND: [
+              { startDate: { lte: end } },
+              { endDate: { gte: start } }
+            ]
+          }
+        ]
+      }
+    });
+
+    if (overlapping) {
+      return res.status(400).json({ 
+        error: 'You already have a time-off request for this period',
+        conflictingRequest: {
+          id: overlapping.id,
+          startDate: overlapping.startDate,
+          endDate: overlapping.endDate,
+          status: overlapping.status
+        }
+      });
+    }
+
+    // Check balance for PTO requests
+    if (type === 'PTO') {
+      const balance = await calculateTimeOffBalance(user.id, businessId, employeePosition.id, 'PTO');
+      
+      // Calculate requested days
+      const one = 24 * 60 * 60 * 1000;
+      const requestedDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / one) + 1);
+      
+      if (requestedDays > balance.available) {
+        return res.status(400).json({ 
+          error: `Insufficient PTO balance. Requested: ${requestedDays} days, Available: ${balance.available} days`,
+          balance: { available: balance.available, requested: requestedDays, used: balance.used, allotment: balance.allotment }
+        });
+      }
     }
 
     // Create the time-off request
@@ -632,18 +1108,25 @@ export const requestTimeOff = async (req: Request, res: Response) => {
         employeePositionId: employeePosition.id,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         type: type as any,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: start,
+        endDate: end,
         reason: reason || null,
         status: 'PENDING',
         requestedById: user.id
       }
     });
 
+    try {
+      await syncTimeOffRequestCalendar(request.id);
+    } catch (syncError) {
+      console.error('Error syncing time-off calendar:', syncError);
+    }
+
     return res.json({ message: 'Time-off request submitted', request });
   } catch (error) {
     console.error('Error creating time-off request:', error);
-    return res.status(500).json({ error: 'Failed to submit time-off request' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to submit time-off request';
+    return res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -712,6 +1195,12 @@ export const approveTeamTimeOff = async (req: Request, res: Response) => {
       data: { status, approvedById: user.id, approvedAt: new Date(), managerNote: note || null }
     });
 
+    try {
+      await syncTimeOffRequestCalendar(id);
+    } catch (syncError) {
+      console.error('Error syncing time-off calendar:', syncError);
+    }
+
     return res.json({ message: `Request ${status.toLowerCase()}` });
   } catch (error) {
     console.error('Error approving time-off:', error);
@@ -724,28 +1213,48 @@ export const getTimeOffBalance = async (req: Request, res: Response) => {
     const user = req.user!;
     const businessId = req.query.businessId as string;
 
-    // Very basic stub: compute approved days (PTO) this year and show a static allotment
-    const startOfYear = new Date(new Date().getFullYear(), 0, 1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ep = await prisma.employeePosition.findFirst({ where: { userId: user.id, businessId, active: true } });
-    if (!ep) return res.json({ balance: { pto: 0, sick: 0, personal: 0 } });
+    if (!ep) return res.json({ balance: { pto: 0, sick: 0, personal: 0 }, used: { pto: 0, sick: 0, personal: 0 } });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const approved = await (prisma as any).timeOffRequest.findMany({
-      where: { businessId, employeePositionId: ep.id, status: 'APPROVED', startDate: { gte: startOfYear } }
+    // Calculate balances for each type
+    const [ptoBalance, sickBalance, personalBalance] = await Promise.all([
+      calculateTimeOffBalance(user.id, businessId, ep.id, 'PTO'),
+      calculateTimeOffBalance(user.id, businessId, ep.id, 'SICK'),
+      calculateTimeOffBalance(user.id, businessId, ep.id, 'PERSONAL')
+    ]);
+
+    return res.json({ 
+      balance: { 
+        pto: ptoBalance.available, 
+        sick: sickBalance.available, 
+        personal: personalBalance.available 
+      }, 
+      used: { 
+        pto: ptoBalance.used, 
+        sick: sickBalance.used, 
+        personal: personalBalance.used 
+      },
+      allotment: {
+        pto: ptoBalance.allotment,
+        sick: sickBalance.allotment,
+        personal: personalBalance.allotment
+      },
+      pending: {
+        pto: ptoBalance.pending,
+        sick: sickBalance.pending,
+        personal: personalBalance.pending
+      },
+      accrued: {
+        pto: ptoBalance.accrued,
+        sick: sickBalance.accrued,
+        personal: personalBalance.accrued
+      }
     });
-    const usedDays = approved.reduce((acc: number, r: any) => {
-      const one = 24 * 60 * 60 * 1000;
-      const days = Math.max(1, Math.round((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / one) + 1);
-      return acc + days;
-    }, 0);
-    const allotment = 15; // default PTO days
-    const remaining = Math.max(0, allotment - usedDays);
-
-    return res.json({ balance: { pto: remaining, sick: 10, personal: 5 }, used: { pto: usedDays } });
   } catch (error) {
     console.error('Error fetching time-off balance:', error);
-    return res.status(500).json({ error: 'Failed to fetch time-off balance' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch time-off balance';
+    return res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -773,7 +1282,261 @@ export const getMyTimeOffRequests = async (req: Request, res: Response) => {
     return res.json({ requests, count: total, page, pageSize });
   } catch (error) {
     console.error('Error fetching my time-off requests:', error);
-    return res.status(500).json({ error: 'Failed to fetch your time-off requests' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch your time-off requests';
+    return res.status(500).json({ error: errorMessage });
+  }
+};
+
+/**
+ * Cancel a time-off request (employee can cancel their own pending requests)
+ */
+export const cancelTimeOffRequest = async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const businessId = req.query.businessId as string;
+    const { id } = req.params; // timeOffRequestId
+
+    // Find the request
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const request = await (prisma as any).timeOffRequest.findFirst({
+      where: { id, businessId },
+      include: {
+        employeePosition: {
+          select: { userId: true }
+        }
+      }
+    });
+
+    if (!request) {
+      return res.status(404).json({ error: 'Time-off request not found' });
+    }
+
+    // Verify user owns this request
+    if (request.employeePosition.userId !== user.id) {
+      return res.status(403).json({ error: 'You can only cancel your own time-off requests' });
+    }
+
+    // Only allow canceling pending requests
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Only pending requests can be canceled' });
+    }
+
+    // Update status to CANCELED
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (prisma as any).timeOffRequest.update({
+      where: { id },
+      data: { status: 'CANCELED' }
+    });
+
+    try {
+      await syncTimeOffRequestCalendar(id);
+    } catch (syncError) {
+      console.error('Error syncing time-off calendar:', syncError);
+    }
+
+    return res.json({ message: 'Time-off request canceled' });
+  } catch (error) {
+    console.error('Error canceling time-off request:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to cancel time-off request';
+    return res.status(500).json({ error: errorMessage });
+  }
+};
+
+/**
+ * Get time-off calendar (all approved/pending requests for a business)
+ * Available to admins and managers
+ */
+export const getTimeOffCalendar = async (req: Request, res: Response) => {
+  try {
+    const businessId = req.query.businessId as string;
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+    const departmentId = req.query.departmentId as string | undefined;
+
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    // Build date filter
+    const dateFilter: Record<string, unknown> = {};
+    if (startDate || endDate) {
+      if (startDate && endDate) {
+        dateFilter.OR = [{
+          AND: [
+            { startDate: { lte: new Date(endDate) } },
+            { endDate: { gte: new Date(startDate) } }
+          ]
+        }];
+      } else if (startDate) {
+        dateFilter.endDate = { gte: new Date(startDate) };
+      } else if (endDate) {
+        dateFilter.startDate = { lte: new Date(endDate) };
+      }
+    }
+
+    // Build where clause
+    const where: Record<string, unknown> = {
+      businessId,
+      status: { in: ['PENDING', 'APPROVED'] },
+      ...dateFilter
+    };
+
+    // Filter by department if specified
+    if (departmentId) {
+      where.employeePosition = {
+        position: {
+          departmentId
+        }
+      };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const requests = await (prisma as any).timeOffRequest.findMany({
+      where,
+      include: {
+        employeePosition: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            position: {
+              include: {
+                department: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { startDate: 'asc' }
+    });
+
+    return res.json({ requests });
+  } catch (error) {
+    console.error('Error fetching time-off calendar:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch time-off calendar';
+    return res.status(500).json({ error: errorMessage });
+  }
+};
+
+/**
+ * Get time-off reports (usage by department, trends, etc.)
+ */
+export const getTimeOffReports = async (req: Request, res: Response) => {
+  try {
+    const businessId = req.query.businessId as string;
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+    
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
+    const end = endDate ? new Date(endDate) : new Date(new Date().getFullYear(), 11, 31);
+
+    // Get all time-off requests in date range
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const requests = await (prisma as any).timeOffRequest.findMany({
+      where: {
+        businessId,
+        startDate: { gte: start, lte: end },
+        status: { in: ['APPROVED', 'PENDING'] }
+      },
+      include: {
+        employeePosition: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            position: {
+              include: {
+                department: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Calculate usage by department
+    const departmentUsage: Record<string, { name: string; totalDays: number; requestCount: number; employees: Set<string> }> = {};
+    const typeUsage: Record<string, number> = {};
+    let totalDays = 0;
+    let totalRequests = requests.length;
+
+    requests.forEach((req: any) => {
+      const deptName = req.employeePosition.position?.department?.name || 'Unassigned';
+      const deptId = req.employeePosition.position?.department?.id || 'unassigned';
+      
+      if (!departmentUsage[deptId]) {
+        departmentUsage[deptId] = {
+          name: deptName,
+          totalDays: 0,
+          requestCount: 0,
+          employees: new Set()
+        };
+      }
+      
+      const one = 24 * 60 * 60 * 1000;
+      const days = Math.max(1, Math.round((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / one) + 1);
+      
+      departmentUsage[deptId].totalDays += days;
+      departmentUsage[deptId].requestCount += 1;
+      departmentUsage[deptId].employees.add(req.employeePosition.userId);
+      
+      typeUsage[req.type] = (typeUsage[req.type] || 0) + days;
+      totalDays += days;
+    });
+
+    // Convert department usage to array
+    const departmentStats = Object.entries(departmentUsage).map(([id, data]) => ({
+      departmentId: id,
+      departmentName: data.name,
+      totalDays: data.totalDays,
+      requestCount: data.requestCount,
+      employeeCount: data.employees.size,
+      averageDaysPerEmployee: data.employees.size > 0 ? (data.totalDays / data.employees.size).toFixed(1) : '0'
+    }));
+
+    return res.json({
+      period: {
+        startDate: start.toISOString().split('T')[0],
+        endDate: end.toISOString().split('T')[0]
+      },
+      summary: {
+        totalRequests,
+        totalDays,
+        averageDaysPerRequest: totalRequests > 0 ? (totalDays / totalRequests).toFixed(1) : '0'
+      },
+      byDepartment: departmentStats.sort((a, b) => b.totalDays - a.totalDays),
+      byType: Object.entries(typeUsage).map(([type, days]) => ({
+        type,
+        days,
+        percentage: totalDays > 0 ? ((days / totalDays) * 100).toFixed(1) : '0'
+      }))
+    });
+  } catch (error) {
+    console.error('Error generating time-off reports:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to generate reports';
+    return res.status(500).json({ error: errorMessage });
   }
 };
 
@@ -1071,6 +1834,8 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
     
     const status = (req.query.status as string) || 'ACTIVE';
     const q = (req.query.q as string) || '';
+    const departmentId = req.query.departmentId as string | undefined;
+    const positionId = req.query.positionId as string | undefined;
     
     // Build where clause (same logic as getAdminEmployees)
     let employees: Array<{
@@ -1128,6 +1893,19 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
           { user: { email: { contains: q, mode: 'insensitive' } } },
           { position: { title: { contains: q, mode: 'insensitive' } } }
         ];
+      }
+      
+      // Add department filter
+      if (departmentId) {
+        where.position = {
+          ...((where.position as Record<string, unknown>) || {}),
+          departmentId
+        };
+      }
+      
+      // Add position/title filter
+      if (positionId) {
+        where.positionId = positionId;
       }
       
       const employeePositions = await prisma.employeePosition.findMany({

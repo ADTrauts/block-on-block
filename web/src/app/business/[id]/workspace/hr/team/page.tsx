@@ -36,7 +36,10 @@ type PendingRequest = {
   id: string;
   employeePosition: {
     user: { name?: string | null; email: string };
-    position: { title: string };
+    position: { 
+      title: string;
+      department?: { name: string } | null;
+    };
   };
   type: string;
   startDate: string;
@@ -59,6 +62,8 @@ export default function ManagerTeamView() {
   const [pending, setPending] = useState<PendingRequest[]>([]);
   const [approving, setApproving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'recent'>('pending');
+  const [note, setNote] = useState<Record<string, string>>({});
   
   useEffect(() => {
     const load = async () => {
@@ -95,7 +100,7 @@ export default function ManagerTeamView() {
       const res = await fetch(`/api/hr/team/time-off/${encodeURIComponent(id)}/approve?businessId=${encodeURIComponent(businessId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision })
+        body: JSON.stringify({ decision, note: note[id] || undefined })
       });
       
       if (!res.ok) {
@@ -241,39 +246,65 @@ export default function ManagerTeamView() {
                 <div className="col-span-2">Submitted</div>
                 <div className="col-span-2 text-right">Actions</div>
               </div>
-              {pending.map((r) => (
-                <div key={r.id} className="grid grid-cols-12 px-3 py-2 border-t text-sm items-center">
-                  <div className="col-span-3">
-                    <div className="font-medium">{r.employeePosition.user?.name || r.employeePosition.user.email}</div>
-                    <div className="text-gray-500">{r.employeePosition.position.title}</div>
-                  </div>
-                  <div className="col-span-2">{r.type}</div>
-                  <div className="col-span-3">{new Date(r.startDate).toLocaleDateString()} → {new Date(r.endDate).toLocaleDateString()}</div>
-                  <div className="col-span-2">{new Date(r.requestedAt).toLocaleDateString()}</div>
-                  <div className="col-span-2 text-right flex items-center justify-end gap-2">
-                    {approving === r.id ? (
-                      <Spinner size={16} />
-                    ) : (
-                      <>
-                        <button 
-                          disabled={approving === r.id} 
-                          className="text-green-600 hover:underline disabled:opacity-50" 
+              {pending.map((r) => {
+                const start = new Date(r.startDate);
+                const end = new Date(r.endDate);
+                const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+                
+                return (
+                  <div key={r.id} className="border-t">
+                    <div className="grid grid-cols-12 px-3 py-3 text-sm items-start">
+                      <div className="col-span-3">
+                        <div className="font-medium">{r.employeePosition.user?.name || r.employeePosition.user.email}</div>
+                        <div className="text-gray-500 text-xs">{r.employeePosition.position.title}</div>
+                        {r.employeePosition.position?.department && (
+                          <div className="text-gray-400 text-xs">{r.employeePosition.position.department.name}</div>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{r.type}</span>
+                        <div className="text-xs text-gray-500 mt-1">{days} day{days !== 1 ? 's' : ''}</div>
+                      </div>
+                      <div className="col-span-3">
+                        <div>{start.toLocaleDateString()} → {end.toLocaleDateString()}</div>
+                        {r.reason && (
+                          <div className="text-xs text-gray-500 mt-1" title={r.reason}>
+                            {r.reason.length > 30 ? `${r.reason.substring(0, 30)}...` : r.reason}
+                          </div>
+                        )}
+                      </div>
+                      <div className="col-span-2 text-gray-500 text-xs">
+                        {new Date(r.requestedAt).toLocaleDateString()}
+                      </div>
+                      <div className="col-span-2 flex gap-2 justify-end">
+                        <button
                           onClick={() => actOn(r.id, 'APPROVE')}
+                          disabled={approving === r.id}
+                          className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
                         >
-                          Approve
+                          {approving === r.id ? <Spinner size={12} /> : '✓ Approve'}
                         </button>
-                        <button 
-                          disabled={approving === r.id} 
-                          className="text-red-600 hover:underline disabled:opacity-50" 
+                        <button
                           onClick={() => actOn(r.id, 'DENY')}
+                          disabled={approving === r.id}
+                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
                         >
-                          Deny
+                          {approving === r.id ? <Spinner size={12} /> : '✗ Deny'}
                         </button>
-                      </>
-                    )}
+                      </div>
+                    </div>
+                    <div className="px-3 pb-3">
+                      <textarea
+                        placeholder="Add a note (optional)"
+                        value={note[r.id] || ''}
+                        onChange={(e) => setNote((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        className="w-full border rounded px-2 py-1 text-xs"
+                        rows={2}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

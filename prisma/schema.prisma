@@ -3788,6 +3788,8 @@ model TimeOffRequest {
   approvedById       String?
   approvedAt         DateTime?
   managerNote        String?
+  scheduleEventId    String?
+  personalEventId    String?
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -3993,6 +3995,8 @@ model HRModuleSettings {
   // ============================================================================
   // Time-off policies
   timeOffSettings Json?  // { defaultPTODays, accrualRules, carryoverPolicy, etc. }
+  // Calendar integration
+  scheduleCalendarId String?
   
   // Work week configuration
   workWeekSettings Json?  // { daysPerWeek, hoursPerDay, startDayOfWeek, etc. }

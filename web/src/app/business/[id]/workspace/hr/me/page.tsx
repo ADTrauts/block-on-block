@@ -65,6 +65,8 @@ export default function EmployeeSelfService() {
   const [reqForm, setReqForm] = useState<{ type: string; startDate: string; endDate: string; reason: string }>({ type: '', startDate: '', endDate: '', reason: '' });
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState<string | null>(null);
   
   useEffect(() => {
     // Load profile + balance + my requests
@@ -135,15 +137,18 @@ export default function EmployeeSelfService() {
   
   const submitRequest = async () => {
     if (!reqForm.type || !reqForm.startDate || !reqForm.endDate) {
-      toast.error('Please fill in all required fields (Type, Start Date, End Date)');
+      setValidationError('Please fill in all required fields (Type, Start Date, End Date)');
+      toast.error('Please fill in all required fields');
       return;
     }
     if (new Date(reqForm.endDate) < new Date(reqForm.startDate)) {
+      setValidationError('End date must be after start date');
       toast.error('End date must be after start date');
       return;
     }
     
     setSubmittingRequest(true);
+    setValidationError(null);
     try {
       const res = await fetch(`/api/hr/me/time-off/request?businessId=${encodeURIComponent(businessId)}`, {
         method: 'POST',
@@ -153,6 +158,17 @@ export default function EmployeeSelfService() {
       
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Failed to submit request' }));
+        
+        // Handle validation errors with detailed messages
+        if (res.status === 400 && errorData.error) {
+          setValidationError(errorData.error);
+          if (errorData.balance) {
+            setValidationError(`${errorData.error}\nAvailable: ${errorData.balance.available} days, Requested: ${errorData.balance.requested} days`);
+          }
+          toast.error(errorData.error);
+          return;
+        }
+        
         throw new Error(errorData.error || `Request failed (${res.status})`);
       }
       
@@ -163,13 +179,59 @@ export default function EmployeeSelfService() {
       ]);
       setShowRequest(false);
       setReqForm({ type: '', startDate: '', endDate: '', reason: '' });
+      setValidationError(null);
+      
+      // Reload balance to reflect new request
+      const balanceRes = await fetch(`/api/hr/me/time-off/balance?businessId=${encodeURIComponent(businessId)}`);
+      if (balanceRes.ok) {
+        const balanceData = await balanceRes.json();
+        setBalance(balanceData.balance);
+      }
+      
       toast.success('Time-off request submitted successfully!');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to submit request';
+      setValidationError(errorMsg);
       toast.error(errorMsg);
       console.error('[HR/me] Request submission error:', err);
     } finally {
       setSubmittingRequest(false);
+    }
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    if (!confirm('Are you sure you want to cancel this time-off request?')) {
+      return;
+    }
+    
+    setCanceling(requestId);
+    try {
+      const res = await fetch(`/api/hr/me/time-off/${encodeURIComponent(requestId)}/cancel?businessId=${encodeURIComponent(businessId)}`, {
+        method: 'POST'
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to cancel request' }));
+        throw new Error(errorData.error || `Cancel failed (${res.status})`);
+      }
+      
+      // Update request status
+      setRequests((prev) => prev.map((r) => r.id === requestId ? { ...r, status: 'CANCELED' } : r));
+      
+      // Reload balance
+      const balanceRes = await fetch(`/api/hr/me/time-off/balance?businessId=${encodeURIComponent(businessId)}`);
+      if (balanceRes.ok) {
+        const balanceData = await balanceRes.json();
+        setBalance(balanceData.balance);
+      }
+      
+      toast.success('Time-off request canceled');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to cancel request';
+      toast.error(errorMsg);
+      console.error('[HR/me] Cancel error:', err);
+    } finally {
+      setCanceling(null);
     }
   };
   
@@ -299,11 +361,36 @@ export default function EmployeeSelfService() {
               </div>
             ) : (
               requests.map((r) => (
-                <div key={r.id} className="grid grid-cols-12 px-3 py-2 border-t text-sm">
-                  <div className="col-span-3">{r.type}</div>
+                <div key={r.id} className="grid grid-cols-12 px-3 py-2 border-t text-sm items-center">
+                  <div className="col-span-2">{r.type}</div>
                   <div className="col-span-4">{new Date(r.startDate).toLocaleDateString()} → {new Date(r.endDate).toLocaleDateString()}</div>
-                  <div className="col-span-3">{r.status}</div>
-                  <div className="col-span-2">{new Date(r.requestedAt).toLocaleDateString()}</div>
+                  <div className="col-span-2">
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      r.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                      r.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                      r.status === 'DENIED' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="col-span-2 text-gray-500">{new Date(r.requestedAt).toLocaleDateString()}</div>
+                  <div className="col-span-2 text-right">
+                    {r.status === 'PENDING' && (
+                      <button
+                        onClick={() => handleCancelRequest(r.id)}
+                        disabled={canceling === r.id}
+                        className="text-red-600 hover:text-red-800 text-xs disabled:opacity-50"
+                      >
+                        {canceling === r.id ? 'Canceling...' : 'Cancel'}
+                      </button>
+                    )}
+                    {r.managerNote && (
+                      <div className="text-xs text-gray-500 mt-1" title={r.managerNote}>
+                        Note: {r.managerNote.substring(0, 20)}...
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -351,6 +438,13 @@ export default function EmployeeSelfService() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-5">
             <div className="text-lg font-semibold mb-3">New Time-Off Request</div>
+            
+            {validationError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded">
+                <div className="text-sm text-red-700 whitespace-pre-line">{validationError}</div>
+              </div>
+            )}
+            
             <div className="grid gap-3">
               <div>
                 <label className="block text-sm mb-1">Type</label>
@@ -380,7 +474,11 @@ export default function EmployeeSelfService() {
             <div className="mt-4 flex justify-end gap-3">
               <button 
                 className="px-4 py-2 border rounded disabled:opacity-50" 
-                onClick={() => setShowRequest(false)}
+                onClick={() => {
+                  setShowRequest(false);
+                  setValidationError(null);
+                  setReqForm({ type: '', startDate: '', endDate: '', reason: '' });
+                }}
                 disabled={submittingRequest}
               >
                 Cancel

@@ -117,6 +117,8 @@ npm run prisma:migrate
 npm run prisma:generate
 ```
 
+> **Tip:** Run these commands from the repository root so they can find `prisma/schema.prisma`. Workspace package scripts (e.g. `pnpm --filter vssyl-server prisma:migrate`) now call the root build step automatically and pass the explicit `--schema ../prisma/schema.prisma` flag.
+
 ## Build Script
 
 The `scripts/build-prisma-schema.js` script:
@@ -168,6 +170,27 @@ The following npm scripts are available:
 - Always run `npm run prisma:build` before migrations
 - Check that the generated schema is valid
 - Verify that all required models are present
+
+#### Non-empty databases (baseline required)
+
+If you point Prisma at an existing database that already has tables, `_prisma_migrations` may be empty and `prisma migrate deploy` will error with `P3005`. To baseline that environment:
+
+```bash
+# Mark historical migrations as already applied (no SQL is executed)
+pnpm --filter vssyl-server exec prisma migrate resolve \
+  --schema ../prisma/schema.prisma \
+  --applied <migration_folder_name>
+
+# Example for the HR schedule calendar migration
+pnpm --filter vssyl-server exec prisma migrate resolve \
+  --schema ../prisma/schema.prisma \
+  --applied 20251107_add_hr_schedule_calendar
+
+# Then deploy new migrations normally
+pnpm --filter vssyl-server exec prisma migrate deploy --schema ../prisma/schema.prisma
+```
+
+Only baseline databases you trust already contain the schema changes; otherwise apply migrations against a fresh database instead.
 
 ### Client Generation Issues
 - Ensure the schema builds successfully first

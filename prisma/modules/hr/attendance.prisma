@@ -21,6 +21,8 @@ model TimeOffRequest {
   approvedById       String?
   approvedAt         DateTime?
   managerNote        String?
+  scheduleEventId    String?
+  personalEventId    String?
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

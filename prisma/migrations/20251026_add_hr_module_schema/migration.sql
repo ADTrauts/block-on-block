@@ -1,3 +1,10 @@
+-- CreateEnum (only if it doesn't exist)
+DO $$ BEGIN
+    CREATE TYPE "EmployeeType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'TEMPORARY', 'SEASONAL');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
 -- CreateTable
 CREATE TABLE "employee_hr_profiles" (
     "id" TEXT NOT NULL,
@@ -47,13 +54,6 @@ CREATE TABLE "hr_module_settings" (
 
     CONSTRAINT "hr_module_settings_pkey" PRIMARY KEY ("id")
 );
-
--- CreateEnum (only if it doesn't exist)
-DO $$ BEGIN
-    CREATE TYPE "EmployeeType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'TEMPORARY', 'SEASONAL');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "employee_hr_profiles_employeePositionId_key" ON "employee_hr_profiles"("employeePositionId");

@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { ModuleSecurityService } from '../services/moduleSecurityService';
+import { initializeHrScheduleForBusiness } from '../services/hrScheduleService';
 
 // Helper function to get user from request
 const getUserFromRequest = (req: Request) => {
@@ -406,6 +408,18 @@ export const installModule = async (req: Request, res: Response) => {
         where: { id: moduleId }, 
         data: { downloads: { increment: 1 } } 
       });
+
+      if (moduleId === 'hr') {
+        try {
+          await initializeHrScheduleForBusiness(businessId);
+        } catch (scheduleError) {
+          const errorMessage = scheduleError instanceof Error ? scheduleError.message : String(scheduleError);
+          logger.warn('Failed to initialize HR schedule calendar', {
+            businessId,
+            error: { message: errorMessage }
+          });
+        }
+      }
 
       return res.json({
         success: true,

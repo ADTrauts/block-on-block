@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { NotificationService } from '../services/notificationService';
 import { sendBusinessInvitationEmail } from '../services/emailService';
+import { addUsersToScheduleCalendar } from '../services/hrScheduleService';
 
 // Request type definitions
 interface CreateBusinessRequest {
@@ -614,6 +615,12 @@ export const acceptInvitation = async (req: Request, res: Response) => {
       }
     } catch (e) {
       console.error('Failed to ensure business calendar on invitation accept:', e);
+    }
+
+    try {
+      await addUsersToScheduleCalendar(invitation.businessId, [user.id]);
+    } catch (scheduleError) {
+      console.error('Failed to add user to HR schedule calendar:', scheduleError);
     }
 
     res.json({ success: true, data: { member, dashboard } });
