@@ -1,7 +1,7 @@
 # HR Module Product Context
 
-**Last Updated**: October 28, 2025  
-**Status**: ✅ PRODUCTION DEPLOYED - Framework Complete, Features Pending  
+**Last Updated**: November 7, 2025  
+**Status**: ✅ PRODUCTION DEPLOYED - Phase 2 Time-Off Experience Live  
 **Module ID**: `hr`  
 **Category**: Business Only  
 **Minimum Tier**: Business Advanced
@@ -145,9 +145,34 @@ Business-level HR configuration:
   id: string;
   businessId: string;
   timeOffSettings?: JSON;      // PTO policies, accrual rules
+  scheduleCalendarId?: string; // Business-wide schedule calendar (created automatically)
   workWeekSettings?: JSON;     // Days/hours, start day
   payrollSettings?: JSON;      // Pay period, direct deposit
   enabledFeatures?: JSON;      // Feature toggles
+}
+```
+
+#### TimeOffRequest
+Primary record for time-off lifecycle:
+```typescript
+{
+  id: string;
+  businessId: string;          // Multi-tenant isolation
+  employeePositionId: string;  // Links to org chart position
+  type: TimeOffType;           // PTO, Sick, etc.
+  startDate: Date;
+  endDate: Date;
+  reason?: string;
+  status: TimeOffStatus;       // PENDING → APPROVED/DENIED/CANCELLED
+  requestedById: string;
+  requestedAt: Date;
+  approvedById?: string;
+  approvedAt?: Date;
+  managerNote?: string;
+  scheduleEventId?: string;    // Event in business schedule calendar
+  personalEventId?: string;    // Event in employee personal calendar
+  createdAt: Date;
+  updatedAt: Date;
 }
 ```
 
@@ -168,10 +193,12 @@ Planned (not yet implemented):
 
 ```typescript
 GET    /admin/employees          // List all employees
+GET    /admin/employees/filter-options // Departments, positions for filters
 GET    /admin/employees/:id      // Get employee details
 POST   /admin/employees          // Create employee
 PUT    /admin/employees/:id      // Update employee
 DELETE /admin/employees/:id      // Soft delete employee
+GET    /admin/employees/:id/audit-logs // View change history
 GET    /admin/settings           // Get HR settings
 PUT    /admin/settings           // Update HR settings
 
@@ -189,6 +216,7 @@ GET    /admin/benefits           // Benefits dashboard
 GET  /team/employees             // Get team members
 GET  /team/time-off/pending      // Pending approvals
 POST /team/time-off/:id/approve  // Approve time-off
+// (Notes required for audit trail when denying)
 ```
 
 ### Employee Routes (`/api/hr/me/*`)
@@ -198,6 +226,7 @@ POST /team/time-off/:id/approve  // Approve time-off
 GET  /me                         // Get own HR data
 PUT  /me                         // Update own HR data
 POST /me/time-off/request        // Request time off
+POST /me/time-off/:id/cancel     // Cancel pending request
 GET  /me/time-off/balance        // View time-off balance
 GET  /me/pay-stubs               // View pay stubs
 ```
@@ -330,6 +359,19 @@ Feature Data (Attendance, Payroll, etc.) ← Future features
 - Deep links remain at `/business/[id]/workspace/hr/*` for specific views
 - Accessible from Work tab and sidebar; module list provided by BusinessConfigurationContext
 
+### Time-Off Calendar Synchronization
+
+**Service**: `server/src/services/hrScheduleService.ts`
+
+- `initializeHrScheduleForBusiness()` ensures each business has a dedicated "Schedule" calendar and seeds members.
+- `addUsersToScheduleCalendar()` keeps membership in sync when invitations are accepted.
+- `syncTimeOffRequestCalendar()` mirrors request status to:
+  - Business schedule calendar (for team awareness)
+  - Employee personal calendar (for individual planning)
+- Events stay linked via `scheduleEventId` and `personalEventId` stored on `time_off_requests`.
+- Pending → Approved/Denied transitions update titles/descriptions and adjust event colors.
+- Cancellation removes both events to avoid stale calendar entries.
+
 ---
 
 ## 🤖 AI Integration
@@ -397,18 +439,18 @@ GET /api/hr/ai/context/time-off
 - [x] **Deployment Guide**: Comprehensive checklist in `docs/deployment/`
 - [x] **Build Configuration**: Fixed `.dockerignore` and Dockerfile issues
 
+### ✅ Phase 2 Enhancements (November 2025)
+
+- [x] Employee CRUD with validation errors surfaced in UI and audit logging for create/update/terminate
+- [x] CSV import/export pipeline with server-side validation feedback
+- [x] Admin directory filters (department, position) and configurable sorting
+- [x] Time-off request lifecycle (overlap checks, balance validation, cancellation, manager notes)
+- [x] Calendar synchronization between business schedule and personal calendars
+- [x] Audit log retrieval for employees and manager approvals
+
 ### ⏳ Pending (Features)
 
-**Core HR Features** (Next Phase):
-- [ ] Employee CRUD operations
-- [ ] Employee profile management
-- [ ] Employee import/export
-- [ ] Employee search and filtering
-
 **Attendance Features** (Business Advanced+):
-- [ ] Time-off request/approval workflow
-- [ ] Time-off balance tracking
-- [ ] Time-off calendar
 - [ ] Basic attendance reports
 
 **Advanced Attendance** (Enterprise):

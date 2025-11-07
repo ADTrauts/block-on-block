@@ -6,6 +6,7 @@
  */
 
 import { Request, Response } from 'express';
+import { Prisma, EmployeeType as PrismaEmployeeType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 import { AuditService } from '../services/auditService';
@@ -17,15 +18,17 @@ import { syncTimeOffRequestCalendar } from '../services/hrScheduleService';
 
 const employeeTypeEnum = z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'TEMPORARY', 'SEASONAL']);
 
+const jsonFieldInputSchema = z.union([z.record(z.unknown()), z.string(), z.null()]).optional();
+
 const employeeUpdateSchema = z.object({
   hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Hire date must be in YYYY-MM-DD format').optional(),
   employeeType: employeeTypeEnum.optional(),
   workLocation: z.string().max(255, 'Work location must be 255 characters or less').optional(),
-  emergencyContact: z.record(z.unknown()).optional(),
-  personalInfo: z.record(z.unknown()).optional()
+  emergencyContact: jsonFieldInputSchema,
+  personalInfo: jsonFieldInputSchema
 }).refine((data) => {
   // At least one field must be provided
-  return Object.keys(data).length > 0;
+  return Object.keys(data).some((key) => data[key as keyof typeof data] !== undefined);
 }, { message: 'At least one field must be provided for update' });
 
 const employeeCreateSchema = z.object({
@@ -33,9 +36,128 @@ const employeeCreateSchema = z.object({
   hireDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Hire date must be in YYYY-MM-DD format').optional(),
   employeeType: employeeTypeEnum.optional(),
   workLocation: z.string().max(255, 'Work location must be 255 characters or less').optional(),
-  emergencyContact: z.record(z.unknown()).optional(),
-  personalInfo: z.record(z.unknown()).optional()
+  emergencyContact: jsonFieldInputSchema,
+  personalInfo: jsonFieldInputSchema
 });
+
+const employeeTerminationSchema = z.object({
+  date: z.string().datetime({ offset: true }).optional(),
+  reason: z.string().max(255, 'Reason must be 255 characters or less').optional(),
+  notes: jsonFieldInputSchema
+});
+
+class FieldValidationError extends Error {
+  readonly field: string;
+
+  constructor(field: string, message: string) {
+    super(message);
+    this.name = 'FieldValidationError';
+    this.field = field;
+  }
+}
+
+const isJsonRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+const parseJsonField = (value: unknown, fieldName: string): Prisma.InputJsonValue | null | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!isJsonRecord(parsed)) {
+        throw new FieldValidationError(fieldName, 'Must be a JSON object');
+      }
+      return parsed as Prisma.InputJsonValue;
+    } catch (error) {
+      if (error instanceof FieldValidationError) {
+        throw error;
+      }
+      throw new FieldValidationError(fieldName, 'Must be valid JSON');
+    }
+  }
+
+  if (isJsonRecord(value)) {
+    return value as Prisma.InputJsonValue;
+  }
+
+  throw new FieldValidationError(fieldName, 'Must be a JSON object');
+};
+
+type AuditChangeMap = Record<string, { before: unknown; after: unknown }>;
+
+const toAuditValue = (input: unknown): unknown => {
+  if (input === undefined) {
+    return null;
+  }
+  if (input instanceof Date) {
+    return input.toISOString();
+  }
+  return input;
+};
+
+const recordAuditChange = (changes: AuditChangeMap, field: string, previous: unknown, next: unknown) => {
+  const beforeValue = toAuditValue(previous);
+  const afterValue = toAuditValue(next);
+  if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+    changes[field] = { before: beforeValue, after: afterValue };
+  }
+};
+
+type EmployeeAuditInput = {
+  userId: string;
+  action: 'HR_EMPLOYEE_CREATED' | 'HR_EMPLOYEE_UPDATED' | 'HR_EMPLOYEE_TERMINATED';
+  resourceId: string;
+  businessId: string;
+  employeeUserId: string;
+  employeeName: string | null;
+  changes: AuditChangeMap;
+  metadata?: Record<string, unknown>;
+  force?: boolean;
+};
+
+const logEmployeeAudit = async ({ force = false, changes, ...payload }: EmployeeAuditInput) => {
+  if (!force && Object.keys(changes).length === 0) {
+    return;
+  }
+
+  const details: Record<string, unknown> = {
+    businessId: payload.businessId,
+    employeeUserId: payload.employeeUserId,
+    employeeName: payload.employeeName,
+    changes
+  };
+
+  if (payload.metadata) {
+    details.metadata = payload.metadata;
+  }
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: payload.userId,
+        action: payload.action,
+        resourceType: 'HR_EMPLOYEE',
+        resourceId: payload.resourceId,
+        details: JSON.stringify(details)
+      }
+    });
+  } catch (error) {
+    console.error('Error logging audit entry:', error);
+  }
+};
 
 // ============================================================================
 // ADMIN CONTROLLERS (Business Admin Dashboard)
@@ -62,22 +184,36 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
     const pageSize = Math.min(100, Number(req.query.pageSize || 20));
     const skip = (page - 1) * pageSize;
     
-    // Build orderBy clause - Prisma supports nested relations for sorting
+    // Build orderBy clauses for active and terminated datasets - Prisma supports nested relations for sorting
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let orderBy: any = { createdAt: 'desc' }; // default
-    if (sortBy === 'name') {
-      orderBy = { user: { name: sortOrder } };
-    } else if (sortBy === 'email') {
-      orderBy = { user: { email: sortOrder } };
-    } else if (sortBy === 'title') {
-      orderBy = { position: { title: sortOrder } };
-    } else if (sortBy === 'department') {
-      // For department, we'll sort by department name through position relation
-      orderBy = { position: { department: { name: sortOrder } } };
-    } else if (sortBy === 'hireDate') {
-      orderBy = { hrProfile: { hireDate: sortOrder } };
-    } else {
-      orderBy = { [sortBy]: sortOrder };
+    let activeOrderBy: any = { createdAt: 'desc' }; // default
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let terminatedOrderBy: any = { updatedAt: 'desc' }; // default
+
+    switch (sortBy) {
+      case 'name':
+        activeOrderBy = { user: { name: sortOrder } };
+        terminatedOrderBy = { employeePosition: { user: { name: sortOrder } } };
+        break;
+      case 'email':
+        activeOrderBy = { user: { email: sortOrder } };
+        terminatedOrderBy = { employeePosition: { user: { email: sortOrder } } };
+        break;
+      case 'title':
+        activeOrderBy = { position: { title: sortOrder } };
+        terminatedOrderBy = { employeePosition: { position: { title: sortOrder } } };
+        break;
+      case 'department':
+        activeOrderBy = { position: { department: { name: sortOrder } } };
+        terminatedOrderBy = { employeePosition: { position: { department: { name: sortOrder } } } };
+        break;
+      case 'hireDate':
+        activeOrderBy = { hrProfile: { hireDate: sortOrder } };
+        terminatedOrderBy = { hireDate: sortOrder };
+        break;
+      default:
+        activeOrderBy = { [sortBy]: sortOrder };
+        terminatedOrderBy = { [sortBy]: sortOrder };
     }
     
     if (status === 'TERMINATED') {
@@ -86,20 +222,30 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
         businessId,
         employmentStatus: 'TERMINATED'
       };
-      
-      // Add filters
+
+      const employeePositionFilter: Record<string, unknown> = { businessId };
+
       if (departmentId) {
-        where.employeePosition = {
-          position: { departmentId }
+        employeePositionFilter.position = {
+          ...((employeePositionFilter.position as Record<string, unknown>) || {}),
+          departmentId
         };
       }
       if (positionId) {
-        where.employeePosition = {
-          ...(where.employeePosition as Record<string, unknown> || {}),
-          positionId
-        };
+        employeePositionFilter.positionId = positionId;
       }
-      
+      if (q) {
+        employeePositionFilter.OR = [
+          { user: { name: { contains: q, mode: 'insensitive' } } },
+          { user: { email: { contains: q, mode: 'insensitive' } } },
+          { position: { title: { contains: q, mode: 'insensitive' } } }
+        ];
+      }
+
+      if (Object.keys(employeePositionFilter).length > 1 || Object.keys(employeePositionFilter).some((key) => key !== 'businessId')) {
+        where.employeePosition = employeePositionFilter;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const [hrProfiles, totalCount] = await Promise.all([
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,7 +261,7 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
               }
             }
           },
-          orderBy: { updatedAt: 'desc' },
+          orderBy: terminatedOrderBy,
           skip,
           take: pageSize
         }),
@@ -169,7 +315,7 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
           position: { include: { department: true, tier: true } },
           hrProfile: true
         },
-        orderBy,
+        orderBy: activeOrderBy,
         skip,
         take: pageSize
       }),
@@ -296,6 +442,25 @@ export const createEmployee = async (req: Request, res: Response) => {
 
     const { employeePositionId, hireDate, employeeType, workLocation, emergencyContact, personalInfo } = validationResult.data;
 
+    let emergencyContactJson: Prisma.InputJsonValue | null | undefined;
+    let personalInfoJson: Prisma.InputJsonValue | null | undefined;
+
+    try {
+      emergencyContactJson = parseJsonField(emergencyContact, 'emergencyContact');
+      personalInfoJson = parseJsonField(personalInfo, 'personalInfo');
+    } catch (fieldError) {
+      if (fieldError instanceof FieldValidationError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: [{ path: [fieldError.field], message: fieldError.message }]
+        });
+      }
+      throw fieldError;
+    }
+
+    const hireDateValue = hireDate ? new Date(hireDate) : undefined;
+    const employeeTypeValue = employeeType ? (employeeType as PrismaEmployeeType) : undefined;
+
     const position = await prisma.employeePosition.findFirst({
       where: { id: employeePositionId, businessId },
       include: { user: { select: { id: true, name: true, email: true } } }
@@ -305,38 +470,34 @@ export const createEmployee = async (req: Request, res: Response) => {
     }
 
     // Get existing HR profile if any (for audit comparison)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingProfile = await (prisma as any).employeeHRProfile.findUnique({
+    const existingProfile = await prisma.employeeHRProfile.findUnique({
       where: { employeePositionId }
     });
 
     // Create HR profile if not exists
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hrProfile = await (prisma as any).employeeHRProfile.upsert({
+    const hrProfile = await prisma.employeeHRProfile.upsert({
       where: { employeePositionId },
       create: {
         employeePositionId,
         businessId,
-        hireDate: hireDate ? new Date(hireDate) : undefined,
         employmentStatus: 'ACTIVE',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        employeeType: employeeType as any,
-        workLocation,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        emergencyContact: emergencyContact as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        personalInfo: personalInfo as any
+        ...(hireDateValue ? { hireDate: hireDateValue } : {}),
+        ...(employeeTypeValue ? { employeeType: employeeTypeValue } : {}),
+        ...(workLocation !== undefined ? { workLocation } : {}),
+        ...(emergencyContactJson !== undefined ? {
+          emergencyContact: emergencyContactJson === null ? Prisma.JsonNull : emergencyContactJson
+        } : {}),
+        ...(personalInfoJson !== undefined ? {
+          personalInfo: personalInfoJson === null ? Prisma.JsonNull : personalInfoJson
+        } : {})
       },
       update: {
-        hireDate: hireDate ? new Date(hireDate) : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        employeeType: employeeType as any,
-        workLocation,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        emergencyContact: emergencyContact as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        personalInfo: personalInfo as any,
-        employmentStatus: 'ACTIVE'
+        employmentStatus: 'ACTIVE',
+        ...(hireDate !== undefined ? { hireDate: hireDateValue } : {}),
+        ...(employeeType !== undefined ? { employeeType: employeeTypeValue } : {}),
+        ...(workLocation !== undefined ? { workLocation } : {}),
+        ...(emergencyContact !== undefined ? { emergencyContact: emergencyContactJson ?? Prisma.JsonNull } : {}),
+        ...(personalInfo !== undefined ? { personalInfo: personalInfoJson ?? Prisma.JsonNull } : {})
       }
     });
 
@@ -350,37 +511,23 @@ export const createEmployee = async (req: Request, res: Response) => {
       }
     });
 
-    // Log audit trail
-    try {
-      await prisma.auditLog.create({
-        data: {
-          userId,
-          action: existingProfile ? 'HR_EMPLOYEE_UPDATED' : 'HR_EMPLOYEE_CREATED',
-          resourceType: 'HR_EMPLOYEE',
-          resourceId: employeePositionId,
-          details: JSON.stringify({
-            businessId,
-            employeeUserId: position.userId,
-            employeeName: position.user?.name || position.user?.email,
-            changes: {
-              hireDate: hireDate || null,
-              employeeType: employeeType || null,
-              workLocation: workLocation || null,
-              emergencyContact: emergencyContact || null,
-              personalInfo: personalInfo || null
-            },
-            previousValues: existingProfile ? {
-              hireDate: existingProfile.hireDate,
-              employeeType: existingProfile.employeeType,
-              workLocation: existingProfile.workLocation
-            } : null
-          })
-        }
-      });
-    } catch (auditError) {
-      console.error('Error logging audit entry:', auditError);
-      // Don't fail the main operation if audit logging fails
-    }
+    const auditChanges: AuditChangeMap = {};
+    recordAuditChange(auditChanges, 'hireDate', existingProfile?.hireDate, hrProfile.hireDate);
+    recordAuditChange(auditChanges, 'employeeType', existingProfile?.employeeType, hrProfile.employeeType);
+    recordAuditChange(auditChanges, 'workLocation', existingProfile?.workLocation, hrProfile.workLocation);
+    recordAuditChange(auditChanges, 'emergencyContact', existingProfile?.emergencyContact, hrProfile.emergencyContact);
+    recordAuditChange(auditChanges, 'personalInfo', existingProfile?.personalInfo, hrProfile.personalInfo);
+
+    await logEmployeeAudit({
+      userId,
+      action: existingProfile ? 'HR_EMPLOYEE_UPDATED' : 'HR_EMPLOYEE_CREATED',
+      resourceId: employeePositionId,
+      businessId,
+      employeeUserId: position.userId,
+      employeeName: position.user?.name || position.user?.email || null,
+      changes: auditChanges,
+      force: true
+    });
 
     return res.json({ message: 'Employee profile created', hrProfile });
   } catch (error) {
@@ -415,6 +562,22 @@ export const updateEmployee = async (req: Request, res: Response) => {
 
     const { hireDate, employeeType, workLocation, emergencyContact, personalInfo } = validationResult.data;
 
+    let emergencyContactJson: Prisma.InputJsonValue | null | undefined;
+    let personalInfoJson: Prisma.InputJsonValue | null | undefined;
+
+    try {
+      emergencyContactJson = parseJsonField(emergencyContact, 'emergencyContact');
+      personalInfoJson = parseJsonField(personalInfo, 'personalInfo');
+    } catch (fieldError) {
+      if (fieldError instanceof FieldValidationError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: [{ path: [fieldError.field], message: fieldError.message }]
+        });
+      }
+      throw fieldError;
+    }
+
     const position = await prisma.employeePosition.findFirst({ 
       where: { id, businessId },
       include: { user: { select: { id: true, name: true, email: true } } }
@@ -424,8 +587,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
     }
 
     // Get existing profile for audit comparison
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingProfile = await (prisma as any).employeeHRProfile.findUnique({
+    const existingProfile = await prisma.employeeHRProfile.findUnique({
       where: { employeePositionId: id }
     });
 
@@ -436,57 +598,47 @@ export const updateEmployee = async (req: Request, res: Response) => {
     // Build update data with only provided fields
     const updateData: Record<string, unknown> = {};
     if (hireDate !== undefined) updateData.hireDate = new Date(hireDate);
-    if (employeeType !== undefined) updateData.employeeType = employeeType;
+    if (employeeType !== undefined) updateData.employeeType = employeeType as PrismaEmployeeType;
     if (workLocation !== undefined) updateData.workLocation = workLocation;
-    if (emergencyContact !== undefined) updateData.emergencyContact = emergencyContact;
-    if (personalInfo !== undefined) updateData.personalInfo = personalInfo;
+    if (emergencyContact !== undefined) {
+      updateData.emergencyContact = emergencyContactJson ?? Prisma.JsonNull;
+    }
+    if (personalInfo !== undefined) {
+      updateData.personalInfo = personalInfoJson ?? Prisma.JsonNull;
+    }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updated = await (prisma as any).employeeHRProfile.update({
+    const updated = await prisma.employeeHRProfile.update({
       where: { employeePositionId: id },
       data: updateData
     });
 
     // Track field-level changes for audit
-    const changes: Record<string, { from: unknown; to: unknown }> = {};
-    if (hireDate !== undefined && existingProfile.hireDate?.toISOString() !== new Date(hireDate).toISOString()) {
-      changes.hireDate = { from: existingProfile.hireDate, to: hireDate };
+    const changes: AuditChangeMap = {};
+    if (hireDate !== undefined) {
+      recordAuditChange(changes, 'hireDate', existingProfile.hireDate, updated.hireDate);
     }
-    if (employeeType !== undefined && existingProfile.employeeType !== employeeType) {
-      changes.employeeType = { from: existingProfile.employeeType, to: employeeType };
+    if (employeeType !== undefined) {
+      recordAuditChange(changes, 'employeeType', existingProfile.employeeType, updated.employeeType);
     }
-    if (workLocation !== undefined && existingProfile.workLocation !== workLocation) {
-      changes.workLocation = { from: existingProfile.workLocation, to: workLocation };
+    if (workLocation !== undefined) {
+      recordAuditChange(changes, 'workLocation', existingProfile.workLocation, updated.workLocation);
     }
     if (emergencyContact !== undefined) {
-      changes.emergencyContact = { from: existingProfile.emergencyContact, to: emergencyContact };
+      recordAuditChange(changes, 'emergencyContact', existingProfile.emergencyContact, updated.emergencyContact);
     }
     if (personalInfo !== undefined) {
-      changes.personalInfo = { from: existingProfile.personalInfo, to: personalInfo };
+      recordAuditChange(changes, 'personalInfo', existingProfile.personalInfo, updated.personalInfo);
     }
 
-    // Log audit trail
-    if (Object.keys(changes).length > 0) {
-      try {
-        await prisma.auditLog.create({
-          data: {
-            userId,
-            action: 'HR_EMPLOYEE_UPDATED',
-            resourceType: 'HR_EMPLOYEE',
-            resourceId: id,
-            details: JSON.stringify({
-              businessId,
-              employeeUserId: position.userId,
-              employeeName: position.user?.name || position.user?.email,
-              changes
-            })
-          }
-        });
-      } catch (auditError) {
-        console.error('Error logging audit entry:', auditError);
-        // Don't fail the main operation if audit logging fails
-      }
-    }
+    await logEmployeeAudit({
+      userId,
+      action: 'HR_EMPLOYEE_UPDATED',
+      resourceId: id,
+      businessId,
+      employeeUserId: position.userId,
+      employeeName: position.user?.name || position.user?.email || null,
+      changes
+    });
 
     return res.json({ message: 'Employee profile updated', hrProfile: updated });
   } catch (error) {
@@ -588,12 +740,43 @@ export const terminateEmployee = async (req: Request, res: Response) => {
   try {
     const { id } = req.params; // employeePositionId
     const businessId = req.query.businessId as string;
-    const { date, reason, notes } = req.body as { date?: string; reason?: string; notes?: unknown };
+    const userId = (req.user as { id: string })?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const terminationValidation = employeeTerminationSchema.safeParse(req.body);
+    if (!terminationValidation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: terminationValidation.error.errors
+      });
+    }
+
+    const { date, reason, notes } = terminationValidation.data;
     const terminationDate = date ? new Date(date) : new Date();
+
+    let terminationNotes: Prisma.InputJsonValue | null | undefined;
+
+    try {
+      terminationNotes = parseJsonField(notes ?? undefined, 'notes');
+    } catch (fieldError) {
+      if (fieldError instanceof FieldValidationError) {
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: [{ path: [fieldError.field], message: fieldError.message }]
+        });
+      }
+      throw fieldError;
+    }
 
     const employeePosition = await prisma.employeePosition.findFirst({
       where: { id, businessId, active: true },
-      include: { hrProfile: true }
+      include: {
+        hrProfile: true,
+        user: { select: { id: true, name: true, email: true } }
+      }
     });
 
     if (!employeePosition) {
@@ -612,16 +795,20 @@ export const terminateEmployee = async (req: Request, res: Response) => {
         });
 
     // Update HR profile status to TERMINATED
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (prisma as any).employeeHRProfile.update({
+    const terminationUpdateData: Prisma.EmployeeHRProfileUpdateInput = {
+      employmentStatus: 'TERMINATED',
+      terminationDate,
+      terminationReason: reason || null,
+      terminatedBy: userId
+    };
+
+    if (notes !== undefined) {
+      terminationUpdateData.terminationNotes = terminationNotes ?? Prisma.JsonNull;
+    }
+
+    const updatedProfile = await prisma.employeeHRProfile.update({
       where: { id: hrProfile.id },
-      data: {
-        employmentStatus: 'TERMINATED',
-        terminationDate,
-        terminationReason: reason || null,
-        terminatedBy: req.user?.id || null,
-        terminationNotes: notes ? (notes as unknown as any) : undefined
-      }
+      data: terminationUpdateData
     });
 
     // Vacate position: deactivate assignment and set end date
@@ -634,30 +821,27 @@ export const terminateEmployee = async (req: Request, res: Response) => {
       include: { user: { select: { id: true, name: true, email: true } } }
     });
 
-    // Log audit trail
-    const userId = (req.user as { id: string })?.id;
-    if (userId) {
-      try {
-        await prisma.auditLog.create({
-          data: {
-            userId,
-            action: 'HR_EMPLOYEE_TERMINATED',
-            resourceType: 'HR_EMPLOYEE',
-            resourceId: id,
-            details: JSON.stringify({
-              businessId,
-              employeeUserId: employeePosition.userId,
-              terminationDate: terminationDate.toISOString(),
-              terminationReason: reason || null,
-              terminationNotes: notes || null
-            })
-          }
-        });
-      } catch (auditError) {
-        console.error('Error logging audit entry:', auditError);
-        // Don't fail the main operation if audit logging fails
+    const terminationChanges: AuditChangeMap = {};
+    recordAuditChange(terminationChanges, 'employmentStatus', hrProfile.employmentStatus, updatedProfile.employmentStatus);
+    recordAuditChange(terminationChanges, 'terminationDate', hrProfile.terminationDate, updatedProfile.terminationDate);
+    recordAuditChange(terminationChanges, 'terminationReason', hrProfile.terminationReason, updatedProfile.terminationReason);
+    recordAuditChange(terminationChanges, 'terminationNotes', hrProfile.terminationNotes, updatedProfile.terminationNotes);
+    recordAuditChange(terminationChanges, 'terminatedBy', hrProfile.terminatedBy, updatedProfile.terminatedBy);
+
+    await logEmployeeAudit({
+      userId,
+      action: 'HR_EMPLOYEE_TERMINATED',
+      resourceId: id,
+      businessId,
+      employeeUserId: employeePosition.userId,
+      employeeName: employeePosition.user?.name || employeePosition.user?.email || null,
+      changes: terminationChanges,
+      metadata: {
+        terminationDate: terminationDate.toISOString(),
+        terminationReason: reason || null,
+        terminationNotes: notes !== undefined ? (terminationNotes ?? null) : undefined
       }
-    }
+    });
 
     return res.json({
       message: 'Employee terminated; position vacated',

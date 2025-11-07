@@ -248,7 +248,9 @@ export default function HREmployeesPage() {
       const statusParam = active ? 'ACTIVE' : 'TERMINATED';
       const params = new URLSearchParams({
         businessId,
-        status: statusParam
+        status: statusParam,
+        sortBy,
+        sortOrder
       });
       if (q) params.set('q', q);
       if (departmentId) params.set('departmentId', departmentId);

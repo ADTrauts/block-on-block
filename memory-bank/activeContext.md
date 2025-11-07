@@ -1,41 +1,24 @@
 # Active Context - Vssyl Business Admin & AI Integration
 
-## Current Focus: HR Module Production Deployment - COMPLETED! ✅
+## Current Focus: HR Module Phase 2 Enhancements & Calendar Sync — COMPLETED ✅
 
-### **Latest Session Achievements** 🎉
-**Date**: October 28, 2025  
-**Focus**: HR Module Production Deployment & Migration Failure Resolution
+### **Latest Session Highlights** 🎉
+**Date**: November 7, 2025  
+**Focus**: HR time-off calendar integration, employee directory upgrades, Prisma workflow hardening
 
-#### **HR Module Production Deployment - COMPLETE!** ✅
-**Major Achievement**: Successfully deployed and installed HR module after resolving critical production migration failures.
+#### **What Shipped**
+- ✅ **Time-off ↔ Calendar Sync**: `hrScheduleService` now provisions a business "Schedule" calendar, keeps personal calendars in sync, and tracks `scheduleEventId` / `personalEventId` on each request.
+- ✅ **Employee Directory UX**: Admin list gained department/title filters, server-side sorting, CSV export improvements, and inline editing with validation feedback.
+- ✅ **Audit Trail**: All create/update/terminate actions log to `auditLog` with before/after values; manager approvals can add notes and see history in the modal.
+- ✅ **Employee Self-Service**: Pending requests can be cancelled, validation messages surface instantly, and balances refresh after every submission.
+- ✅ **Manager Team View**: Approval queue shows duration, department, optional notes, and supports inline comments before approve/deny.
+- ✅ **Prisma Workflow Guardrails**: `server/package.json` scripts now rebuild `prisma/schema.prisma` automatically; `prisma/README.md` documents the build→generate→deploy order and baseline procedure.
+- ✅ **Schema Updates Applied**: `time_off_requests` table and `scheduleCalendarId` column re-created safely; migration state baselined so future deploys run cleanly.
 
-**Problems Discovered**:
-1. **Schema Drift**: Production database missing columns/tables that exist in Prisma schema
-2. **Silent Migration Failures**: Dockerfile startup script continues even when migrations fail
-3. **Missing Subscriptions Columns**: `employeeCount`, `includedEmployees`, `additionalEmployeeCost` didn't exist in production
-4. **Missing HR Tables**: 3 core HR tables never created in production despite local migrations
-5. **Build Configuration**: `.dockerignore` excluded critical `scripts/build-prisma-schema.js` file
-
-**Solutions Implemented**:
-- ✅ Created 6 admin diagnostic/fix endpoints for emergency database repairs
-- ✅ Manually created missing tables using raw SQL endpoints
-- ✅ Added missing subscription columns via admin API
-- ✅ Fixed `.dockerignore` to allow schema builder in Docker context
-- ✅ Improved Dockerfile startup script with better error visibility
-- ✅ Created comprehensive deployment checklist (`MODULE_DEPLOYMENT_CHECKLIST.md`)
-
-**Files Created/Modified**:
-- `server/src/routes/admin-fix-hr.ts` - Database diagnostics and migration runner
-- `server/src/routes/admin-create-hr-tables.ts` - Raw SQL table creation
-- `server/src/routes/admin-fix-subscriptions.ts` - Subscription table schema fixes  
-- `server/src/routes/admin-hr-setup.ts` - HR module seeding and status
-- `docs/deployment/MODULE_DEPLOYMENT_CHECKLIST.md` - Complete deployment protocol
-- `.dockerignore` - Added exception for `scripts/build-prisma-schema.js`
-- `server/Dockerfile.production` - Improved startup script with schema building
-- `memory-bank/deployment.md` - Documented migration failure patterns
-
-**Key Lesson Learned**:
-**"Migrations are not reliable in production. Always create diagnostic endpoints and verify database state after deployment."**
+#### **Outstanding / Follow-up**
+- Baseline any remaining shared databases using `prisma migrate resolve` before running future `migrate deploy`.
+- Resolve the Next.js `<Html>` warning on the auto-generated 404/500 pages to keep production builds warning-free.
+- Continue structured smoke tests (submit/approve/cancel time-off, calendar sync, audit log review) after each deployment.
 
 ### **Previous Session Achievements** 🎉
 **Date**: October 28, 2025  

@@ -1,16 +1,31 @@
 # Block-on-Block Platform - Progress
 
 ## 🎯 Current Project Focus
-**Goal**: HR Module Production Deployment - COMPLETED! ✅
+**Goal**: HR Module Phase 2 Enhancements & Calendar Sync — COMPLETED ✅
 
 **Success Metrics**:
+- ✅ **Calendar Synchronization** — Time-off requests create/update both business schedule and personal calendar events via `hrScheduleService`.
+- ✅ **Directory Upgrades** — Employee admin page ships filters, sorting, CSV export, inline validation, and audit log modal.
+- ✅ **Self-Service Improvements** — Employees can cancel pending requests; validation errors and balance deltas surface instantly.
+- ✅ **Manager Experience** — Approvals include department context, day counts, and optional notes while logging decisions.
+- ✅ **Audit Coverage** — Create/update/terminate actions append structured audit entries retrievable in UI.
+- ✅ **Prisma Workflow Hardened** — `prisma:build` auto-runs inside server scripts, README documents baseline process, migrations baselined locally.
+
+**Outstanding Follow-up**:
+- Baseline any remaining shared databases before the next `prisma migrate deploy`.
+- Triage the lingering Next.js `<Html>` warning emitted when generating default 404/500 pages.
+- Continue smoke-testing calendar sync (submit/approve/cancel) post-deploy.
+
+**Previous Goal**: HR Module Production Deployment - COMPLETED! ✅
+
+**Previous Success Metrics**:
 - ✅ **HR Module Deployed** - Successfully installed in production (100% complete!)
 - ✅ **Schema Drift Resolved** - Fixed missing tables and columns (100% complete!)
 - ✅ **Emergency Admin Endpoints** - 6 diagnostic/fix endpoints created (100% complete!)
 - ✅ **Deployment Checklist** - Comprehensive guide for future modules (100% complete!)
 - ✅ **Build Configuration Fixed** - Dockerfile and .dockerignore issues resolved (100% complete!)
 
-**Previous Goal**: Admin Override Panel & HR Module Framework - COMPLETED! ✅
+**Prior Goal**: Admin Override Panel & HR Module Framework - COMPLETED! ✅
 
 **Previous Success Metrics**:
 - ✅ **Admin Override Panel** - User/business tier management with search functionality (100% complete!)
@@ -87,7 +102,25 @@
 - ✅ **Module Management** - Install and configure business-scoped modules (100% complete!)
 - ✅ **User Flow Integration** - Account switcher and workspace navigation (100% complete!)
 
-## 🚀 Current Status: HR MODULE PRODUCTION DEPLOYMENT - COMPLETE! ✅
+## 🚀 Current Status: HR MODULE PHASE 2 ENHANCEMENTS — COMPLETE ✅
+
+### **Phase 2 Deliverables** (November 7, 2025)
+- **Calendar Integration**: `hrScheduleService` provisions business schedule calendars, ensures personal calendar parity, and stores event IDs for updates/cancellation.
+- **Time-Off Lifecycle**: Request validation prevents overlaps/exceeds, cancellations available while pending, and balances recalc on every change.
+- **Employee Directory Enhancements**: Department/title filters, server-side sorting, CSV export, and detailed modal with audit history + validation messaging.
+- **Manager Workflow**: Approval queue summarizes duration, department, notes, and records audit entries for compliance.
+- **Audit Logging**: Create/update/terminate and approval decisions captured with before/after payloads for review in UI.
+- **Prisma Reliability**: Automated `prisma:build` in scripts, documented baseline process, and migrations baselined after fixing enum order + calendar columns.
+
+### **Verification**
+- `pnpm --filter vssyl-server build` passes after schema rebuild and client generation.
+- Web build completes (remaining `<Html>` warning tracked separately).
+- Local migrations succeed against a clean database; baseline instructions documented for existing DBs.
+- Manual smoke tests: submit → approve → cancel requests, confirm calendar sync + audit trail.
+
+---
+
+## 🔁 Previous Status: HR MODULE PRODUCTION DEPLOYMENT - COMPLETE! ✅
 
 ### **HR Module Deployment Status - PRODUCTION READY** 🎉
 **Date**: October 28, 2025  
@@ -99,24 +132,6 @@
 3. **Root Cause Analysis**: Found schema drift - migrations never ran in production
 4. **Emergency Fixes**: Created admin endpoints to manually fix database schema
 5. **Final Resolution**: HR module installed successfully with all tables and columns
-
-**Database Fixes Applied**:
-- ✅ Created 3 HR tables: `employee_hr_profiles`, `manager_approval_hierarchy`, `hr_module_settings`
-- ✅ Added `installedBy` column to `business_module_installations`
-- ✅ Added `employeeCount`, `includedEmployees`, `additionalEmployeeCost` to `subscriptions`
-
-**Infrastructure Improvements**:
-- ✅ Fixed `.dockerignore` to allow `scripts/build-prisma-schema.js`
-- ✅ Updated Dockerfile to build schema before migrations
-- ✅ Created 6 admin diagnostic/fix endpoints
-- ✅ Documented deployment protocol in `MODULE_DEPLOYMENT_CHECKLIST.md`
-
-**Current HR Module Status**:
-- ✅ **Installed**: Module available in production
-- ✅ **Database**: All tables and columns exist
-- ✅ **API**: All endpoints functional
-- ✅ **Frontend**: Admin, employee, and manager UIs ready
-- ⏳ **Features**: Framework complete, core features pending (Phase 2)
 
 ### **Previous Status: GLOBAL LOGGING SYSTEM - OPERATIONAL!** ✅
 
