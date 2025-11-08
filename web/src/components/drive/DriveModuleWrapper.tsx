@@ -11,6 +11,7 @@ interface DriveModuleWrapperProps {
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;
+  businessId?: string;
 }
 
 /**
@@ -23,7 +24,8 @@ interface DriveModuleWrapperProps {
 export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   className = '',
   refreshTrigger,
-  dashboardId
+  dashboardId,
+  businessId
 }) => {
   const { currentDashboard, getDashboardType } = useDashboard();
   const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
@@ -32,21 +34,21 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   const effectiveDashboardId = dashboardId || currentDashboard?.id;
   
   // Get business ID for enterprise feature checking
-  const businessId = dashboardType === 'business' ? (dashboardId || currentDashboard?.id) : undefined;
+  const effectiveBusinessId = businessId ?? ((dashboardType === 'business' ? currentDashboard?.id : undefined));
   
   console.log('🚀 DriveModuleWrapper:', {
     dashboardId,
     effectiveDashboardId,
-    businessId,
+    businessId: effectiveBusinessId,
     dashboardType,
     currentDashboardId: currentDashboard?.id
   });
   
   // Check if user has enterprise Drive features
-  const { hasAccess: hasEnterpriseFeatures } = useFeature('drive_advanced_sharing', businessId);
+  const { hasAccess: hasEnterpriseFeatures } = useFeature('drive_advanced_sharing', effectiveBusinessId);
   
   // If user has enterprise features and is in a business context, use enhanced module
-  if (hasEnterpriseFeatures && businessId) {
+  if (hasEnterpriseFeatures && effectiveBusinessId) {
     return (
       <Suspense 
         fallback={
@@ -59,7 +61,7 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
         }
       >
         <EnhancedDriveModule 
-          businessId={businessId}
+          businessId={effectiveBusinessId}
           dashboardId={effectiveDashboardId}
           className={className}
           refreshTrigger={refreshTrigger}
@@ -71,7 +73,7 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   // Otherwise, use standard Drive module
   return (
     <DriveModule 
-      businessId={businessId || ''}
+      businessId={effectiveBusinessId || ''}
       dashboardId={effectiveDashboardId}
       className={className}
       refreshTrigger={refreshTrigger}

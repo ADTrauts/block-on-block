@@ -41,9 +41,10 @@ interface EnhancedCalendarModuleProps {
   dashboardId?: string;
   className?: string;
   refreshTrigger?: number;
+  contextType?: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD';
 }
 
-export default function EnhancedCalendarModule({ businessId, className = '', refreshTrigger }: EnhancedCalendarModuleProps) {
+export default function EnhancedCalendarModule({ businessId, dashboardId, className = '', refreshTrigger, contextType: contextTypeOverride }: EnhancedCalendarModuleProps) {
   const { data: session } = useSession();
   const router = useRouter();
   const { currentDashboard, getDashboardType } = useDashboard();
@@ -69,19 +70,31 @@ export default function EnhancedCalendarModule({ businessId, className = '', ref
   const [complianceAlerts, setComplianceAlerts] = useState(0);
 
   // Get context information for filtering
-  const contextType = currentDashboard ? getDashboardType(currentDashboard).toUpperCase() : 'BUSINESS';
-  const contextId = currentDashboard 
-    ? ((currentDashboard as any).businessId || (currentDashboard as any).householdId || currentDashboard.id)
-    : businessId || '';
+  const derivedContextType = currentDashboard ? getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD' : 'BUSINESS';
+  const effectiveContextType = contextTypeOverride ?? derivedContextType;
+  const effectiveContextId = (() => {
+    if (effectiveContextType === 'BUSINESS') {
+      return businessId || (currentDashboard as any)?.business?.id || (currentDashboard as any)?.businessId || dashboardId || '';
+    }
+    if (effectiveContextType === 'HOUSEHOLD') {
+      return (currentDashboard as any)?.household?.id || (currentDashboard as any)?.householdId || dashboardId || '';
+    }
+    return dashboardId || currentDashboard?.id || '';
+  })();
 
   // Load calendars for the current context
   const loadCalendars = useCallback(async () => {
     if (!session?.accessToken) return;
     
     try {
+      if (!effectiveContextId) {
+        setError('Workspace context not initialized. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
       const response = await calendarAPI.listCalendars({
-        contextType: contextType,
-        contextId: contextId
+        contextType: effectiveContextType,
+        contextId: effectiveContextId
       });
       
       if (response?.success && response.data) {
@@ -92,7 +105,7 @@ export default function EnhancedCalendarModule({ businessId, className = '', ref
       console.error('🏢 Enterprise Calendar - Failed to load calendars:', err);
       setError('Failed to load calendars');
     }
-  }, [session, contextType, contextId]);
+  }, [session, effectiveContextType, effectiveContextId]);
 
   // Load events for the current view
   const loadEnhancedCalendarData = useCallback(async () => {
@@ -124,9 +137,14 @@ export default function EnhancedCalendarModule({ businessId, className = '', ref
         endDate.setHours(23, 59, 59, 999);
       }
       
+      if (!effectiveContextId) {
+        setError('Workspace context not initialized. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
       console.log('🏢 Enterprise Calendar - Loading events:', { 
-        contextType, 
-        contextId, 
+        contextType: effectiveContextType, 
+        contextId: effectiveContextId, 
         startDate: startDate.toISOString(), 
         endDate: endDate.toISOString() 
       });
@@ -134,7 +152,7 @@ export default function EnhancedCalendarModule({ businessId, className = '', ref
       const response = await calendarAPI.listEvents({
         start: startDate.toISOString(),
         end: endDate.toISOString(),
-        contexts: [`${contextType}:${contextId}`]
+        contexts: [`${effectiveContextType}:${effectiveContextId}`]
       });
       
       if (response?.success && response.data) {
@@ -158,7 +176,7 @@ export default function EnhancedCalendarModule({ businessId, className = '', ref
     } finally {
       setLoading(false);
     }
-  }, [session, currentDate, viewMode, contextType, contextId, hasEnterprise, recordUsage]);
+  }, [session, currentDate, viewMode, effectiveContextType, effectiveContextId, hasEnterprise, recordUsage]);
 
   // Initial load
   useEffect(() => {

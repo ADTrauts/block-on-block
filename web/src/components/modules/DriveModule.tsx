@@ -35,7 +35,7 @@ interface DriveItem {
 }
 
 interface DriveModuleProps {
-  businessId: string;
+  businessId?: string;
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;
@@ -60,6 +60,8 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: DriveItem } | null>(null);
   const [previewFile, setPreviewFile] = useState<DriveItem | null>(null);
 
+  const effectiveDashboardId = dashboardId || currentDashboard?.id || null;
+
   // Load real data from API - memoized to prevent infinite loops
   const loadFilesAndFolders = useCallback(async () => {
     if (!session?.accessToken) {
@@ -69,18 +71,19 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
     
     // CRITICAL: ONLY use dashboardId - no fallback to businessId or currentDashboard
     // BusinessId is NOT a dashboard ID and will cause data leakage
-    if (!dashboardId) {
+    if (!effectiveDashboardId) {
       console.error('❌ DriveModule: No dashboardId provided! Cannot load drive content.');
       setError('Dashboard context not initialized. Please refresh the page.');
       setLoading(false);
       return;
     }
     
-    const contextId = dashboardId;
+    const contextId = effectiveDashboardId;
     const parentId = currentFolder;
     
     console.log('📁 DriveModule Context Resolution:', {
       dashboardId,
+      resolvedDashboardId: effectiveDashboardId,
       resolvedContextId: contextId,
       businessId: businessId || '(not used - deprecated)',
       currentDashboardId: currentDashboard?.id || '(not used - business routes ignored)'
@@ -187,7 +190,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, dashboardId, businessId, currentDashboard?.id, currentFolder]);
+  }, [session?.accessToken, effectiveDashboardId, businessId, currentDashboard?.id, currentFolder]);
 
   useEffect(() => {
     loadFilesAndFolders();
@@ -226,7 +229,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
           const file = files[i];
           const formData = new FormData();
           formData.append('file', file);
-          if (businessId) formData.append('dashboardId', businessId);
+          if (effectiveDashboardId) formData.append('dashboardId', effectiveDashboardId);
           if (currentFolder) formData.append('folderId', currentFolder);
 
           const response = await fetch('/api/drive/files', {
@@ -271,7 +274,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
         },
         body: JSON.stringify({ 
           name,
-          dashboardId: businessId || null,
+          dashboardId: effectiveDashboardId,
           parentId: currentFolder || null
         }),
       });
@@ -394,7 +397,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
         const file = files[i];
         const formData = new FormData();
         formData.append('file', file);
-        if (currentDashboard?.id) formData.append('dashboardId', currentDashboard.id);
+        if (effectiveDashboardId) formData.append('dashboardId', effectiveDashboardId);
         if (currentFolder) formData.append('folderId', currentFolder);
 
         const response = await fetch('/api/drive/files', {
@@ -474,11 +477,11 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
     currentDashboard: currentDashboard?.id,
     currentFolder,
     filesUrl: `/api/drive/files?${new URLSearchParams({
-      dashboardId: businessId || currentDashboard?.id || '',
+      dashboardId: effectiveDashboardId || '',
       folderId: currentFolder || ''
     })}`,
     foldersUrl: `/api/drive/folders?${new URLSearchParams({
-      dashboardId: businessId || currentDashboard?.id || '',
+      dashboardId: effectiveDashboardId || '',
       parentId: currentFolder || ''
     })}`
   });

@@ -74,12 +74,13 @@ interface ChatChannel {
   moderationEnabled?: boolean;
 }
 
-interface EnhancedChatModuleProps {
+export interface EnhancedChatModuleProps {
   businessId: string;
+  dashboardId?: string;
   className?: string;
 }
 
-export default function EnhancedChatModule({ businessId, className = '' }: EnhancedChatModuleProps) {
+export default function EnhancedChatModule({ businessId, dashboardId: _dashboardId, className = '' }: EnhancedChatModuleProps) {
   const { recordUsage } = useFeatureGating(businessId);
   const { moduleAccess, hasBusiness: hasEnterprise } = useModuleFeatures('chat', businessId);
   

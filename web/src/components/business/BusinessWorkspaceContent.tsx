@@ -594,6 +594,7 @@ export default function BusinessWorkspaceContent({ business, currentModule, busi
               className="flex-1"
               refreshTrigger={refreshTrigger}
               dashboardId={businessDashboardId}
+              businessId={business.id}
             />
           </div>
         );
@@ -602,6 +603,8 @@ export default function BusinessWorkspaceContent({ business, currentModule, busi
           <ChatModuleWrapper 
             className="h-full"
             refreshTrigger={refreshTrigger}
+            businessId={business.id}
+            dashboardId={businessDashboardId}
           />
         );
       case 'calendar':
@@ -609,11 +612,16 @@ export default function BusinessWorkspaceContent({ business, currentModule, busi
         return (
           <CalendarProvider>
             <div className="flex h-full">
-              <CalendarListSidebar />
+              <CalendarListSidebar 
+                contextType="BUSINESS" 
+                contextId={business.id} 
+              />
               <CalendarModuleWrapper 
                 className="flex-1"
                 refreshTrigger={refreshTrigger}
                 dashboardId={businessDashboardId}
+                contextType="BUSINESS"
+                businessId={business.id}
               />
             </div>
           </CalendarProvider>

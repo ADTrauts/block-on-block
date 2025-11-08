@@ -24,7 +24,12 @@ interface ContextQuery {
   contextId: string;
 }
 
-export default function CalendarListSidebar() {
+interface CalendarListSidebarProps {
+  contextType?: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD';
+  contextId?: string;
+}
+
+export default function CalendarListSidebar({ contextType, contextId }: CalendarListSidebarProps = {}) {
   const { currentDashboard, getDashboardType, getDashboardDisplayName } = useDashboard();
   const { visibleCalendarIds, toggleCalendarVisibility, overlayMode, setOverlayMode, setCalendars: setCalCtx } = useCalendarContext();
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -32,19 +37,30 @@ export default function CalendarListSidebar() {
   const [masterCalendarActive, setMasterCalendarActive] = useState(true);
 
   const contextQuery = useMemo(() => {
+    if (contextType && contextId) {
+      return { contextType, contextId } as ContextQuery;
+    }
+
     if (!currentDashboard) return {} as ContextQuery;
     const type = getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD';
     const extendedDashboard = currentDashboard as ExtendedDashboard;
     const id = extendedDashboard.business?.id || extendedDashboard.household?.id || currentDashboard.id;
     return { contextType: type, contextId: id } as ContextQuery;
-  }, [currentDashboard, getDashboardType]);
+  }, [contextType, contextId, currentDashboard, getDashboardType]);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       try {
         // All Tabs mode: skip context filters to load all user calendars
-        const resp = overlayMode === 'ALL_TABS'
+        const shouldUseAllTabs = overlayMode === 'ALL_TABS';
+        if (!shouldUseAllTabs && (!contextQuery.contextType || !contextQuery.contextId)) {
+          setCalendars([]);
+          setCalCtx([]);
+          return;
+        }
+
+        const resp = shouldUseAllTabs
           ? await calendarAPI.listCalendars()
           : await calendarAPI.listCalendars(contextQuery);
         if (resp?.success) {

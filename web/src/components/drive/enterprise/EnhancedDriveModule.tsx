@@ -57,11 +57,12 @@ interface EnhancedDriveModuleProps {
   refreshTrigger?: number;
 }
 
-export default function EnhancedDriveModule({ businessId, className = '', refreshTrigger }: EnhancedDriveModuleProps) {
+export default function EnhancedDriveModule({ businessId, dashboardId, className = '', refreshTrigger }: EnhancedDriveModuleProps) {
   const { data: session } = useSession();
   const { currentDashboard } = useDashboard();
   const { recordUsage } = useFeatureGating(businessId);
   const { moduleAccess, hasBusiness: hasEnterprise } = useModuleFeatures('drive', businessId);
+  const effectiveDashboardId = dashboardId || currentDashboard?.id || null;
   
   // Core state
   const [items, setItems] = useState<DriveItem[]>([]);
@@ -95,16 +96,21 @@ export default function EnhancedDriveModule({ businessId, className = '', refres
       setLoading(true);
       setError(null);
       
-      const contextId = businessId || currentDashboard?.id;
+      if (!effectiveDashboardId) {
+        console.error('❌ EnhancedDriveModule: missing dashboard context');
+        setError('Workspace context not initialized. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
       const parentId = currentFolder;
       
       // Build API URLs with context and folder
       const filesParams = new URLSearchParams();
-      if (contextId) filesParams.append('dashboardId', contextId);
+      filesParams.append('dashboardId', effectiveDashboardId);
       if (parentId) filesParams.append('folderId', parentId);
       
       const foldersParams = new URLSearchParams();
-      if (contextId) foldersParams.append('dashboardId', contextId);
+      foldersParams.append('dashboardId', effectiveDashboardId);
       if (parentId) foldersParams.append('parentId', parentId);
 
       const filesUrl = `/api/drive/files?${filesParams}`;
@@ -195,7 +201,7 @@ export default function EnhancedDriveModule({ businessId, className = '', refres
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, businessId, currentDashboard?.id, currentFolder, recordUsage]);
+  }, [session?.accessToken, effectiveDashboardId, currentFolder, recordUsage]);
 
 
   useEffect(() => {
@@ -270,7 +276,7 @@ export default function EnhancedDriveModule({ businessId, className = '', refres
           const file = files[i];
           const formData = new FormData();
           formData.append('file', file);
-          if (businessId) formData.append('dashboardId', businessId);
+          if (effectiveDashboardId) formData.append('dashboardId', effectiveDashboardId);
           if (currentFolder) formData.append('folderId', currentFolder);
 
           const response = await fetch('/api/drive/files', {
@@ -315,7 +321,7 @@ export default function EnhancedDriveModule({ businessId, className = '', refres
         },
         body: JSON.stringify({ 
           name,
-          dashboardId: businessId || null,
+          dashboardId: effectiveDashboardId,
           parentId: currentFolder || null
         }),
       });

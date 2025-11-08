@@ -3,14 +3,18 @@ import { useFeature } from '../../hooks/useFeatureGating';
 import { useDashboard } from '../../contexts/DashboardContext';
 import ChatModule from '../modules/ChatModule';
 import { Spinner } from 'shared/components';
+import type { EnhancedChatModuleProps } from './enterprise/EnhancedChatModule';
 
 // Lazy load enterprise module for better performance
-const EnhancedChatModule = lazy(() => import('./enterprise/EnhancedChatModule'));
+const EnhancedChatModule = lazy<React.ComponentType<EnhancedChatModuleProps>>(
+  () => import('./enterprise/EnhancedChatModule')
+);
 
 interface ChatModuleWrapperProps {
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;  // REQUIRED for proper data isolation
+  businessId?: string;
 }
 
 /**
@@ -23,7 +27,8 @@ interface ChatModuleWrapperProps {
 export const ChatModuleWrapper: React.FC<ChatModuleWrapperProps> = ({
   className = '',
   refreshTrigger,
-  dashboardId
+  dashboardId,
+  businessId
 }) => {
   const { currentDashboard, getDashboardType } = useDashboard();
   
@@ -32,23 +37,24 @@ export const ChatModuleWrapper: React.FC<ChatModuleWrapperProps> = ({
   const effectiveDashboardId = dashboardId || currentDashboard?.id;
   const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
   
+  // Get business ID for enterprise feature checking (NOT for data scoping!)
+  const effectiveBusinessId = businessId ?? (dashboardType === 'business' ? currentDashboard?.id : undefined);
+  
   console.log('💬 ChatModuleWrapper:', {
     dashboardId,
     effectiveDashboardId,
     dashboardType,
-    currentDashboardId: currentDashboard?.id
+    currentDashboardId: currentDashboard?.id,
+    effectiveBusinessId
   });
-  
-  // Get business ID for enterprise feature checking (NOT for data scoping!)
-  const businessId = dashboardType === 'business' ? dashboardId : undefined;
   
   // Check if user has enterprise Chat features
   // Using 'chat_message_retention' as the primary enterprise chat feature gate
-  const { hasAccess: hasEnterpriseFeatures } = useFeature('chat_message_retention', businessId || undefined);
+  const { hasAccess: hasEnterpriseFeatures } = useFeature('chat_message_retention', effectiveBusinessId || undefined);
   
   // Full-page layout with Chat (no separate sidebar - chat has integrated panels)
   // If user has enterprise features and is in a business context, use enhanced module
-  if (hasEnterpriseFeatures && businessId) {
+  if (hasEnterpriseFeatures && effectiveBusinessId) {
     return (
       <div className={`h-full ${className}`}>
         <Suspense 
@@ -62,7 +68,8 @@ export const ChatModuleWrapper: React.FC<ChatModuleWrapperProps> = ({
           }
         >
           <EnhancedChatModule 
-            businessId={businessId}
+            businessId={effectiveBusinessId}
+            dashboardId={effectiveDashboardId || undefined}
             className="h-full"
           />
         </Suspense>
@@ -70,15 +77,13 @@ export const ChatModuleWrapper: React.FC<ChatModuleWrapperProps> = ({
     );
   }
   
-  // TODO: Add dashboardId prop to ChatModule for proper data isolation
-  // Currently Chat is not scoped to dashboards - this needs to be implemented
-  // For now, continue using the existing businessId pattern
   return (
     <div className={`h-full ${className}`}>
       <ChatModule 
-        businessId={businessId || ''}
+        businessId={effectiveBusinessId || ''}
         className="h-full"
         refreshTrigger={refreshTrigger}
+        dashboardId={effectiveDashboardId || undefined}
       />
     </div>
   );

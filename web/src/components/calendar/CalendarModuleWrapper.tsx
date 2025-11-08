@@ -11,6 +11,8 @@ interface CalendarModuleWrapperProps {
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;
+  contextType?: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD';
+  businessId?: string;
 }
 
 /**
@@ -23,7 +25,9 @@ interface CalendarModuleWrapperProps {
 export const CalendarModuleWrapper: React.FC<CalendarModuleWrapperProps> = ({
   className = '',
   refreshTrigger,
-  dashboardId
+  dashboardId,
+  contextType,
+  businessId
 }) => {
   const { currentDashboard, getDashboardType } = useDashboard();
   const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
@@ -33,21 +37,22 @@ export const CalendarModuleWrapper: React.FC<CalendarModuleWrapperProps> = ({
   const effectiveDashboardId = dashboardId || currentDashboard?.id;
   
   // Get business ID for enterprise feature checking (NOT for data scoping!)
-  const businessId = dashboardType === 'business' ? dashboardId : undefined;
+  const effectiveBusinessId = businessId ?? (dashboardType === 'business' ? currentDashboard?.id : undefined);
   
   console.log('📅 CalendarModuleWrapper:', {
     dashboardId,
     effectiveDashboardId,
-    businessId,
+    businessId: effectiveBusinessId,
     dashboardType,
-    currentDashboardId: currentDashboard?.id
+    currentDashboardId: currentDashboard?.id,
+    contextTypeOverride: contextType
   });
   
   // Check if user has enterprise Calendar features
-  const { hasAccess: hasEnterpriseFeatures } = useFeature('calendar_resource_booking', businessId || undefined);
+  const { hasAccess: hasEnterpriseFeatures } = useFeature('calendar_resource_booking', effectiveBusinessId || undefined);
   
   // If user has enterprise features and is in a business context, use enhanced module
-  if (hasEnterpriseFeatures && businessId) {
+  if (hasEnterpriseFeatures && effectiveBusinessId) {
     return (
       <Suspense 
         fallback={
@@ -60,10 +65,11 @@ export const CalendarModuleWrapper: React.FC<CalendarModuleWrapperProps> = ({
         }
       >
         <EnhancedCalendarModule 
-          businessId={businessId}
+          businessId={effectiveBusinessId}
           dashboardId={effectiveDashboardId}
           className={className}
           refreshTrigger={refreshTrigger}
+          contextType={contextType}
         />
       </Suspense>
     );
@@ -72,10 +78,11 @@ export const CalendarModuleWrapper: React.FC<CalendarModuleWrapperProps> = ({
   // Otherwise, use standard Calendar module
   return (
     <CalendarModule 
-      businessId={businessId || ''}
+      businessId={effectiveBusinessId}
       dashboardId={effectiveDashboardId}
       className={className}
       refreshTrigger={refreshTrigger}
+      contextType={contextType}
     />
   );
 };

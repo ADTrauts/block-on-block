@@ -39,6 +39,8 @@ interface ChatContextType {
   addAttachment: (file: File) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
+  setDashboardOverride: (dashboardId: string) => void;
+  clearDashboardOverride: (dashboardId?: string) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -55,7 +57,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [attachments, setAttachments] = useState<Array<{ file: File; id: string; uploading: boolean; error?: string }>>([]);
+  const [dashboardOverride, setDashboardOverrideState] = useState<string | null>(null);
   
+  const effectiveDashboardId = dashboardOverride ?? currentDashboardId ?? undefined;
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load conversations
@@ -66,7 +71,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       setError(null);
       // Pass dashboardId to filter conversations by context
-      const response = await chatAPI.getConversations(session.accessToken, currentDashboardId || undefined);
+      const response = await chatAPI.getConversations(session.accessToken, effectiveDashboardId);
       const conversationsData = Array.isArray(response) ? response : [];
       setConversations(conversationsData);
       
@@ -85,7 +90,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.accessToken, session?.user?.id, currentDashboardId]);
+  }, [session?.accessToken, session?.user?.id, effectiveDashboardId]);
 
   // Load messages for active conversation
   const loadMessages = useCallback(async (conversationId: string) => {
@@ -118,6 +123,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const clearAttachments = useCallback(() => {
     setAttachments([]);
+  }, []);
+
+  const setDashboardOverride = useCallback((dashboardId: string) => {
+    setDashboardOverrideState(previous => (previous === dashboardId ? previous : dashboardId));
+  }, []);
+
+  const clearDashboardOverride = useCallback((dashboardId?: string) => {
+    setDashboardOverrideState(previous => {
+      if (!previous) {
+        return previous;
+      }
+
+      if (dashboardId && previous !== dashboardId) {
+        return previous;
+      }
+
+      return null;
+    });
   }, []);
 
   // Send message
@@ -184,7 +207,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         participantIds,
         session.accessToken,
         name,
-        currentDashboardId || undefined
+        effectiveDashboardId
       );
       
       setConversations(prev => [newConversation, ...prev]);
@@ -193,7 +216,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to create conversation:', error);
       throw error;
     }
-  }, [session?.accessToken, currentDashboardId]);
+  }, [session?.accessToken, effectiveDashboardId]);
 
   // Upload file
   const uploadFileToChat = useCallback(async (file: File): Promise<string> => {
@@ -377,6 +400,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     addAttachment,
     removeAttachment,
     clearAttachments,
+    setDashboardOverride,
+    clearDashboardOverride,
   };
 
   return (

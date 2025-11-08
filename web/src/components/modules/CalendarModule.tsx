@@ -25,13 +25,14 @@ import {
 import { toast } from 'react-hot-toast';
 
 interface CalendarModuleProps {
-  businessId: string;
+  businessId?: string;
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;
+  contextType?: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD';
 }
 
-export default function CalendarModule({ businessId, dashboardId, className = '', refreshTrigger }: CalendarModuleProps) {
+export default function CalendarModule({ businessId, dashboardId, className = '', refreshTrigger, contextType: contextTypeOverride }: CalendarModuleProps) {
   const { data: session } = useSession();
   const router = useRouter();
   const { currentDashboard, getDashboardType } = useDashboard();
@@ -49,17 +50,28 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
 
   // Get context information for filtering
   // Priority: explicit dashboardId > businessId > currentDashboard context
-  const contextType = currentDashboard ? getDashboardType(currentDashboard).toUpperCase() : 'PERSONAL';
-  const contextId = dashboardId || businessId || (currentDashboard 
-    ? ((currentDashboard as any).businessId || (currentDashboard as any).householdId || currentDashboard.id)
-    : '');
-    
+  const derivedContextType = currentDashboard ? getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD' : 'PERSONAL';
+  const effectiveContextType = contextTypeOverride ?? derivedContextType;
+
+  const contextId = (() => {
+    if (effectiveContextType === 'BUSINESS') {
+      return businessId || (currentDashboard as any)?.business?.id || (currentDashboard as any)?.businessId || dashboardId || currentDashboard?.id || '';
+    }
+
+    if (effectiveContextType === 'HOUSEHOLD') {
+      return (currentDashboard as any)?.household?.id || (currentDashboard as any)?.householdId || dashboardId || currentDashboard?.id || '';
+    }
+
+    return dashboardId || currentDashboard?.id || '';
+  })();
+  
   console.log('📅 CalendarModule Context Resolution:', {
     dashboardId,
     businessId,
     currentDashboardId: currentDashboard?.id,
     resolvedContextId: contextId,
-    contextType
+    contextType: effectiveContextType,
+    contextTypeOverride
   });
 
   // Load calendars for the current context
@@ -67,8 +79,13 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     if (!session?.accessToken) return;
     
     try {
+      if (!contextId) {
+        setError('Workspace context not initialized. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
       const response = await calendarAPI.listCalendars({
-        contextType: contextType,
+        contextType: effectiveContextType,
         contextId: contextId
       });
       
@@ -79,7 +96,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
       console.error('Failed to load calendars:', err);
       setError('Failed to load calendars');
     }
-  }, [session, contextType, contextId]);
+  }, [session, effectiveContextType, contextId]);
 
   // Load events for the current view
   const loadEvents = useCallback(async () => {
@@ -88,6 +105,12 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     try {
       setLoading(true);
       setError(null);
+      
+      if (!contextId) {
+        setError('Workspace context not initialized. Please refresh the page.');
+        setLoading(false);
+        return;
+      }
       
       // Calculate date range based on view mode
       let startDate: Date;
@@ -114,7 +137,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
       const response = await calendarAPI.listEvents({
         start: startDate.toISOString(),
         end: endDate.toISOString(),
-        contexts: [`${contextType}:${contextId}`]
+        contexts: [`${effectiveContextType}:${contextId}`]
       });
       
       if (response?.success && response.data) {
@@ -127,7 +150,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     } finally {
       setLoading(false);
     }
-  }, [session, currentDate, viewMode, contextType, contextId]);
+  }, [session, currentDate, viewMode, effectiveContextType, contextId]);
 
   // Initial load
   useEffect(() => {

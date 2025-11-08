@@ -1,12 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import ChatContent from '../../app/chat/ChatContent';
+import { useChat } from '../../contexts/ChatContext';
 
 interface ChatModuleProps {
   businessId?: string;
   className?: string;
   refreshTrigger?: number;
+  dashboardId?: string;
 }
 
 /**
@@ -21,10 +23,24 @@ interface ChatModuleProps {
  * - Search and discovery
  */
 export default function ChatModule({ 
-  businessId,
+  businessId: _businessId,
   className = '',
-  refreshTrigger 
+  refreshTrigger: _refreshTrigger,
+  dashboardId
 }: ChatModuleProps) {
+  const { setDashboardOverride, clearDashboardOverride } = useChat();
+
+  useEffect(() => {
+    if (!dashboardId) {
+      return;
+    }
+
+    setDashboardOverride(dashboardId);
+
+    return () => {
+      clearDashboardOverride(dashboardId);
+    };
+  }, [dashboardId, setDashboardOverride, clearDashboardOverride]);
   
   return (
     <div className={`h-full ${className}`}>
