@@ -1,5 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { HouseholdRole, Prisma } from '@prisma/client';
+import { logger } from '../lib/logger';
+import { seedBusinessWorkspaceResources } from './businessWorkspaceSeeder';
 
 export interface DashboardLayout {
   widgets?: Array<{
@@ -176,12 +178,43 @@ export async function createDashboard(userId: string, data: { name: string; layo
   // NOTE: No longer auto-creating default widgets
   // Frontend DashboardBuildOutModal will prompt user to select modules
   // This allows for customizable dashboard creation experience
-  
-  // Return the dashboard with empty widgets array
-  return prisma.dashboard.findUnique({
+
+  const dashboardWithWidgets = await prisma.dashboard.findUnique({
     where: { id: dashboard.id },
     include: { widgets: true },
   });
+
+  if (dashboardWithWidgets && data.businessId) {
+    const business = await prisma.business.findUnique({
+      where: { id: data.businessId },
+      select: { name: true },
+    });
+
+    try {
+      await seedBusinessWorkspaceResources({
+        userId,
+        businessId: data.businessId,
+        businessName: business?.name,
+        dashboardId: dashboardWithWidgets.id,
+      });
+    } catch (error) {
+      await logger.error('Failed to seed business workspace resources', {
+        operation: 'seed_business_workspace',
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        context: {
+          userId,
+          businessId: data.businessId,
+          dashboardId: dashboardWithWidgets.id,
+        },
+      });
+    }
+  }
+
+  // Return the dashboard with empty widgets array
+  return dashboardWithWidgets;
 }
 
 export async function getDashboardById(userId: string, dashboardId: string) {

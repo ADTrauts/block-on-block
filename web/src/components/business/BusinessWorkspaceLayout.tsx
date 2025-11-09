@@ -220,12 +220,17 @@ export default function BusinessWorkspaceLayout({ business }: BusinessWorkspaceL
             throw new Error(`Failed to create business dashboard: ${createResponse.status} - ${errorText}`);
           }
 
-          businessDashboard = await createResponse.json();
-          console.log('✅ BusinessWorkspaceLayout: Created new business dashboard:', businessDashboard.id);
+          const createdDashboardResponse = await createResponse.json();
+          businessDashboard = createdDashboardResponse?.dashboard ?? createdDashboardResponse;
+          console.log('✅ BusinessWorkspaceLayout: Created new business dashboard:', businessDashboard?.id);
         }
 
         // Set the dashboard ID
-        setBusinessDashboardId(businessDashboard.id);
+        if (businessDashboard?.id) {
+          setBusinessDashboardId(businessDashboard.id);
+        } else {
+          throw new Error('Business dashboard response missing id');
+        }
         console.log('🎯 BusinessWorkspaceLayout: Business Dashboard Ready:', {
           dashboardId: businessDashboard.id,
           businessId: business.id,
