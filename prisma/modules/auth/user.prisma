@@ -89,6 +89,10 @@ model User {
   impersonatedUsers AdminImpersonation[] @relation("ImpersonatedUser")
   impersonatedBy AdminImpersonation[] @relation("AdminImpersonator")
 
+  // HR attendance exception relations
+  attendanceExceptionsDetected AttendanceException[] @relation("AttendanceExceptionDetectedBy")
+  attendanceExceptionsResolved AttendanceException[] @relation("AttendanceExceptionResolvedBy")
+
   // Support system relations
   supportTickets SupportTicket[] // Tickets created by this user
   assignedTickets SupportTicket[] @relation("AssignedTickets") // Tickets assigned to this user (if admin/agent)

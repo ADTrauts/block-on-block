@@ -1,0 +1,221 @@
+// ============================================================================
+// HR MODULE - EMPLOYEE ONBOARDING
+// ============================================================================
+// Purpose: Structured onboarding journeys, templates, and task tracking
+// Status: Planning → Phase 1 (data layer scaffolding)
+// Tier: Business Advanced (core) + Enterprise (automation, analytics)
+// ============================================================================
+
+// ============================================================================
+// ONBOARDING TEMPLATE DEFINITIONS (Business-level configuration)
+// ============================================================================
+model OnboardingTemplate {
+  id          String   @id @default(uuid())
+
+  // BUSINESS SCOPING (multi-tenant isolation)
+  businessId  String
+  business    Business @relation("BusinessOnboardingTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // TEMPLATE METADATA
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  ownerUserId String?  // Optional: specific user who owns/maintains this template
+
+  // APPLICABILITY & AUTOMATION (stored as JSON for flexibility)
+  // Example: { roles: ['manager'], departments: ['sales'], locations: ['NY'], employmentTypes: ['FULL_TIME'] }
+  applicabilityRules Json?
+
+  // Automation/advanced configuration (Enterprise only)
+  automationSettings Json? // { autoStartOnHire: true, autoAssignBuddy: true, calendarSync: true }
+
+  // RELATIONSHIPS
+  taskTemplates           OnboardingTaskTemplate[]
+  employeeOnboardingJourneys EmployeeOnboardingJourney[]
+
+  // SOFT DELETE / ARCHIVE
+  archivedAt   DateTime?
+  archivedBy   String?
+
+  // TIMESTAMPS
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([isActive])
+  @@index([isDefault])
+  @@map("hr_onboarding_templates")
+}
+
+// ============================================================================
+// ONBOARDING TASK TEMPLATE (Reusable task definitions)
+// ============================================================================
+model OnboardingTaskTemplate {
+  id                 String   @id @default(uuid())
+
+  // RELATIONS & SCOPING
+  onboardingTemplateId String
+  onboardingTemplate   OnboardingTemplate @relation(fields: [onboardingTemplateId], references: [id], onDelete: Cascade)
+
+  businessId          String
+  business            Business @relation("BusinessOnboardingTaskTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // TASK DETAILS
+  title               String
+  description         String?
+  orderIndex          Int      @default(0) // Controls ordering within the template
+
+  taskType            OnboardingTaskType       @default(CUSTOM)
+  ownerType           OnboardingTaskOwnerType  @default(EMPLOYEE)
+  ownerReference      String?  // Optional: position/role/user reference
+
+  // Due date offset relative to journey start (in days)
+  dueOffsetDays       Int?     // e.g., -1 = day before start, 0 = start day, 5 = five days after start
+
+  requiresApproval    Boolean  @default(false)
+  requiresDocument    Boolean  @default(false)
+
+  // Additional metadata (e.g., document templates, equipment SKUs, training course IDs)
+  metadata            Json?
+
+  isActive            Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  taskInstances       EmployeeOnboardingTask[] @relation("TaskTemplateTasks")
+
+  @@index([businessId])
+  @@index([onboardingTemplateId])
+  @@index([taskType])
+  @@index([ownerType])
+  @@map("hr_onboarding_task_templates")
+}
+
+// ============================================================================
+// EMPLOYEE ONBOARDING JOURNEY (Live instance per employee)
+// ============================================================================
+model EmployeeOnboardingJourney {
+  id                String   @id @default(uuid())
+
+  // RELATIONSHIPS
+  businessId        String
+  business          Business @relation("BusinessEmployeeOnboardingJourneys", fields: [businessId], references: [id], onDelete: Cascade)
+
+  employeeHrProfileId String
+  employeeHrProfile   EmployeeHRProfile @relation(fields: [employeeHrProfileId], references: [id], onDelete: Cascade)
+
+  onboardingTemplateId String?
+  onboardingTemplate   OnboardingTemplate? @relation(fields: [onboardingTemplateId], references: [id])
+
+  // JOURNEY STATUS
+  status            OnboardingJourneyStatus @default(IN_PROGRESS)
+  startDate         DateTime
+  completionDate    DateTime?
+  cancelledAt       DateTime?
+  cancelledReason   String?
+
+  // JOURNEY METADATA
+  // Example: { department: 'Engineering', jobLevel: 'L3', buddyId: '...', notes: '...' }
+  metadata          Json?
+
+  // RELATIONSHIPS
+  tasks             EmployeeOnboardingTask[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([employeeHrProfileId])
+  @@index([status])
+  @@map("hr_employee_onboarding_journeys")
+}
+
+// ============================================================================
+// EMPLOYEE ONBOARDING TASK (Concrete task instance)
+// ============================================================================
+model EmployeeOnboardingTask {
+  id                  String   @id @default(uuid())
+
+  // RELATIONSHIPS & SCOPING
+  onboardingJourneyId String
+  onboardingJourney   EmployeeOnboardingJourney @relation(fields: [onboardingJourneyId], references: [id], onDelete: Cascade)
+
+  businessId          String
+  business            Business @relation("BusinessEmployeeOnboardingTasks", fields: [businessId], references: [id], onDelete: Cascade)
+
+  onboardingTaskTemplateId String?
+  onboardingTaskTemplate   OnboardingTaskTemplate? @relation("TaskTemplateTasks", fields: [onboardingTaskTemplateId], references: [id])
+
+  // TASK DETAILS
+  title               String
+  description         String?
+  taskType            OnboardingTaskType      @default(CUSTOM)
+  ownerType           OnboardingTaskOwnerType @default(EMPLOYEE)
+  ownerReference      String?
+
+  assignedToUserId    String?  // Convenience reference for notifications/approvals
+  dueDate             DateTime?
+
+  status              OnboardingTaskStatus    @default(PENDING)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  completedByUserId   String?
+
+  requiresApproval    Boolean  @default(false)
+  approvedAt          DateTime?
+  approvedByUserId    String?
+
+  notes               String?
+  metadata            Json?
+
+  orderIndex          Int      @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([onboardingJourneyId])
+  @@index([status])
+  @@index([taskType])
+  @@index([ownerType])
+  @@map("hr_employee_onboarding_tasks")
+}
+
+// ============================================================================
+// ENUMERATIONS
+// ============================================================================
+enum OnboardingTaskType {
+  DOCUMENT      // Provide/read/acknowledge documents
+  EQUIPMENT     // Equipment or uniform distribution/setup
+  TRAINING      // Training module or certification
+  MEETING       // Scheduled meeting or introduction
+  FORM          // Fill out internal/external forms
+  CUSTOM        // Custom/general task
+}
+
+enum OnboardingTaskOwnerType {
+  EMPLOYEE      // Task assigned to the new employee
+  MANAGER       // Direct manager
+  HR            // HR representative
+  BUDDY         // Assigned buddy/mentor
+  IT            // IT/support staff
+  OTHER         // Other actor (specify in metadata/ownerReference)
+}
+
+enum OnboardingJourneyStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OnboardingTaskStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+

@@ -1039,13 +1039,26 @@ class AdminApiService {
   }
 
   // Add type definitions for module management
-  async startImpersonation(userId: string, reason?: string): Promise<ApiResponse<any>> {
+  async startImpersonation(
+    userId: string,
+    options: {
+      reason?: string;
+      businessId?: string;
+      context?: string;
+      expiresInMinutes?: number;
+    } = {}
+  ): Promise<ApiResponse<any>> {
     return this.makeRequest(`/users/${userId}/impersonate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({
+        reason: options.reason,
+        businessId: options.businessId,
+        context: options.context,
+        expiresInMinutes: options.expiresInMinutes,
+      }),
     });
   }
 
@@ -1060,6 +1073,33 @@ class AdminApiService {
 
   async getCurrentImpersonation(): Promise<ApiResponse<any>> {
     return this.makeRequest('/impersonation/current');
+  }
+
+  async getImpersonationBusinesses(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  } = {}): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.search) queryParams.append('search', params.search);
+
+    const endpoint = `/impersonation/businesses${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return this.makeRequest(endpoint);
+  }
+
+  async getImpersonationBusinessMembers(businessId: string): Promise<ApiResponse<any>> {
+    return this.makeRequest(`/impersonation/businesses/${businessId}/members`);
+  }
+
+  async seedImpersonationPersonas(businessId: string): Promise<ApiResponse<any>> {
+    return this.makeRequest(`/impersonation/businesses/${businessId}/seed`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   }
 
   async getImpersonationHistory(params: {

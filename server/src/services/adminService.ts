@@ -1440,7 +1440,17 @@ export class AdminService {
   // USER IMPERSONATION
   // ============================================================================
 
-  static async startImpersonation(adminId: string, targetUserId: string, reason?: string) {
+  static async startImpersonation(
+    adminId: string,
+    targetUserId: string,
+    options: {
+      reason?: string;
+      businessId?: string | null;
+      context?: string | null;
+      sessionTokenHash?: string | null;
+      expiresAt?: Date | null;
+    } = {}
+  ) {
     // Verify the target user exists
     const targetUser = await prisma.user.findUnique({
       where: { id: targetUserId },
@@ -1463,12 +1473,32 @@ export class AdminService {
       throw new Error('Admin is already impersonating a user');
     }
 
+    if (options.businessId) {
+      const membership = await prisma.businessMember.findUnique({
+        where: {
+          businessId_userId: {
+            businessId: options.businessId,
+            userId: targetUserId
+          }
+        },
+        select: { id: true }
+      });
+
+      if (!membership) {
+        throw new Error('Target user is not a member of the specified business');
+      }
+    }
+
     // Create impersonation session
     const impersonation = await prisma.adminImpersonation.create({
       data: {
         adminId,
         targetUserId,
-        reason: reason || 'Admin impersonation for debugging/support'
+        reason: options.reason || 'Admin impersonation for debugging/support',
+        businessId: options.businessId ?? null,
+        context: options.context ?? null,
+        sessionTokenHash: options.sessionTokenHash ?? null,
+        expiresAt: options.expiresAt ?? null
       }
     });
 
@@ -1499,7 +1529,10 @@ export class AdminService {
     // End the impersonation session
     await prisma.adminImpersonation.update({
       where: { id: impersonation.id },
-      data: { endedAt: new Date() }
+      data: {
+        endedAt: new Date(),
+        sessionTokenHash: null
+      }
     });
 
     return impersonation;

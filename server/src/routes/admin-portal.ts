@@ -1,4 +1,6 @@
 import express, { Request, Response } from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma';
 import { authenticateJWT } from '../middleware/auth';
 import { AdminService } from '../services/adminService';
@@ -118,7 +120,12 @@ router.get('/dashboard/activity', authenticateJWT, requireAdmin, async (req: Req
 router.post('/users/:userId/impersonate', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const { reason } = req.body;
+    const { reason, businessId, context, expiresInMinutes } = req.body as {
+      reason?: string;
+      businessId?: string | null;
+      context?: string | null;
+      expiresInMinutes?: number;
+    };
     const adminUser = req.user;
 
     if (!adminUser) {
@@ -147,14 +154,34 @@ router.post('/users/:userId/impersonate', authenticateJWT, requireAdmin, async (
       return res.status(400).json({ error: 'Admin is already impersonating a user' });
     }
 
-    // Create impersonation session
-    const impersonation = await prisma.adminImpersonation.create({
-      data: {
-        adminId: adminUser.id,
-        targetUserId: userId,
-        reason: reason || 'Admin impersonation for debugging/support'
+    const impersonationToken = crypto.randomBytes(32).toString('hex');
+    const impersonationTokenHash = crypto.createHash('sha256').update(impersonationToken).digest('hex');
+    const expiresAt = typeof expiresInMinutes === 'number' && expiresInMinutes > 0
+      ? new Date(Date.now() + expiresInMinutes * 60 * 1000)
+      : new Date(Date.now() + 60 * 60 * 1000); // default 1 hour
+
+    const { impersonation, targetUser: verifiedTarget } = await AdminService.startImpersonation(
+      adminUser.id,
+      userId,
+      {
+        reason,
+        businessId: businessId ?? null,
+        context: context ?? null,
+        sessionTokenHash: impersonationTokenHash,
+        expiresAt
       }
-    });
+    );
+
+    let businessSummary: { id: string; name: string } | null = null;
+    if (impersonation.businessId) {
+      const business = await prisma.business.findUnique({
+        where: { id: impersonation.businessId },
+        select: { id: true, name: true }
+      });
+      if (business) {
+        businessSummary = business;
+      }
+    }
 
     // Log the impersonation action
     await prisma.auditLog.create({
@@ -166,7 +193,10 @@ router.post('/users/:userId/impersonate', authenticateJWT, requireAdmin, async (
         details: JSON.stringify({
           adminEmail: adminUser.email,
           targetUserEmail: targetUser.email,
-          reason: reason || 'Admin impersonation for debugging/support'
+          reason: reason || 'Admin impersonation for debugging/support',
+          businessId: businessId ?? null,
+          context: context ?? null,
+          expiresAt: expiresAt.toISOString()
         }),
         ipAddress: req.ip,
         userAgent: req.get('User-Agent')
@@ -178,13 +208,18 @@ router.post('/users/:userId/impersonate', authenticateJWT, requireAdmin, async (
       impersonation: {
         id: impersonation.id,
         targetUser: {
-          id: targetUser.id,
-          email: targetUser.email,
-          name: targetUser.name
+          id: verifiedTarget.id,
+          email: verifiedTarget.email,
+          name: verifiedTarget.name
         },
         startedAt: impersonation.startedAt,
-        reason: impersonation.reason
-      }
+        reason: impersonation.reason,
+        businessId: impersonation.businessId,
+        business: businessSummary,
+        context: impersonation.context,
+        expiresAt
+      },
+      token: impersonationToken
     });
   } catch (error) {
     await logger.error('Failed to start user impersonation', {
@@ -217,6 +252,9 @@ router.post('/impersonation/end', authenticateJWT, requireAdmin, async (req: Req
       include: {
         targetUser: {
           select: { id: true, email: true, name: true }
+        },
+        business: {
+          select: { id: true, name: true }
         }
       }
     });
@@ -286,6 +324,9 @@ router.get('/impersonation/current', authenticateJWT, requireAdmin, async (req: 
       include: {
         targetUser: {
           select: { id: true, email: true, name: true }
+        },
+        business: {
+          select: { id: true, name: true }
         }
       }
     });
@@ -301,6 +342,10 @@ router.get('/impersonation/current', authenticateJWT, requireAdmin, async (req: 
         targetUser: impersonation.targetUser,
         startedAt: impersonation.startedAt,
         reason: impersonation.reason,
+        businessId: impersonation.businessId,
+        business: impersonation.business,
+        context: impersonation.context,
+        expiresAt: impersonation.expiresAt,
         duration: Date.now() - impersonation.startedAt.getTime()
       }
     });
@@ -313,6 +358,531 @@ router.get('/impersonation/current', authenticateJWT, requireAdmin, async (req: 
       }
     });
     res.status(500).json({ error: 'Failed to get current impersonation' });
+  }
+});
+
+router.get('/impersonation/businesses', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 12, search } = req.query;
+    const take = Math.min(Number(limit) || 12, 50);
+    const skip = (Number(page) - 1) * take;
+
+    const where: Record<string, unknown> = {};
+    if (search && typeof search === 'string') {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { industry: { contains: search, mode: 'insensitive' } },
+        { size: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [businesses, total] = await Promise.all([
+      prisma.business.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          tier: true,
+          industry: true,
+          size: true,
+          createdAt: true,
+          hrModuleSettings: {
+            select: { enabledFeatures: true }
+          },
+          _count: {
+            select: {
+              members: true,
+              employeePositions: true,
+              businessModuleInstallations: true
+            }
+          }
+        }
+      }),
+      prisma.business.count({ where })
+    ]);
+
+    const payload = businesses.map((business) => ({
+      id: business.id,
+      name: business.name,
+      tier: business.tier,
+      industry: business.industry,
+      size: business.size,
+      createdAt: business.createdAt,
+      memberCount: business._count.members,
+      employeePositionCount: business._count.employeePositions,
+      moduleCount: business._count.businessModuleInstallations,
+      hrEnabledFeatures: business.hrModuleSettings?.enabledFeatures ?? null
+    }));
+
+    res.json({
+      businesses: payload,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / take)
+    });
+  } catch (error) {
+    await logger.error('Failed to fetch impersonation business list', {
+      operation: 'admin_impersonate_list_businesses',
+      filters: req.query,
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to load businesses' });
+  }
+});
+
+router.get('/impersonation/businesses/:businessId/members', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { businessId } = req.params;
+
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: {
+        id: true,
+        name: true,
+        tier: true,
+        industry: true,
+        size: true,
+        createdAt: true,
+        hrModuleSettings: {
+          select: { enabledFeatures: true }
+        }
+      }
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const [members, moduleInstallations] = await Promise.all([
+      prisma.businessMember.findMany({
+        where: { businessId },
+        orderBy: { joinedAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          job: {
+            select: {
+              id: true,
+              title: true
+            }
+          }
+        }
+      }),
+      prisma.businessModuleInstallation.findMany({
+        where: { businessId },
+        orderBy: { installedAt: 'desc' },
+        take: 12,
+        select: {
+          id: true,
+          moduleId: true,
+          installedAt: true,
+          enabled: true,
+          module: {
+            select: {
+              id: true,
+              name: true,
+              category: true
+            }
+          }
+        }
+      })
+    ]);
+
+    const membersPayload = members.map((member) => ({
+      id: member.id,
+      role: member.role,
+      title: member.title ?? member.job?.title ?? null,
+      department: member.department,
+      joinedAt: member.joinedAt,
+      canManage: member.canManage,
+      canInvite: member.canInvite,
+      canBilling: member.canBilling,
+      user: member.user
+    }));
+
+    const modulesPayload = moduleInstallations.map((installation) => ({
+      id: installation.id,
+      moduleId: installation.moduleId,
+      moduleName: installation.module?.name ?? 'Unknown Module',
+      category: installation.module?.category ?? null,
+      installedAt: installation.installedAt,
+      enabled: installation.enabled
+    }));
+
+    res.json({
+      business,
+      members: membersPayload,
+      modules: modulesPayload,
+      totalMembers: members.length
+    });
+  } catch (error) {
+    await logger.error('Failed to fetch impersonation business members', {
+      operation: 'admin_impersonate_business_members',
+      businessId: req.params.businessId,
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to load business members' });
+  }
+});
+
+router.post('/impersonation/businesses/:businessId/seed', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { businessId } = req.params;
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, name: true }
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const IMPERSONATION_DEPARTMENT = 'Impersonation Lab Personas';
+    const managerTier = await prisma.organizationalTier.upsert({
+      where: {
+        businessId_name: {
+          businessId,
+          name: 'Impersonation Lab - Management'
+        }
+      },
+      update: {
+        description: 'Management tier generated for Impersonation Lab personas',
+        level: 2
+      },
+      create: {
+        businessId,
+        name: 'Impersonation Lab - Management',
+        level: 2,
+        description: 'Management tier generated for Impersonation Lab personas'
+      }
+    });
+
+    const staffTier = await prisma.organizationalTier.upsert({
+      where: {
+        businessId_name: {
+          businessId,
+          name: 'Impersonation Lab - Staff'
+        }
+      },
+      update: {
+        description: 'Staff tier generated for Impersonation Lab personas',
+        level: 3
+      },
+      create: {
+        businessId,
+        name: 'Impersonation Lab - Staff',
+        level: 3,
+        description: 'Staff tier generated for Impersonation Lab personas'
+      }
+    });
+
+    const managerPosition = await prisma.position.upsert({
+      where: {
+        businessId_title: {
+          businessId,
+          title: 'Impersonation Lab - Manager'
+        }
+      },
+      update: {
+        tierId: managerTier.id,
+        reportsToId: null,
+        maxOccupants: 5
+      },
+      create: {
+        businessId,
+        title: 'Impersonation Lab - Manager',
+        tierId: managerTier.id,
+        reportsToId: null,
+        maxOccupants: 5,
+        departmentId: null
+      }
+    });
+
+    const staffPosition = await prisma.position.upsert({
+      where: {
+        businessId_title: {
+          businessId,
+          title: 'Impersonation Lab - Specialist'
+        }
+      },
+      update: {
+        tierId: staffTier.id,
+        reportsToId: managerPosition.id,
+        maxOccupants: 10
+      },
+      create: {
+        businessId,
+        title: 'Impersonation Lab - Specialist',
+        tierId: staffTier.id,
+        reportsToId: managerPosition.id,
+        maxOccupants: 10,
+        departmentId: null
+      }
+    });
+
+    const existingMembers = await prisma.businessMember.findMany({
+      where: {
+        businessId,
+        department: IMPERSONATION_DEPARTMENT
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    const ensureAssignment = async (userId: string, positionId: string) => {
+      let assignment = await prisma.employeePosition.findFirst({
+        where: {
+          userId,
+          positionId,
+          businessId
+        }
+      });
+
+      if (!assignment) {
+        assignment = await prisma.employeePosition.create({
+          data: {
+            userId,
+            positionId,
+            businessId,
+            assignedById: adminUser.id,
+            startDate: new Date(),
+            active: true
+          }
+        });
+      } else if (!assignment.active) {
+        assignment = await prisma.employeePosition.update({
+          where: { id: assignment.id },
+          data: {
+            active: true,
+            endDate: null
+          }
+        });
+      }
+
+      return assignment;
+    };
+
+    const ensureHrProfile = async (employeePositionId: string, employmentStatus: 'ACTIVE' | 'TERMINATED' = 'ACTIVE') => {
+      return prisma.employeeHRProfile.upsert({
+        where: { employeePositionId },
+        create: {
+          employeePositionId,
+          businessId,
+          hireDate: new Date(),
+          employmentStatus,
+          employeeType: 'FULL_TIME'
+        },
+        update: {
+          employmentStatus,
+          terminationDate: null,
+          terminationReason: null,
+          terminatedBy: null,
+          deletedAt: null,
+          deletedBy: null,
+          deletedReason: null
+        }
+      });
+    };
+
+    const createPersonaUser = async (label: string, displayName: string) => {
+      const email = `${label}-${businessId.slice(0, 8)}-${crypto.randomBytes(3).toString('hex')}@impersonation.vssyl`;
+      const temporaryPassword = crypto.randomBytes(8).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+      const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+
+      const user = await prisma.user.create({
+        data: {
+          email,
+          name: displayName,
+          password: hashedPassword,
+          role: 'USER'
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true
+        }
+      });
+
+      return { user, temporaryPassword };
+    };
+
+    const personas: Array<{
+      role: 'MANAGER' | 'EMPLOYEE';
+      userId: string;
+      email: string;
+      name: string | null;
+      businessMemberId: string;
+      employeePositionId: string | null;
+      hrProfileId: string | null;
+      temporaryPassword?: string;
+    }> = [];
+
+    const managerMemberExisting = existingMembers.find((member) => member.role === 'MANAGER');
+
+    let managerMember = managerMemberExisting ?? null;
+    let managerUser = managerMemberExisting?.user ?? null;
+    let managerTempPassword: string | undefined;
+
+    if (!managerMember) {
+      const managerDisplayName = `Impersonation Manager (${business.name})`;
+      const { user, temporaryPassword } = await createPersonaUser('manager', managerDisplayName);
+      managerTempPassword = temporaryPassword;
+      managerUser = user;
+
+      managerMember = await prisma.businessMember.create({
+        data: {
+          businessId,
+          userId: user.id,
+          role: 'MANAGER',
+          title: 'Impersonation Lab Manager',
+          department: IMPERSONATION_DEPARTMENT,
+          canManage: true,
+          canInvite: true,
+          canBilling: false
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true
+            }
+          }
+        }
+      });
+    }
+
+    const managerAssignment = await ensureAssignment(managerUser!.id, managerPosition.id);
+    const managerHrProfile = await ensureHrProfile(managerAssignment.id);
+
+    personas.push({
+      role: 'MANAGER',
+      userId: managerUser!.id,
+      email: managerUser!.email,
+      name: managerUser!.name,
+      businessMemberId: managerMember!.id,
+      employeePositionId: managerAssignment.id,
+      hrProfileId: managerHrProfile.id,
+      temporaryPassword: managerTempPassword
+    });
+
+    const employeeMemberExisting = existingMembers.find((member) => member.role === 'EMPLOYEE');
+
+    let employeeMember = employeeMemberExisting ?? null;
+    let employeeUser = employeeMemberExisting?.user ?? null;
+    let employeeTempPassword: string | undefined;
+
+    if (!employeeMember) {
+      const employeeDisplayName = `Impersonation Specialist (${business.name})`;
+      const { user, temporaryPassword } = await createPersonaUser('specialist', employeeDisplayName);
+      employeeTempPassword = temporaryPassword;
+      employeeUser = user;
+
+      employeeMember = await prisma.businessMember.create({
+        data: {
+          businessId,
+          userId: user.id,
+          role: 'EMPLOYEE',
+          title: 'Impersonation Lab Specialist',
+          department: IMPERSONATION_DEPARTMENT,
+          canManage: false,
+          canInvite: false,
+          canBilling: false
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true
+            }
+          }
+        }
+      });
+    }
+
+    const employeeAssignment = await ensureAssignment(employeeUser!.id, staffPosition.id);
+    const employeeHrProfile = await ensureHrProfile(employeeAssignment.id);
+
+    const existingApproval = await prisma.managerApprovalHierarchy.findFirst({
+      where: {
+        businessId,
+        employeePositionId: employeeAssignment.id,
+        managerPositionId: managerAssignment.id
+      }
+    });
+
+    if (!existingApproval) {
+      await prisma.managerApprovalHierarchy.create({
+        data: {
+          businessId,
+          employeePositionId: employeeAssignment.id,
+          managerPositionId: managerAssignment.id,
+          approvalTypes: ['time_off'],
+          approvalLevel: 1,
+          isPrimary: true
+        }
+      });
+    } else if (!existingApproval.approvalTypes.includes('time_off')) {
+      await prisma.managerApprovalHierarchy.update({
+        where: { id: existingApproval.id },
+        data: {
+          approvalTypes: [...new Set([...existingApproval.approvalTypes, 'time_off'])]
+        }
+      });
+    }
+
+    personas.push({
+      role: 'EMPLOYEE',
+      userId: employeeUser!.id,
+      email: employeeUser!.email,
+      name: employeeUser!.name,
+      businessMemberId: employeeMember!.id,
+      employeePositionId: employeeAssignment.id,
+      hrProfileId: employeeHrProfile.id,
+      temporaryPassword: employeeTempPassword
+    });
+
+    res.json({
+      message: 'Impersonation lab personas are ready.',
+      personas
+    });
+  } catch (error) {
+    await logger.error('Failed to seed impersonation personas', {
+      operation: 'admin_impersonate_seed_personas',
+      businessId: req.params.businessId,
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to seed impersonation personas' });
   }
 });
 
@@ -336,6 +906,9 @@ router.get('/impersonation/history', authenticateJWT, requireAdmin, async (req: 
         include: {
           targetUser: {
             select: { id: true, email: true, name: true }
+          },
+          business: {
+            select: { id: true, name: true }
           }
         }
       }),

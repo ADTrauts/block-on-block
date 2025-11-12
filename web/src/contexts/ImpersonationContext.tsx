@@ -13,12 +13,27 @@ interface ImpersonationSession {
   startedAt: string;
   reason?: string;
   duration?: number;
+  businessId?: string | null;
+  business?: {
+    id: string;
+    name: string;
+  } | null;
+  context?: string | null;
+  expiresAt?: string;
 }
 
 interface ImpersonationContextType {
   isImpersonating: boolean;
   currentSession: ImpersonationSession | null;
-  startImpersonation: (userId: string, reason?: string) => Promise<boolean>;
+  startImpersonation: (
+    userId: string,
+    reason?: string,
+    options?: {
+      businessId?: string;
+      context?: string;
+      expiresInMinutes?: number;
+    }
+  ) => Promise<boolean>;
   endImpersonation: () => Promise<boolean>;
   refreshSession: () => Promise<void>;
 }
@@ -40,6 +55,41 @@ interface ImpersonationProviderProps {
 export const ImpersonationProvider: React.FC<ImpersonationProviderProps> = ({ children }) => {
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [currentSession, setCurrentSession] = useState<ImpersonationSession | null>(null);
+
+  const setImpersonationCookie = (token: string, expiresAt?: string) => {
+    if (typeof document === 'undefined') return;
+    const secure = window.location.protocol === 'https:';
+    const parts = [
+      `vssyl_impersonation=${token}`,
+      'path=/',
+      'SameSite=Lax'
+    ];
+    if (secure) {
+      parts.push('Secure');
+    }
+    if (expiresAt) {
+      const expiresDate = new Date(expiresAt);
+      if (!Number.isNaN(expiresDate.getTime())) {
+        parts.push(`expires=${expiresDate.toUTCString()}`);
+      }
+    }
+    document.cookie = parts.join('; ');
+  };
+
+  const clearImpersonationCookie = () => {
+    if (typeof document === 'undefined') return;
+    const secure = window.location.protocol === 'https:';
+    const parts = [
+      'vssyl_impersonation=',
+      'path=/',
+      'SameSite=Lax',
+      'expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    ];
+    if (secure) {
+      parts.push('Secure');
+    }
+    document.cookie = parts.join('; ');
+  };
 
   const refreshSession = async () => {
     try {
@@ -63,7 +113,15 @@ export const ImpersonationProvider: React.FC<ImpersonationProviderProps> = ({ ch
     }
   };
 
-  const startImpersonation = async (userId: string, reason?: string): Promise<boolean> => {
+  const startImpersonation = async (
+    userId: string,
+    reason?: string,
+    options?: {
+      businessId?: string;
+      context?: string;
+      expiresInMinutes?: number;
+    }
+  ): Promise<boolean> => {
     try {
       // First check if we're already impersonating
       const currentResponse = await adminApiService.getCurrentImpersonation();
@@ -72,10 +130,19 @@ export const ImpersonationProvider: React.FC<ImpersonationProviderProps> = ({ ch
         await endImpersonation();
       }
 
-      const response = await adminApiService.startImpersonation(userId, reason);
+      const response = await adminApiService.startImpersonation(userId, {
+        reason,
+        businessId: options?.businessId,
+        context: options?.context,
+        expiresInMinutes: options?.expiresInMinutes,
+      });
       if (response.error) {
         console.error('Error starting impersonation:', response.error);
         return false;
+      }
+
+      if (response.data?.token) {
+        setImpersonationCookie(response.data.token, response.data?.impersonation?.expiresAt);
       }
 
       await refreshSession();
@@ -94,6 +161,7 @@ export const ImpersonationProvider: React.FC<ImpersonationProviderProps> = ({ ch
         return false;
       }
 
+      clearImpersonationCookie();
       setIsImpersonating(false);
       setCurrentSession(null);
       return true;

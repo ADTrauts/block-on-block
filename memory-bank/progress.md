@@ -1,20 +1,43 @@
 # Block-on-Block Platform - Progress
 
 ## 🎯 Current Project Focus
-**Goal**: HR Module Phase 2 Enhancements & Calendar Sync — COMPLETED ✅
+**Goal**: Employee Onboarding Module — COMPLETE ✅
+
+**Success Metrics (Current Progress)**:
+- ✅ **Prisma Onboarding Schema** — Added onboarding templates, task templates, employee journeys, and task records with business/employee back-relations.
+- ✅ **Backend Implementation** — `hrOnboardingService` + `hrController` deliver template CRUD, journey creation, employee self-service, and manager approvals secured behind onboarding feature gating.
+- ✅ **Frontend Delivery** — Admin module settings expose onboarding configuration, employee HR workspace renders journeys/tasks, and manager HR workspace lists direct-report onboarding actions.
+- ✅ **Feature Flag Integration** — `useHRFeatures` recognizes onboarding availability; module settings context merges onboarding config safely for both dialog and full-page editors.
+- ✅ **Tooling & Verification** — Ran `pnpm prisma:generate`, executed the new migration, and verified `pnpm type-check` for server/web packages with clean output.
+- 🔄 **Analytics & Notifications** — Need dashboards for onboarding progress plus approval/overdue notifications.
+- 🔄 **Template Seeding** — Provide default onboarding templates by industry/tier to accelerate adoption.
+- 🔄 **Next Module** — Begin design for the Training & Learning module (next in the master module roadmap).
+
+**Outstanding Follow-up / Next Steps**:
+- Capture onboarding metrics and surface them in admin reporting.
+- Wire notification hooks (email/Slack) for pending approvals and overdue tasks.
+- Seed starter onboarding blueprints and document best practices.
+- Kick off Training & Learning module discovery.
+
+**Documentation Updates (Nov 11, 2025)**:
+- `memory-bank/hrProductContext.md` expanded with Phase 3 implementation status, roadmap checkbox updates, and detailed security/testing guidance.
+- `memory-bank/activeContext.md` now reflects the Phase 3 attendance focus with accomplishments and next steps.
+
+**Implementation Updates (Nov 11, 2025)**:
+- Attendance backend/frontend delivered: policies, punch lifecycle, and manager exceptions live.
+- Time-off controllers refactored for strict typing and consistent enum usage; CSV import/export hardened.
+- Prisma migrations applied and codebase linted clean after removing residual `any` instances.
+- Business Admin dashboard refreshed with a sticky branded header, independently scrolling navigation rail, and reorganized grid modules.
+- Dedicated `/business/[id]/modules/[moduleId]` settings page shipped with shared ModuleSettingsProvider + editor so admins can configure business modules outside the workspace overlay.
+
+**Previous Goal**: Business Workspace Context Synchronization & Auto-Seeding — COMPLETED ✅
 
 **Success Metrics**:
-- ✅ **Calendar Synchronization** — Time-off requests create/update both business schedule and personal calendar events via `hrScheduleService`.
-- ✅ **Directory Upgrades** — Employee admin page ships filters, sorting, CSV export, inline validation, and audit log modal.
-- ✅ **Self-Service Improvements** — Employees can cancel pending requests; validation errors and balance deltas surface instantly.
-- ✅ **Manager Experience** — Approvals include department context, day counts, and optional notes while logging decisions.
-- ✅ **Audit Coverage** — Create/update/terminate actions append structured audit entries retrievable in UI.
-- ✅ **Prisma Workflow Hardened** — `prisma:build` auto-runs inside server scripts, README documents baseline process, migrations baselined locally.
-
-**Outstanding Follow-up**:
-- Baseline any remaining shared databases before the next `prisma migrate deploy`.
-- Triage the lingering Next.js `<Html>` warning emitted when generating default 404/500 pages.
-- Continue smoke-testing calendar sync (submit/approve/cancel) post-deploy.
+- ✅ **Auto-Seeding** — `seedBusinessWorkspaceResources` provisions a drive root folder, primary calendar, and HQ chat channel when a business dashboard is created.
+- ✅ **Drive Isolation** — `DriveSidebar` accepts `lockedDashboardId`, filters out personal drives inside Work, and auto-expands the seeded folder tree.
+- ✅ **Chat Scope Override** — `ChatModule` calls `loadConversations()` after applying the business dashboard override so Company HQ appears instantly.
+- ✅ **Calendar Filtering** — Personal dashboards hide business calendars except the shared “Schedule” calendar; Work tab forces “Current Tab” mode with only business calendars.
+- ✅ **Module Context Propagation** — Drive, Chat, and Calendar wrappers pass `businessDashboardId`/`businessId` so every API call scopes to the correct dashboard.
 
 **Previous Goal**: HR Module Production Deployment - COMPLETED! ✅
 

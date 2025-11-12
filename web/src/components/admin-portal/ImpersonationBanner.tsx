@@ -32,11 +32,29 @@ export const ImpersonationBanner: React.FC = () => {
           <AlertTriangle className="w-5 h-5" />
           <div className="flex items-center space-x-2">
             <User className="w-4 h-4" />
-            <span className="font-medium">
-              You are impersonating{' '}
-              <span className="font-bold">{currentSession.targetUser.name}</span>
-              <span className="text-yellow-700"> ({currentSession.targetUser.email})</span>
-            </span>
+            <div className="flex flex-col">
+              <span className="font-medium">
+                You are impersonating{' '}
+                <span className="font-bold">{currentSession.targetUser.name}</span>
+                <span className="text-yellow-700"> ({currentSession.targetUser.email})</span>
+              </span>
+              {(currentSession.business || currentSession.context) && (
+                <span className="text-sm text-yellow-800">
+                  {currentSession.business && (
+                    <span>
+                      Business:{' '}
+                      <span className="font-semibold">{currentSession.business.name}</span>
+                    </span>
+                  )}
+                  {currentSession.business && currentSession.context && <span className="mx-2">•</span>}
+                  {currentSession.context && (
+                    <span>
+                      Context: <span className="font-semibold">{currentSession.context}</span>
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
             {currentSession.duration && (
               <span className="text-sm text-yellow-700">
                 • Duration: {formatDuration(currentSession.duration)}

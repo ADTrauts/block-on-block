@@ -589,6 +589,7 @@ export default function BusinessWorkspaceContent({ business, currentModule, busi
               onContextSwitch={handleContextSwitch}
               onFolderSelect={setSelectedFolder}
               selectedFolderId={selectedFolder?.id}
+              lockedDashboardId={businessDashboardId || undefined}
             />
             <DriveModuleWrapper 
               className="flex-1"

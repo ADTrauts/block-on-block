@@ -17,6 +17,8 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { businessAPI } from '@/api/business';
+import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContext';
+import { useHRFeatures } from '@/hooks/useHRFeatures';
 
 interface Business {
   id: string;
@@ -41,6 +43,8 @@ interface HRStats {
 
 export default function HRWorkspaceLanding({ businessId }: { businessId: string }) {
   const { data: session } = useSession();
+  const { businessTier } = useBusinessConfiguration();
+  const hrFeatures = useHRFeatures(businessTier || undefined);
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -312,16 +316,29 @@ export default function HRWorkspaceLanding({ businessId }: { businessId: string 
         </Card>
 
         <Card className="p-6 hover:shadow-lg transition-shadow">
-          <div className="flex items-center space-x-4 mb-4">
-            <div className="p-3 bg-indigo-100 rounded-lg">
-              <Clock className="w-6 h-6 text-indigo-600" />
+          <Link href={`/business/${businessId}/workspace/hr/me`} className="block w-full">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="p-3 bg-indigo-100 rounded-lg">
+                <Clock className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">My Attendance</h3>
+                <p className="text-sm text-gray-600">
+                  Track clock-ins, clock-outs, and attendance history
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">My Attendance</h3>
-              <p className="text-sm text-gray-600">View your attendance history</p>
-            </div>
-          </div>
-          <Badge color="gray">Coming Soon</Badge>
+            {hrFeatures.attendance.clockInOut ? (
+              <Button variant="secondary" className="w-full">
+                Manage Attendance
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            ) : (
+              <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                Clock in/out requires Enterprise tier. Attendance history is still available.
+              </div>
+            )}
+          </Link>
         </Card>
       </div>
 
@@ -345,8 +362,8 @@ export default function HRWorkspaceLanding({ businessId }: { businessId: string 
                 <span>🔄 Time-off request system (coming soon)</span>
               </li>
               <li className="flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-yellow-500" />
-                <span>🔄 Attendance tracking (coming soon)</span>
+                <CheckCircle className="w-4 h-4 text-green-500" />
+                <span>✅ Attendance policies and self-service clock in/out*</span>
               </li>
               <li className="flex items-center space-x-2">
                 <Clock className="w-4 h-4 text-yellow-500" />

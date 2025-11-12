@@ -28,7 +28,7 @@ export default function ChatModule({
   refreshTrigger: _refreshTrigger,
   dashboardId
 }: ChatModuleProps) {
-  const { setDashboardOverride, clearDashboardOverride } = useChat();
+  const { setDashboardOverride, clearDashboardOverride, loadConversations } = useChat();
 
   useEffect(() => {
     if (!dashboardId) {
@@ -36,11 +36,12 @@ export default function ChatModule({
     }
 
     setDashboardOverride(dashboardId);
+    void loadConversations();
 
     return () => {
       clearDashboardOverride(dashboardId);
     };
-  }, [dashboardId, setDashboardOverride, clearDashboardOverride]);
+  }, [dashboardId, setDashboardOverride, clearDashboardOverride, loadConversations]);
   
   return (
     <div className={`h-full ${className}`}>

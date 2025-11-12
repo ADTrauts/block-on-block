@@ -19,6 +19,7 @@ async function handler(req: NextRequest) {
 
   // Clone headers and add authorization
   const headers = new Headers(req.headers);
+  const impersonationCookie = req.cookies.get('vssyl_impersonation')?.value;
   let authToken = req.headers.get('authorization');
   
   // Check for token in query parameters (for file preview with direct URLs)
@@ -48,6 +49,10 @@ async function handler(req: NextRequest) {
     });
   } else {
     console.log('API Proxy - No auth token found for path:', pathname);
+  }
+
+  if (impersonationCookie && !pathname.startsWith('/api/admin-portal')) {
+    headers.set('x-impersonation-token', impersonationCookie);
   }
 
   try {

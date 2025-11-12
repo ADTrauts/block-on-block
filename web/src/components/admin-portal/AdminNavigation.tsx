@@ -86,6 +86,7 @@ const adminNavigation: AdminNavItem[] = [
   { id: 'business-intelligence', label: 'Business Intelligence', icon: Brain, path: '/admin-portal/business-intelligence' },
   { id: 'support', label: 'Support', icon: MessageSquare, path: '/admin-portal/support' },
   { id: 'performance', label: 'Performance & Scalability', icon: Gauge, path: '/admin-portal/performance' },
+  { id: 'impersonation', label: 'Impersonation Lab', icon: Eye, path: '/admin-portal/impersonate' },
   { id: 'test-impersonation', label: 'Test Impersonation', icon: UserCheck, path: '/admin-portal/test-impersonation' },
   { id: 'test-auth', label: 'Test Auth', icon: Key, path: '/admin-portal/test-auth' },
   { id: 'debug-session', label: 'Debug Session', icon: Bug, path: '/admin-portal/debug-session' },

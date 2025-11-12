@@ -3,48 +3,30 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { configureModule } from '../api/modules';
 import { toast } from 'react-hot-toast';
-
-// Module settings interfaces
-export interface ModuleStorageSettings {
-  quota: number;
-  compression: boolean;
-  backup: boolean;
-}
-
-export interface ModuleNotificationSettings {
-  email: boolean;
-  push: boolean;
-  frequency: 'immediate' | 'daily' | 'weekly';
-}
-
-export interface ModuleSecuritySettings {
-  encryption: boolean;
-  auditLog: boolean;
-  accessControl: 'strict' | 'moderate' | 'open';
-}
-
-export interface ModuleIntegrationSettings {
-  externalServices: string[];
-  webhooks: boolean;
-  apiAccess: boolean;
-}
+import {
+  ModuleConfig,
+  ModuleIntegrationConfig,
+  ModuleNotificationConfig,
+  ModuleSecurityConfig,
+  ModuleStorageConfig,
+  OnboardingModuleConfig,
+} from '@/components/module-settings/types';
 
 export interface ModuleSettings {
-  [moduleId: string]: {
-    permissions: string[];
-    storage?: ModuleStorageSettings;
-    notifications?: ModuleNotificationSettings;
-    security?: ModuleSecuritySettings;
-    integrations?: ModuleIntegrationSettings;
-  };
+  [moduleId: string]: ModuleConfig;
 }
 
 export interface ModuleSettingsUpdate {
   permissions?: string[];
-  storage?: Partial<ModuleStorageSettings>;
-  notifications?: Partial<ModuleNotificationSettings>;
-  security?: Partial<ModuleSecuritySettings>;
-  integrations?: Partial<ModuleIntegrationSettings>;
+  storage?: Partial<ModuleStorageConfig>;
+  notifications?: Partial<ModuleNotificationConfig>;
+  security?: Partial<ModuleSecurityConfig>;
+  integrations?: Partial<ModuleIntegrationConfig>;
+  onboarding?: Partial<OnboardingModuleConfig> & {
+    documentChecklist?: OnboardingModuleConfig['documentChecklist'];
+    equipmentList?: OnboardingModuleConfig['equipmentList'];
+    uniformOptions?: OnboardingModuleConfig['uniformOptions'];
+  };
   [key: string]: unknown;
 }
 
@@ -82,31 +64,82 @@ export function ModuleSettingsProvider({ children, businessId }: ModuleSettingsP
 
       // Update local state immediately (optimistic update)
       setSettings(prev => {
-        const currentModule = prev[moduleId] || { permissions: [] };
+        const currentModule: ModuleConfig = prev[moduleId] || {
+          permissions: [],
+          storage: undefined,
+          notifications: undefined,
+          security: undefined,
+          integrations: undefined,
+          onboarding: undefined
+        };
+
+        const mergeOnboardingConfig = (
+          existing: OnboardingModuleConfig | undefined,
+          updates: ModuleSettingsUpdate['onboarding']
+        ): OnboardingModuleConfig | undefined => {
+          if (!updates) {
+            return existing;
+          }
+
+          const base: OnboardingModuleConfig = existing ?? {
+            ownerUserId: null,
+            ownerRole: 'HR_ADMIN',
+            ownerNotes: null,
+            defaultTemplateId: null,
+            buddyProgramEnabled: false,
+            buddySelectionStrategy: 'manager_recommended',
+            timeOffPresetDays: null,
+            documentChecklist: [],
+            equipmentList: [],
+            uniformOptions: [],
+            metadata: {}
+          };
+
+          return {
+            ...base,
+            ...updates,
+            documentChecklist: updates.documentChecklist ?? base.documentChecklist,
+            equipmentList: updates.equipmentList ?? base.equipmentList,
+            uniformOptions: updates.uniformOptions ?? base.uniformOptions
+          };
+        };
+
         return {
           ...prev,
           [moduleId]: {
-            permissions: newSettings.permissions || currentModule.permissions,
-            storage: newSettings.storage ? {
-              quota: newSettings.storage.quota ?? currentModule.storage?.quota ?? 1000,
-              compression: newSettings.storage.compression ?? currentModule.storage?.compression ?? false,
-              backup: newSettings.storage.backup ?? currentModule.storage?.backup ?? false
-            } : currentModule.storage,
-            notifications: newSettings.notifications ? {
-              email: newSettings.notifications.email ?? currentModule.notifications?.email ?? false,
-              push: newSettings.notifications.push ?? currentModule.notifications?.push ?? false,
-              frequency: newSettings.notifications.frequency ?? currentModule.notifications?.frequency ?? 'immediate'
-            } : currentModule.notifications,
-            security: newSettings.security ? {
-              encryption: newSettings.security.encryption ?? currentModule.security?.encryption ?? false,
-              auditLog: newSettings.security.auditLog ?? currentModule.security?.auditLog ?? false,
-              accessControl: newSettings.security.accessControl ?? currentModule.security?.accessControl ?? 'moderate'
-            } : currentModule.security,
-            integrations: newSettings.integrations ? {
-              externalServices: newSettings.integrations.externalServices ?? currentModule.integrations?.externalServices ?? [],
-              webhooks: newSettings.integrations.webhooks ?? currentModule.integrations?.webhooks ?? false,
-              apiAccess: newSettings.integrations.apiAccess ?? currentModule.integrations?.apiAccess ?? false
-            } : currentModule.integrations
+            permissions: newSettings.permissions ?? currentModule.permissions ?? [],
+            storage: newSettings.storage
+              ? {
+                  quota: newSettings.storage.quota ?? currentModule.storage?.quota ?? 1000,
+                  compression: newSettings.storage.compression ?? currentModule.storage?.compression ?? false,
+                  backup: newSettings.storage.backup ?? currentModule.storage?.backup ?? false
+                }
+              : currentModule.storage,
+            notifications: newSettings.notifications
+              ? {
+                  email: newSettings.notifications.email ?? currentModule.notifications?.email ?? false,
+                  push: newSettings.notifications.push ?? currentModule.notifications?.push ?? false,
+                  frequency: newSettings.notifications.frequency ?? currentModule.notifications?.frequency ?? 'immediate'
+                }
+              : currentModule.notifications,
+            security: newSettings.security
+              ? {
+                  encryption: newSettings.security.encryption ?? currentModule.security?.encryption ?? false,
+                  auditLog: newSettings.security.auditLog ?? currentModule.security?.auditLog ?? false,
+                  accessControl: newSettings.security.accessControl ?? currentModule.security?.accessControl ?? 'moderate'
+                }
+              : currentModule.security,
+            integrations: newSettings.integrations
+              ? {
+                  externalServices:
+                    newSettings.integrations.externalServices ??
+                    currentModule.integrations?.externalServices ??
+                    [],
+                  webhooks: newSettings.integrations.webhooks ?? currentModule.integrations?.webhooks ?? false,
+                  apiAccess: newSettings.integrations.apiAccess ?? currentModule.integrations?.apiAccess ?? false
+                }
+              : currentModule.integrations,
+            onboarding: mergeOnboardingConfig(currentModule.onboarding, newSettings.onboarding)
           }
         };
       });

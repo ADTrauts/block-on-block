@@ -13,12 +13,16 @@
 
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHRFeatures } from '@/hooks/useHRFeatures';
 import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContext';
 import { Spinner, Alert, EmptyState } from 'shared/components';
 import { toast } from 'react-hot-toast';
-import Link from 'next/link';
+import {
+  completeMyOnboardingTask,
+  getMyOnboardingJourneys,
+  type EmployeeOnboardingJourney
+} from '@/api/hrOnboarding';
 
 interface EmployeeData {
   id: string;
@@ -47,6 +51,20 @@ enum TimeOffType {
   UNPAID = 'UNPAID'
 }
 
+type AttendanceStatus = 'IN_PROGRESS' | 'COMPLETED' | 'EXCEPTION' | 'AUTO_CLOSED';
+
+interface AttendanceRecord {
+  id: string;
+  workDate: string;
+  status: AttendanceStatus;
+  clockInTime: string | null;
+  clockOutTime: string | null;
+  durationMinutes: number | null;
+  varianceMinutes: number | null;
+  clockInMethod?: string | null;
+  clockOutMethod?: string | null;
+}
+
 export default function EmployeeSelfService() {
   const params = useParams();
   const { data: session } = useSession();
@@ -56,6 +74,7 @@ export default function EmployeeSelfService() {
   
   const { businessTier } = useBusinessConfiguration();
   const hrFeatures = useHRFeatures(businessTier || undefined);
+  const onboardingFeatureEnabled = Boolean(hrFeatures.onboarding?.enabled);
   
   const [loading, setLoading] = useState(true);
   const [employeeData, setEmployeeData] = useState<EmployeeData | null>(null);
@@ -67,6 +86,147 @@ export default function EmployeeSelfService() {
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [canceling, setCanceling] = useState<string | null>(null);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [punching, setPunching] = useState(false);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [onboardingJourneys, setOnboardingJourneys] = useState<EmployeeOnboardingJourney[]>([]);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const clockInOutEnabled = Boolean(hrFeatures.attendance?.clockInOut);
+  const activeAttendanceRecord = useMemo(
+    () => attendanceRecords.find((record) => record.status === 'IN_PROGRESS') ?? null,
+    [attendanceRecords]
+  );
+  const recentAttendanceRecords = useMemo(
+    () => attendanceRecords.slice(0, 5),
+    [attendanceRecords]
+  );
+  
+  const fetchAttendanceRecords = useCallback(async () => {
+    if (!businessId) {
+      return;
+    }
+    try {
+      setAttendanceLoading(true);
+      setAttendanceError(null);
+      const params = new URLSearchParams({
+        businessId,
+        limit: '20'
+      });
+      const res = await fetch(`/api/hr/me/attendance/records?${params.toString()}`);
+      if (!res.ok) {
+        if (res.status === 403) {
+          setAttendanceRecords([]);
+          setAttendanceError('Attendance records are not available with your current subscription tier.');
+          return;
+        }
+        throw new Error(`Failed to load attendance records (${res.status})`);
+      }
+      const data = await res.json();
+      setAttendanceRecords(Array.isArray(data.records) ? data.records : []);
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : 'Failed to load attendance records';
+      setAttendanceError(errorMsg);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }, [businessId]);
+
+  const fetchOnboardingJourneys = useCallback(async () => {
+    if (!businessId || !onboardingFeatureEnabled) {
+      return;
+    }
+    try {
+      setOnboardingLoading(true);
+      setOnboardingError(null);
+      const data = await getMyOnboardingJourneys(businessId);
+      setOnboardingJourneys(Array.isArray(data.journeys) ? data.journeys : []);
+    } catch (error) {
+      const errorMsg =
+        error instanceof Error ? error.message : 'Failed to load onboarding information';
+      setOnboardingError(errorMsg);
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }, [businessId, onboardingFeatureEnabled]);
+
+  const handlePunch = useCallback(
+    async (action: 'in' | 'out') => {
+      if (!businessId) {
+        toast.error('Business ID is required to record attendance.');
+        return;
+      }
+
+      if (!clockInOutEnabled) {
+        toast.error('Clock in/out is available on the Enterprise tier.');
+        return;
+      }
+
+      try {
+        setPunching(true);
+        const endpoint =
+          action === 'in'
+            ? `/api/hr/me/attendance/punch-in?businessId=${encodeURIComponent(businessId)}`
+            : `/api/hr/me/attendance/punch-out?businessId=${encodeURIComponent(businessId)}`;
+
+        const body: Record<string, unknown> = {
+          method: 'WEB'
+        };
+
+        if (action === 'out' && activeAttendanceRecord?.id) {
+          body.recordId = activeAttendanceRecord.id;
+        }
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || `Failed to clock ${action === 'in' ? 'in' : 'out'}`);
+        }
+
+        await fetchAttendanceRecords();
+        toast.success(action === 'in' ? 'Clock-in recorded' : 'Clock-out recorded');
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : 'Failed to update attendance';
+        setAttendanceError(errorMsg);
+        toast.error(errorMsg);
+      } finally {
+        setPunching(false);
+      }
+    },
+    [businessId, clockInOutEnabled, activeAttendanceRecord, fetchAttendanceRecords]
+  );
+
+  const handleCompleteOnboardingTask = useCallback(
+    async (taskId: string) => {
+      if (!businessId) {
+        toast.error('Business ID is required to update onboarding tasks.');
+        return;
+      }
+
+      setCompletingTaskId(taskId);
+      try {
+        await completeMyOnboardingTask(businessId, taskId, { status: 'COMPLETED' });
+        toast.success('Task completed');
+        await fetchOnboardingJourneys();
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error ? error.message : 'Failed to complete onboarding task';
+        toast.error(errorMsg);
+      } finally {
+        setCompletingTaskId(null);
+      }
+    },
+    [businessId, fetchOnboardingJourneys]
+  );
   
   useEffect(() => {
     // Load profile + balance + my requests
@@ -97,10 +257,20 @@ export default function EmployeeSelfService() {
         const profileJson = await profileRes.json();
         console.log('[HR/me] Profile data received:', profileJson);
         
+        const resolvedUser = {
+          name: session?.user?.name || 'Employee',
+          email: session?.user?.email ?? 'employee@example.com'
+        };
+        const fallbackPosition = { title: 'Software Engineer', department: { name: 'Engineering' } };
+        const resolvedPosition =
+          profileJson.employee?.position && typeof profileJson.employee.position === 'object'
+            ? profileJson.employee.position
+            : fallbackPosition;
+
         setEmployeeData({
           id: profileJson.employee?.id || '1',
-          user: { name: session?.user?.name || 'Employee', email: session?.user?.email || 'employee@example.com' } as any,
-          position: profileJson.employee?.position || { title: 'Software Engineer', department: { name: 'Engineering' } },
+          user: resolvedUser,
+          position: resolvedPosition,
           hrProfile: profileJson.employee?.hrProfile || { hireDate: '2024-01-15', employeeType: 'FULL_TIME' }
         });
         
@@ -122,6 +292,7 @@ export default function EmployeeSelfService() {
         const errorMsg = e instanceof Error ? e.message : 'Failed to load';
         console.error('[HR/me] Load error:', errorMsg, e);
         setError(errorMsg);
+        await fetchAttendanceRecords();
       } finally {
         setLoading(false);
       }
@@ -133,7 +304,15 @@ export default function EmployeeSelfService() {
       setError('Business ID is required');
       setLoading(false);
     }
-  }, [businessId, session]);
+  }, [businessId, session, fetchAttendanceRecords]);
+
+  useEffect(() => {
+    if (onboardingFeatureEnabled) {
+      void fetchOnboardingJourneys();
+    } else {
+      setOnboardingJourneys([]);
+    }
+  }, [onboardingFeatureEnabled, fetchOnboardingJourneys]);
   
   const submitRequest = async () => {
     if (!reqForm.type || !reqForm.startDate || !reqForm.endDate) {
@@ -290,7 +469,7 @@ export default function EmployeeSelfService() {
           </div>
           <div>
             <label className="text-sm text-gray-600">Email</label>
-            <p className="font-medium">{(employeeData as any)?.user?.email}</p>
+            <p className="font-medium">{employeeData?.user.email}</p>
           </div>
           <div>
             <label className="text-sm text-gray-600">Position</label>
@@ -319,8 +498,203 @@ export default function EmployeeSelfService() {
         </div>
       </div>
       
+      {onboardingFeatureEnabled && (
+        <div className="bg-white border rounded-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-semibold">Onboarding</h2>
+              <p className="text-sm text-gray-600">
+                Track your onboarding tasks and milestones.
+              </p>
+            </div>
+            {onboardingLoading && <Spinner size={20} />}
+          </div>
+          {onboardingError ? (
+            <Alert type="error" title="Unable to load onboarding">
+              {onboardingError}
+            </Alert>
+          ) : onboardingLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Spinner size={28} />
+            </div>
+          ) : onboardingJourneys.length === 0 ? (
+            <EmptyState
+              icon="🚀"
+              title="No onboarding journeys"
+              description="Once HR assigns an onboarding plan, it will appear here."
+            />
+          ) : (
+            <div className="space-y-5">
+              {onboardingJourneys.map((journey) => {
+                const totalTasks = journey.tasks.length;
+                const completedTasks = journey.tasks.filter(
+                  (task) => task.status === 'COMPLETED'
+                ).length;
+                const progressPercent =
+                  totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
+                const actionableTasks = journey.tasks.filter(
+                  (task) =>
+                    task.ownerType === 'EMPLOYEE' &&
+                    task.status !== 'COMPLETED' &&
+                    task.status !== 'CANCELLED'
+                );
+
+                return (
+                  <div key={journey.id} className="border rounded-lg p-4 bg-gray-50">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+                      <div>
+                        <h3 className="text-lg font-semibold">
+                          {journey.onboardingTemplate?.name || 'Onboarding Journey'}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Started {new Date(journey.startDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="text-sm text-gray-700">
+                        <span className="font-medium">{completedTasks}</span> of{' '}
+                        <span className="font-medium">{totalTasks}</span> tasks completed ({progressPercent}
+                        %)
+                      </div>
+                    </div>
+
+                    {actionableTasks.length > 0 ? (
+                      <div className="space-y-2">
+                        {actionableTasks.map((task) => (
+                          <div
+                            key={task.id}
+                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border rounded-md bg-white px-4 py-3 text-sm"
+                          >
+                            <div>
+                              <div className="font-medium text-gray-900">{task.title}</div>
+                              {task.description && (
+                                <div className="text-gray-600 mt-0.5">{task.description}</div>
+                              )}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {task.dueDate
+                                  ? `Due ${new Date(task.dueDate).toLocaleDateString()}`
+                                  : 'No due date'}
+                                {task.requiresApproval ? ' • Requires manager approval' : ''}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs uppercase tracking-wide text-gray-500">
+                                {task.status}
+                              </span>
+                              <button
+                                onClick={() => handleCompleteOnboardingTask(task.id)}
+                                disabled={completingTaskId === task.id}
+                                className="px-3 py-1 text-sm font-medium rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60"
+                              >
+                                {completingTaskId === task.id ? 'Completing…' : 'Mark Complete'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-700 border border-green-100">
+                        You&apos;re up to date on this onboarding journey.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Self-Service Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Attendance */}
+        <div className="border rounded-lg p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="text-3xl">⏱️</div>
+              <h3 className="text-lg font-semibold">Attendance</h3>
+            </div>
+            {clockInOutEnabled ? (
+              <button
+                onClick={() => handlePunch(activeAttendanceRecord ? 'out' : 'in')}
+                disabled={punching}
+                className="px-3 py-1 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:opacity-50"
+              >
+                {punching
+                  ? 'Saving...'
+                  : activeAttendanceRecord
+                  ? 'Clock Out'
+                  : 'Clock In'}
+              </button>
+            ) : (
+              <span className="text-xs text-gray-500">
+                Clock in/out available on Enterprise
+              </span>
+            )}
+          </div>
+          {attendanceError && (
+            <Alert type="warning" title="Attendance Notice">
+              {attendanceError}
+            </Alert>
+          )}
+          {attendanceLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Spinner size={24} />
+            </div>
+          ) : recentAttendanceRecords.length === 0 ? (
+            <div className="py-4">
+              <EmptyState
+                icon="🕒"
+                title="No attendance activity yet"
+                description={
+                  clockInOutEnabled
+                    ? 'Your clock-in history will appear here once you start tracking attendance.'
+                    : 'Upgrade to Enterprise to enable clock in/out tracking.'
+                }
+              />
+            </div>
+          ) : (
+            <div className="border rounded">
+              <div className="grid grid-cols-12 bg-gray-50 px-3 py-2 text-sm font-medium">
+                <div className="col-span-3">Date</div>
+                <div className="col-span-2">Clock In</div>
+                <div className="col-span-2">Clock Out</div>
+                <div className="col-span-2">Duration</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-1 text-right">Notes</div>
+              </div>
+              {recentAttendanceRecords.map((record) => {
+                const badge = getAttendanceStatusBadge(record.status);
+                return (
+                  <div key={record.id} className="grid grid-cols-12 px-3 py-2 border-t text-sm items-center">
+                    <div className="col-span-3">
+                      {new Date(record.workDate).toLocaleDateString()}
+                    </div>
+                    <div className="col-span-2">{formatAttendanceTime(record.clockInTime)}</div>
+                    <div className="col-span-2">{formatAttendanceTime(record.clockOutTime)}</div>
+                    <div className="col-span-2">{formatAttendanceDuration(record.durationMinutes)}</div>
+                    <div className="col-span-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    <div className="col-span-1 text-right text-xs text-gray-500">
+                      {record.clockInMethod || record.clockOutMethod
+                        ? record.clockOutMethod || record.clockInMethod
+                        : '—'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {activeAttendanceRecord && clockInOutEnabled && (
+            <div className="mt-3 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-700">
+              You clocked in at {formatAttendanceTime(activeAttendanceRecord.clockInTime)} and
+              haven&apos;t clocked out yet.
+            </div>
+          )}
+        </div>
+
         {/* Time Off */}
         <div className="border rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
@@ -497,5 +871,45 @@ export default function EmployeeSelfService() {
       )}
     </div>
   );
+}
+
+function formatAttendanceTime(value: string | null) {
+  if (!value) {
+    return '—';
+  }
+  try {
+    return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '—';
+  }
+}
+
+function formatAttendanceDuration(minutes: number | null) {
+  if (minutes == null || Number.isNaN(minutes)) {
+    return '—';
+  }
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours} hr` : `${hours} hr ${remainingMinutes} min`;
+}
+
+function getAttendanceStatusBadge(
+  status: AttendanceStatus
+): { label: string; className: string } {
+  switch (status) {
+    case 'IN_PROGRESS':
+      return { label: 'In Progress', className: 'bg-blue-100 text-blue-700' };
+    case 'COMPLETED':
+      return { label: 'Completed', className: 'bg-green-100 text-green-700' };
+    case 'EXCEPTION':
+      return { label: 'Exception', className: 'bg-yellow-100 text-yellow-700' };
+    case 'AUTO_CLOSED':
+      return { label: 'Auto Closed', className: 'bg-gray-100 text-gray-700' };
+    default:
+      return { label: status, className: 'bg-gray-100 text-gray-700' };
+  }
 }
 

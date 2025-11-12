@@ -447,6 +447,7 @@ GET /api/hr/ai/context/time-off
 - [x] Time-off request lifecycle (overlap checks, balance validation, cancellation, manager notes)
 - [x] Calendar synchronization between business schedule and personal calendars
 - [x] Audit log retrieval for employees and manager approvals
+- [x] Admin “Impersonation Lab” view integrates business context impersonation and seeds HR personas (manager + specialist) for smoke testing; pending fix for occasional 500 errors when provisioning personas.
 
 ### ⏳ Pending (Features)
 
@@ -591,19 +592,24 @@ if (hrFeatures.payroll) {
 - [x] Frontend pages (framework)
 - [x] AI context registration
 
-### Phase 2: Core Employee Management (Next)
-- [ ] Employee CRUD operations
-- [ ] Employee profiles with validation
-- [ ] Employee directory with search/filter
-- [ ] Employee import wizard
-- [ ] Employee export functionality
+### Phase 2: Core Employee Management ✅ *(Complete)*
+- [x] Employee CRUD operations
+- [x] Employee profiles with validation
+- [x] Employee directory with search/filter
+- [x] Employee import wizard
+- [x] Employee export functionality
 
-### Phase 3: Attendance & Time-Off (Week 3-4)
-- [ ] Time-off request workflow
-- [ ] Manager approval system
-- [ ] Time-off balance calculation
-- [ ] Time-off calendar
-- [ ] Attendance reports
+### Phase 3: Attendance & Time-Off 🚧 *(In Progress)*
+- [x] Time-off request workflow (employee self-service + manager approvals)
+- [x] Manager approval system (exception handling & team queue)
+- [x] Time-off balance calculation (accrual, pending/used tracking)
+- [x] Time-off calendar integration
+- [x] Attendance exception workflow (list + resolve actions for direct reports)
+- [x] Attendance policy management (admin overview, create/edit modal)
+- [x] Employee clock in/out experience (web, duplicate guardrails)
+- [ ] Shift scheduling (templates, assignments, default coverage)
+- [ ] Geolocation & variance enforcement (enterprise clock-in/out)
+- [ ] Attendance reports & dashboards
 
 ### Phase 4: Enterprise Features (Week 5-8)
 - [ ] Payroll processing
@@ -616,6 +622,24 @@ if (hrFeatures.payroll) {
 - [ ] Compliance tracking
 - [ ] Integration APIs
 - [ ] Mobile support
+
+### Phase 3 Implementation Snapshot *(November 11, 2025)*
+- **Schema**: Attendance policies, shift templates/assignments, records, and exceptions defined with Prisma defaults and user back-relations; `User` model includes attendance exception relations.
+- **Services**: `hrAttendanceService` delivers policy upsert/list, punch lifecycle (`recordPunchIn` / `recordPunchOut`), employee attendance history, and manager exception resolution with variance adjustments.
+- **Controllers**: `hrController` exposes admin/employee/manager attendance endpoints with Zod validation, tenant scoping, tier gating, and improved audit helpers.
+- **Routes & Middleware**: `server/src/routes/hr.ts` enforces `checkHRFeature('attendance')`, manager context helpers, and subscription checks for Enterprise-only functionality.
+- **Frontend**:  
+  - Admin attendance page renders overview stats, policy tables, and create/edit modal with optimistic toast feedback.  
+  - Employee workspace HR page enables clock-in/out, displays latest records, and blocks duplicate punches.  
+  - Manager workspace HR page lists attendance exceptions with filters, quick stats, and resolve/dismiss flows.
+- **Time-Off Hardening**: Legacy controllers now rely on `TimeOffStatus/TimeOffType` enums, overlap checks, and Prisma lookups without `any`; CSV import/export reads from buffers only and removes dynamic `require` usage.
+- **Tooling**: Prisma build/generate/deploy executed to baseline schema; ESLint runs clean after removing residual `any` usage across controllers.
+
+### Phase 3 Next Up
+- Build UI + APIs for shift templates/assignments (admin + manager scheduling workflows).
+- Add geolocation radius checks, variance calculations, and auto clock-out policies (Enterprise feature).
+- Design attendance analytics (trend charts, exportable reports) for Business Advanced and Enterprise.
+- Expand observability (metrics, logs, alerts) and automate smoke tests for policies, punches, exceptions, and CSV flows.
 
 ---
 
@@ -715,6 +739,29 @@ if (hrFeatures.payroll) {
 2. **Soft Deletes**: HR data retained for compliance (use `deletedAt`)
 3. **Sensitive Data**: Personal info and payroll encrypted in production
 4. **Access Control**: Three-tier permission system strictly enforced
+
+### Phase 3 Security, Auditing & Testing Plan *(Attendance & Advanced Time-Off)*
+
+**Security & Compliance**
+- Enforce tier + feature gates on every attendance route (`checkHRFeature('attendance')`, `checkBusinessAdvancedOrHigher`) and verify impersonated sessions still honor the original business scope.
+- Require explicit multi-tenant filters on attendance models (`attendanceRecords`, `attendancePolicies`, `attendanceExceptions`, `attendanceShiftAssignments`) with compound indexes on `businessId` + key identifiers.
+- Treat geolocation payloads and variance metadata as sensitive: redact from client logs, encrypt at rest in production via existing Prisma JSON encryption middleware, and restrict exposure to admin/manager views only.
+- Harden `recordPunch` by validating device/browser fingerprint, optional geofence radius, and throttling duplicate punch attempts within the grace period.
+- Extend audit logging (`hrAuditService`) to capture punch start/stop, policy changes, exception resolutions, and shift assignment edits with `before`/`after` payloads and impersonation context (`originalUserId`).
+- Emit structured logs (`logger.info/error`) for every mutation with correlation IDs so Security & Compliance dashboards can surface anomalies (late arrivals, repeated geo violations).
+
+**Testing Strategy**
+- **Unit tests**: Cover `hrAttendanceService` helpers (policy resolution, variance calculation, exception generation) with edge cases for overnight shifts, daylight savings, and grace period overrides.
+- **Integration tests**: Exercise REST routes via Supertest with seeded business/manager/employee personas; assert authorization failures for cross-business access, unauthorized tier requests, and impersonation misuse.
+- **Contract tests**: Snapshot API responses consumed by frontend hooks (`useAttendanceOverview`, `useAttendancePolicies`) to keep DTOs stable.
+- **Manual smoke tests** (per release): clock in/out, approve exceptions, modify policies, rotate shift assignments, and confirm real-time UI refresh plus audit log visibility; repeat while impersonating manager/employee roles.
+- **Mobile/geolocation validation**: Test clock-in from allowed vs disallowed coordinates using Cypress geolocation stubs; ensure geo violations create exceptions and notify managers.
+- **Load safeguards**: Run punch burst tests (10 punches/sec via script) against staging to confirm rate limits and queue back-pressure behave without dropping events.
+
+**Observability & Operations**
+- Publish key metrics to existing telemetry pipeline: `attendance.punch.count`, `attendance.exception.open`, `attendance.policy.changes`, tagged by `businessId` and tier.
+- Schedule automated daily health checks that confirm each active business has at least one attendance policy, default shift template, and zero dangling `IN_PROGRESS` records past `autoClockOutAfterMinutes`.
+- Document rollback procedure: disabling attendance feature via `BusinessConfigurationContext` toggles while preserving audit history; provide SQL playbook for reverting policy changes if migrations fail.
 
 ### Manager Approval Rules
 

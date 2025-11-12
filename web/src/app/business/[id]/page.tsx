@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Card, Button, Badge, Spinner, Alert } from 'shared/components';
@@ -9,7 +9,8 @@ import { BusinessBrandingProvider, BrandedHeader, BrandedButton } from '@/compon
 import AvatarContextMenu from '@/components/AvatarContextMenu';
 import BillingModal from '@/components/BillingModal';
 import { getInstalledModules } from '@/api/modules';
-import { 
+import type { LucideIcon } from 'lucide-react';
+import {
   Building2, 
   Users, 
   Palette, 
@@ -86,6 +87,13 @@ interface InstalledModule {
   description?: string;
   status: string;
   category?: string;
+  version?: string;
+}
+
+interface SidebarSection {
+  id: string;
+  label: string;
+  icon: LucideIcon;
 }
 
 export default function BusinessAdminPage() {
@@ -106,6 +114,7 @@ export default function BusinessAdminPage() {
   });
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [installedModules, setInstalledModules] = useState<InstalledModule[]>([]);
+  const [activeSection, setActiveSection] = useState<string>('overview');
 
   useEffect(() => {
     if (businessId && session?.accessToken) {
@@ -144,6 +153,18 @@ export default function BusinessAdminPage() {
     }
   };
 
+const truncateDescription = (value?: string) => {
+  if (!value) {
+    return 'Installed module';
+  }
+
+  if (value.length <= 120) {
+    return value;
+  }
+
+  return `${value.slice(0, 117)}...`;
+};
+
   const checkSetupStatus = async () => {
     try {
       const resp = await businessAPI.getBusinessSetupStatus(businessId);
@@ -172,6 +193,73 @@ export default function BusinessAdminPage() {
     if (!session?.user?.id) return false;
     return isOwnerOrAdmin();
   };
+
+  const canManageBillingAccess = canManageBilling();
+
+  const sidebarSections: SidebarSection[] = useMemo(() => {
+    const sections: SidebarSection[] = [
+      { id: 'overview', label: 'Overview', icon: Layout },
+      { id: 'modules', label: 'Modules', icon: Package },
+      { id: 'people', label: 'People & Access', icon: Users },
+      { id: 'branding', label: 'Branding', icon: Palette },
+      { id: 'ai', label: 'AI & Insights', icon: Brain },
+    ];
+
+    if (canManageBillingAccess) {
+      sections.push({ id: 'subscription', label: 'Subscription', icon: CreditCard });
+    }
+
+    sections.push({ id: 'workspace', label: 'Workspace', icon: Briefcase });
+    return sections;
+  }, [canManageBillingAccess]);
+
+  const sectionIds = useMemo(() => sidebarSections.map(section => section.id), [sidebarSections]);
+
+  const handleNavClick = (sectionId: string) => {
+    setActiveSection(sectionId);
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const target = document.getElementById(sectionId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        if (visible.length > 0) {
+          setActiveSection(visible[0].target.id);
+        }
+      },
+      {
+        rootMargin: '-120px 0px -60% 0px',
+        threshold: [0.2, 0.4, 0.6],
+      }
+    );
+
+    const elements = sectionIds
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => element !== null);
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => {
+      elements.forEach((element) => observer.unobserve(element));
+      observer.disconnect();
+    };
+  }, [sectionIds]);
 
   if (loading) {
     return (
@@ -275,12 +363,12 @@ export default function BusinessAdminPage() {
 
   return (
     <BusinessBrandingProvider initialBranding={branding}>
-      <div className="min-h-screen bg-gray-50">
-        {/* Header with Business Branding */}
-        <BrandedHeader
-          title={business.name}
-          subtitle="Business Administration Dashboard"
-        >
+      <div className="min-h-screen bg-gray-900">
+        <div className="sticky top-0 z-40">
+          <BrandedHeader
+            title={business.name}
+            subtitle="Business Administration Dashboard"
+          >
           <div className="flex items-center space-x-3">
             <BrandedButton
               onClick={() => router.push(`/business/${business.id}/workspace`)}
@@ -301,421 +389,560 @@ export default function BusinessAdminPage() {
             </BrandedButton>
             <AvatarContextMenu className="text-white" />
           </div>
-        </BrandedHeader>
+          </BrandedHeader>
+        </div>
 
-        <div className="container mx-auto px-6 py-8">
-          {/* Setup Progress */}
-          {!isSetupComplete && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-blue-900">Business Setup Progress</h3>
-                <span className="text-sm font-medium text-blue-900">{setupProgress}% Complete</span>
-              </div>
-              <div className="w-full bg-blue-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${setupProgress}%` }}
-                />
-              </div>
-              <p className="text-sm text-blue-700 mt-2">
-                Complete your business setup to unlock all features for your team.
+        <div className="flex w-full" style={{ minHeight: 'calc(100vh - 64px)' }}>
+          <aside className="hidden w-64 flex-col border-r border-gray-800 bg-gray-900 text-white lg:flex">
+            <nav className="flex-1 overflow-y-auto py-8">
+              <p className="px-6 pb-4 text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+                Navigation
               </p>
-            </div>
-          )}
-        </div>
+              <div className="space-y-1">
+                {sidebarSections.map((section) => {
+                  const Icon = section.icon;
+                  const isActive = activeSection === section.id;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => handleNavClick(section.id)}
+                      className={`flex w-full items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                      }`}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span>{section.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </nav>
+          </aside>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Team Members</p>
-                <p className="text-2xl font-bold text-gray-900">{business.members.length}</p>
+          <main className="flex-1 bg-gray-50">
+            <div className="sticky top-0 z-20 border-b border-gray-200 bg-white px-4 py-3 lg:hidden">
+              <div className="flex gap-2 overflow-x-auto">
+                {sidebarSections.map((section) => {
+                  const Icon = section.icon;
+                  const isActive = activeSection === section.id;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => handleNavClick(section.id)}
+                      className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors ${
+                        isActive
+                          ? 'border-blue-500 bg-blue-50 text-blue-600'
+                          : 'border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{section.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          </Card>
 
-          <Card className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Package className="w-6 h-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Active Modules</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {business.dashboards.length || 0}
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Brain className="w-6 h-6 text-purple-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">AI Interactions</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {business.aiDigitalTwin?.totalInteractions || 0}
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Target className="w-6 h-6 text-orange-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Setup Progress</p>
-                <p className="text-2xl font-bold text-gray-900">{setupProgress}%</p>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Main Management Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          
-          {/* Organization & Permissions */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Building2 className="w-6 h-6 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Organization Chart</h3>
-                  <p className="text-sm text-gray-600">Manage roles, permissions, and hierarchy</p>
-                </div>
-              </div>
-              {setupStatus.orgChart ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-orange-500" />
-              )}
-            </div>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">Organizational Structure</span>
-                <Badge color={setupStatus.orgChart ? "green" : "yellow"}>
-                  {setupStatus.orgChart ? "Configured" : "Pending"}
-                </Badge>
-              </div>
-              
-              <Button 
-                variant="primary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/org-chart`)}
-              >
-                <Building2 className="w-4 h-4 mr-2" />
-                {setupStatus.orgChart ? "Manage Org Chart" : "Set Up Organization"}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-
-          {/* Business AI Assistant */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Brain className="w-6 h-6 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">AI Assistant</h3>
-                  <p className="text-sm text-gray-600">Configure AI rules and capabilities</p>
-                </div>
-              </div>
-              {setupStatus.aiAssistant ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-orange-500" />
-              )}
-            </div>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">AI Configuration</span>
-                <Badge color={setupStatus.aiAssistant ? "green" : "yellow"}>
-                  {setupStatus.aiAssistant ? "Active" : "Not Configured"}
-                </Badge>
-              </div>
-              
-              <Button 
-                variant="primary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/ai`)}
-              >
-                <Brain className="w-4 h-4 mr-2" />
-                {setupStatus.aiAssistant ? "Manage AI Assistant" : "Set Up AI Assistant"}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-
-          {/* OLD DUPLICATE REMOVED - Now using unified "Business Branding & Front Page" card below */}
-
-          {/* Module Management */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Package className="w-6 h-6 text-green-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Business Modules</h3>
-                  <p className="text-sm text-gray-600">Install and manage tools</p>
-                </div>
-              </div>
-              {setupStatus.modules ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-orange-500" />
-              )}
-            </div>
-            
-            <div className="space-y-3">
-              {/* Installed Modules List */}
-              {installedModules.length > 0 ? (
-                <div className="space-y-2 mb-3">
-                  {installedModules.map((module) => {
-                    const ModuleIcon = getModuleIcon(module.id);
-                    return (
-                      <div 
-                        key={module.id} 
-                        className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <div className="p-1.5 bg-white rounded">
-                            <ModuleIcon className="w-4 h-4 text-gray-700" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">{module.name}</span>
-                        </div>
-                        <Badge color="green" size="sm">Active</Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="p-3 bg-amber-50 rounded-lg mb-3">
-                  <p className="text-sm text-amber-800">No modules installed yet</p>
-                </div>
-              )}
-              
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">Installed Modules</span>
-                <Badge color={installedModules.length > 0 ? "green" : "gray"}>
-                  {installedModules.length} Installed
-                </Badge>
-              </div>
-              
-              <Button 
-                variant="primary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/modules`)}
-              >
-                <Package className="w-4 h-4 mr-2" />
-                Manage Modules
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-
-          {/* Business Branding & Front Page */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-indigo-100 rounded-lg">
-                  <Palette className="w-6 h-6 text-indigo-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Business Branding</h3>
-                  <p className="text-sm text-gray-600">Global branding & front page configuration</p>
-                </div>
-              </div>
-              <CheckCircle className="w-5 h-5 text-green-500" />
-            </div>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">Single Source of Truth</span>
-                <Badge color="blue">Unified</Badge>
-              </div>
-              
-              <Button 
-                variant="primary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/branding`)}
-              >
-                <Palette className="w-4 h-4 mr-2" />
-                Configure Branding
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-
-          {/* Billing & Subscription - Only for Admins/Managers */}
-          {canManageBilling() && (
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <CreditCard className="w-6 h-6 text-purple-600" />
-                  </div>
+            <div className="mx-auto max-w-6xl space-y-16 overflow-y-auto px-4 pb-16 pt-10" style={{ maxHeight: 'calc(100vh - 64px)' }}>
+              <section id="overview" className="scroll-mt-24 space-y-6">
+                <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Billing & Subscription</h3>
-                    <p className="text-sm text-gray-600">Manage your business subscription and billing</p>
+                    <h2 className="text-2xl font-semibold text-gray-900">Overview</h2>
+                    <p className="text-sm text-gray-600">
+                      Monitor setup progress and key metrics for {business.name}.
+                    </p>
                   </div>
-                </div>
-                <CheckCircle className="w-5 h-5 text-green-500" />
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">Current Plan</span>
-                  <Badge color={getTierBadgeColor(effectiveTier)}>
-                    {getTierDisplayName(effectiveTier)}
+                  <Badge color={isSetupComplete ? 'green' : 'yellow'} size="sm">
+                    {isSetupComplete ? 'Setup Complete' : 'Setup In Progress'}
                   </Badge>
                 </div>
-                
-                {/* Show tier warning if not set */}
-                {!business.tier && !business.subscriptions?.length && (
-                  <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                    ⚠️ Tier not set. Some features may be unavailable.
-                  </div>
+
+                {!isSetupComplete && (
+                  <Card className="border border-blue-100 bg-blue-50 p-6 shadow-sm">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="text-sm font-medium text-blue-900">Business Setup Progress</h3>
+                        <p className="text-sm text-blue-700">
+                          Complete your business setup to unlock all features for your team.
+                        </p>
+                      </div>
+                      <span className="text-sm font-medium text-blue-900">{setupProgress}% Complete</span>
+                    </div>
+                    <div className="mt-4 h-2 w-full rounded-full bg-blue-200">
+                      <div
+                        className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+                        style={{ width: `${setupProgress}%` }}
+                      />
+                    </div>
+                  </Card>
                 )}
-                
-                <Button 
-                  variant="primary" 
-                  className="w-full"
-                  onClick={() => setShowBillingModal(true)}
-                >
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  Manage Billing & Subscriptions
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </div>
-            </Card>
-          )}
-        </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6">
-            <div className="text-center">
-              <div className="p-3 bg-blue-100 rounded-full w-12 h-12 mx-auto mb-4">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Manage Team</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Invite employees, assign roles, and manage permissions
-              </p>
-              <Button 
-                variant="secondary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/profile?tab=members`)}
-              >
-                <Users className="w-4 h-4 mr-2" />
-                Team Management
-              </Button>
-            </div>
-          </Card>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center">
+                      <div className="rounded-lg bg-blue-100 p-2">
+                        <Users className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Team Members</p>
+                        <p className="text-2xl font-bold text-gray-900">{business.members.length}</p>
+                      </div>
+                    </div>
+                  </Card>
 
-          <Card className="p-6">
-            <div className="text-center">
-              <div className="p-3 bg-orange-100 rounded-full w-12 h-12 mx-auto mb-4">
-                <BarChart3 className="w-6 h-6 text-orange-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Analytics</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                View business performance and team productivity
-              </p>
-              <Button 
-                variant="secondary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/profile?tab=analytics`)}
-              >
-                <BarChart3 className="w-4 h-4 mr-2" />
-                View Analytics
-              </Button>
-            </div>
-          </Card>
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center">
+                      <div className="rounded-lg bg-green-100 p-2">
+                        <Package className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Active Modules</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                          {installedModules.length}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
 
-          <Card className="p-6">
-            <div className="text-center">
-              <div className="p-3 bg-gray-100 rounded-full w-12 h-12 mx-auto mb-4">
-                <Briefcase className="w-6 h-6 text-gray-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Go to Workspace</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Access your business workspace and daily tools
-              </p>
-              <Button 
-                variant="primary" 
-                className="w-full"
-                onClick={() => router.push(`/business/${businessId}/workspace`)}
-              >
-                <Briefcase className="w-4 h-4 mr-2" />
-                Open Workspace
-              </Button>
-            </div>
-          </Card>
-        </div>
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center">
+                      <div className="rounded-lg bg-purple-100 p-2">
+                        <Brain className="h-6 w-6 text-purple-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">AI Interactions</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                          {business.aiDigitalTwin?.totalInteractions || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
 
-        {/* Setup Reminder */}
-        {!isSetupComplete && (
-          <Card className="p-6 border-l-4 border-l-orange-400">
-            <div className="flex items-start space-x-4">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Zap className="w-6 h-6 text-orange-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Complete Your Setup</h3>
-                <p className="text-gray-600 mb-4">
-                  You're {setupProgress}% done! Complete the remaining setup steps to unlock all features for your team.
-                </p>
-                <div className="space-y-2">
-                  {!setupStatus.orgChart && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <AlertCircle className="w-4 h-4 mr-2 text-orange-500" />
-                      Set up your organization chart and permissions
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center">
+                      <div className="rounded-lg bg-orange-100 p-2">
+                        <Target className="h-6 w-6 text-orange-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Setup Progress</p>
+                        <p className="text-2xl font-bold text-gray-900">{setupProgress}%</p>
+                      </div>
                     </div>
-                  )}
-                  {!setupStatus.aiAssistant && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <AlertCircle className="w-4 h-4 mr-2 text-orange-500" />
-                      Configure your business AI assistant
+                  </Card>
+                </div>
+              </section>
+
+              <section id="modules" className="scroll-mt-24 space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-semibold text-gray-900">Modules</h2>
+                    <p className="text-sm text-gray-600">
+                      Install and configure the tools powering your workspace experience.
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    className="flex items-center gap-2"
+                    onClick={() => router.push(`/business/${businessId}/modules`)}
+                  >
+                    <Package className="h-4 w-4" />
+                    Manage Modules
+                  </Button>
+                </div>
+
+                {installedModules.length > 0 ? (
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {installedModules.map((module) => {
+                      const ModuleIcon = getModuleIcon(module.id);
+                      const statusColor =
+                        module.status === 'installed'
+                          ? 'green'
+                          : module.status === 'pending'
+                          ? 'yellow'
+                          : 'gray';
+
+                      return (
+                        <Card key={module.id} className="h-full p-5 shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <div className="rounded-lg bg-blue-50 p-2">
+                              <ModuleIcon className="h-5 w-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <h3 className="text-base font-semibold text-gray-900">{module.name}</h3>
+                              <p className="text-xs uppercase tracking-wide text-gray-500">
+                                {module.category || 'Core Module'}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="mt-4 text-sm text-gray-600">
+                            {truncateDescription(module.description)}
+                          </p>
+                          <div className="mt-4 flex items-center justify-between">
+                            <Badge color={statusColor} size="sm">
+                              {module.status === 'installed'
+                                ? 'Active'
+                                : module.status === 'pending'
+                                ? 'Pending'
+                                : 'Available'}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              v{module.version ?? '1.0.0'}
+                            </span>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Card className="flex flex-col gap-4 border border-dashed border-gray-300 bg-white p-6 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-full bg-amber-100 p-2">
+                        <Package className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900">No modules installed yet</h3>
                     </div>
-                  )}
-                  {!setupStatus.branding && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <AlertCircle className="w-4 h-4 mr-2 text-orange-500" />
-                      Customize your business branding
+                    <p className="text-sm text-gray-600">
+                      Install modules to unlock collaboration, automation, and analytics for your team.
+                    </p>
+                  </Card>
+                )}
+
+                <Card className="p-6 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-green-100 p-2">
+                        <Package className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Module Readiness</h3>
+                        <p className="text-sm text-gray-600">
+                          Keep modules aligned across personal and business contexts.
+                        </p>
+                      </div>
                     </div>
-                  )}
-                  {!setupStatus.employees && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <AlertCircle className="w-4 h-4 mr-2 text-orange-500" />
-                      Invite your team members
+                    <Badge color={setupStatus.modules ? 'green' : 'yellow'} size="sm">
+                      {setupStatus.modules ? 'Configured' : 'Action Required'}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                      <span>Installed Modules</span>
+                      <Badge color={installedModules.length > 0 ? 'green' : 'gray'} size="sm">
+                        {installedModules.length}
+                      </Badge>
                     </div>
+                    <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                      <span>Status</span>
+                      <span className="font-medium text-gray-900">
+                        {setupStatus.modules ? 'Active' : 'Pending Setup'}
+                      </span>
+                    </div>
+                  </div>
+                </Card>
+              </section>
+
+              <section id="people" className="scroll-mt-24 space-y-6">
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-900">People & Access</h2>
+                  <p className="text-sm text-gray-600">
+                    Manage organizational structure, permissions, and team membership.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center justify-between pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-blue-100 p-2">
+                          <Building2 className="h-6 w-6 text-blue-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">Organization Chart</h3>
+                          <p className="text-sm text-gray-600">
+                            Manage roles, permissions, and hierarchy.
+                          </p>
+                        </div>
+                      </div>
+                      <Badge color={setupStatus.orgChart ? 'green' : 'yellow'} size="sm">
+                        {setupStatus.orgChart ? 'Configured' : 'Pending'}
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="primary"
+                      className="w-full"
+                      onClick={() => router.push(`/business/${businessId}/org-chart`)}
+                    >
+                      <Building2 className="h-4 w-4" />
+                      <span className="ml-2">
+                        {setupStatus.orgChart ? 'Manage Org Chart' : 'Set Up Organization'}
+                      </span>
+                      <ArrowRight className="ml-auto h-4 w-4" />
+                    </Button>
+                  </Card>
+
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center gap-3 pb-4">
+                      <div className="rounded-lg bg-blue-100 p-2">
+                        <Users className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Team Management</h3>
+                        <p className="text-sm text-gray-600">
+                          Invite employees, assign roles, and maintain permissions.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => router.push(`/business/${businessId}/profile?tab=members`)}
+                    >
+                      <Users className="h-4 w-4" />
+                      <span className="ml-2">Manage Team</span>
+                      <ArrowRight className="ml-auto h-4 w-4" />
+                    </Button>
+                  </Card>
+                </div>
+              </section>
+
+              <section id="branding" className="scroll-mt-24 space-y-6">
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-900">Branding</h2>
+                  <p className="text-sm text-gray-600">
+                    Ensure every surface reflects your company identity across personal and business views.
+                  </p>
+                </div>
+
+                <Card className="p-6 shadow-sm">
+                  <div className="flex items-center justify-between pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-indigo-100 p-2">
+                        <Palette className="h-6 w-6 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Business Branding</h3>
+                        <p className="text-sm text-gray-600">
+                          Centralize logos, colors, fonts, and front page messaging.
+                        </p>
+                      </div>
+                    </div>
+                    <Badge color="blue">Unified</Badge>
+                  </div>
+                  <Button
+                    variant="primary"
+                    className="w-full"
+                    onClick={() => router.push(`/business/${businessId}/branding`)}
+                  >
+                    <Palette className="h-4 w-4" />
+                    <span className="ml-2">Configure Branding</span>
+                    <ArrowRight className="ml-auto h-4 w-4" />
+                  </Button>
+                </Card>
+              </section>
+
+              <section id="ai" className="scroll-mt-24 space-y-6">
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-900">AI & Insights</h2>
+                  <p className="text-sm text-gray-600">
+                    Configure automation and review the intelligence supporting your business decisions.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center justify-between pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-purple-100 p-2">
+                          <Brain className="h-6 w-6 text-purple-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">AI Assistant</h3>
+                          <p className="text-sm text-gray-600">Configure prompts, guardrails, and automations.</p>
+                        </div>
+                      </div>
+                      <Badge color={setupStatus.aiAssistant ? 'green' : 'yellow'} size="sm">
+                        {setupStatus.aiAssistant ? 'Active' : 'Not Configured'}
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="primary"
+                      className="w-full"
+                      onClick={() => router.push(`/business/${businessId}/ai`)}
+                    >
+                      <Brain className="h-4 w-4" />
+                      <span className="ml-2">
+                        {setupStatus.aiAssistant ? 'Manage AI Assistant' : 'Set Up AI Assistant'}
+                      </span>
+                      <ArrowRight className="ml-auto h-4 w-4" />
+                    </Button>
+                  </Card>
+
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center gap-3 pb-4">
+                      <div className="rounded-lg bg-orange-100 p-2">
+                        <BarChart3 className="h-6 w-6 text-orange-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Analytics</h3>
+                        <p className="text-sm text-gray-600">
+                          Review performance, adoption, and compliance metrics for your organization.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => router.push(`/business/${businessId}/profile?tab=analytics`)}
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                      <span className="ml-2">View Analytics</span>
+                      <ArrowRight className="ml-auto h-4 w-4" />
+                    </Button>
+                  </Card>
+                </div>
+              </section>
+
+              {canManageBillingAccess && (
+                <section id="subscription" className="scroll-mt-24 space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-semibold text-gray-900">Subscription</h2>
+                    <p className="text-sm text-gray-600">
+                      Manage billing, seat counts, and plan upgrades for your business.
+                    </p>
+                  </div>
+
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center justify-between pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-purple-100 p-2">
+                          <CreditCard className="h-6 w-6 text-purple-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">Billing & Subscription</h3>
+                          <p className="text-sm text-gray-600">
+                            Update payment details, seats, and plan tiers whenever you need.
+                          </p>
+                        </div>
+                      </div>
+                      <Badge color="green">Active</Badge>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
+                        <span className="text-sm font-medium text-gray-700">Current Plan</span>
+                        <Badge color={getTierBadgeColor(effectiveTier)}>
+                          {getTierDisplayName(effectiveTier)}
+                        </Badge>
+                      </div>
+
+                      {!business.tier && !business.subscriptions?.length && (
+                        <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                          ⚠️ Tier not set. Some features may be unavailable.
+                        </div>
+                      )}
+
+                      <Button
+                        variant="primary"
+                        className="w-full"
+                        onClick={() => setShowBillingModal(true)}
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        <span className="ml-2">Manage Billing & Subscriptions</span>
+                        <ArrowRight className="ml-auto h-4 w-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                </section>
+              )}
+
+              <section id="workspace" className="scroll-mt-24 space-y-6">
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-900">Workspace & Actions</h2>
+                  <p className="text-sm text-gray-600">
+                    Launch the daily workspace and wrap up outstanding setup tasks.
+                  </p>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card className="p-6 shadow-sm">
+                    <div className="flex items-center gap-3 pb-4">
+                      <div className="rounded-lg bg-gray-100 p-2">
+                        <Briefcase className="h-6 w-6 text-gray-700" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Business Workspace</h3>
+                        <p className="text-sm text-gray-600">
+                          Enter the live workspace to collaborate with your team.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="primary"
+                      className="w-full"
+                      onClick={() => router.push(`/business/${businessId}/workspace`)}
+                    >
+                      <Briefcase className="h-4 w-4" />
+                      <span className="ml-2">Open Workspace</span>
+                      <ArrowRight className="ml-auto h-4 w-4" />
+                    </Button>
+                  </Card>
+
+                  {!isSetupComplete && (
+                    <Card className="p-6 shadow-sm">
+                      <div className="flex items-start gap-4">
+                        <div className="rounded-lg bg-orange-100 p-2">
+                          <Zap className="h-6 w-6 text-orange-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            Complete Your Setup
+                          </h3>
+                          <p className="mt-2 text-sm text-gray-600">
+                            You&apos;re {setupProgress}% done—finish the remaining steps to unlock all features.
+                          </p>
+                          <div className="mt-4 space-y-2 text-sm text-gray-600">
+                            {!setupStatus.orgChart && (
+                              <div className="flex items-center">
+                                <AlertCircle className="mr-2 h-4 w-4 text-orange-500" />
+                                Set up your organization chart and permissions.
+                              </div>
+                            )}
+                            {!setupStatus.aiAssistant && (
+                              <div className="flex items-center">
+                                <AlertCircle className="mr-2 h-4 w-4 text-orange-500" />
+                                Configure your business AI assistant.
+                              </div>
+                            )}
+                            {!setupStatus.branding && (
+                              <div className="flex items-center">
+                                <AlertCircle className="mr-2 h-4 w-4 text-orange-500" />
+                                Customize your business branding.
+                              </div>
+                            )}
+                            {!setupStatus.employees && (
+                              <div className="flex items-center">
+                                <AlertCircle className="mr-2 h-4 w-4 text-orange-500" />
+                                Invite your team members.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
                   )}
                 </div>
-              </div>
+              </section>
             </div>
-          </Card>
-        )}
+          </main>
+        </div>
       </div>
 
-      {/* Billing Modal - Only for authorized users */}
-      {canManageBilling() && (
-        <BillingModal 
+      {canManageBillingAccess && (
+        <BillingModal
           isOpen={showBillingModal}
           onClose={() => setShowBillingModal(false)}
         />

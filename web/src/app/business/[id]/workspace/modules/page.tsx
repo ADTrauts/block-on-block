@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { businessAPI } from '../../../../../api/business';
@@ -13,17 +13,35 @@ import {
   Settings,
   ToggleLeft,
   ToggleRight,
-  FileText,
   Plus,
   Search
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { configureModule } from '../../../../../api/modules';
+import type { ModuleConfig } from '../../../../../components/module-settings/types';
+import type { BusinessModule } from '../../../../../contexts/BusinessConfigurationContext';
 
 interface Business {
   id: string;
   name: string;
   logo?: string;
 }
+
+type ModuleTypeKey = 'drive' | 'chat' | 'calendar' | 'analytics' | 'members' | 'admin' | 'hr';
+
+interface ModuleSelection {
+  id: string;
+  name?: string;
+  moduleType: ModuleTypeKey;
+  config: ModuleConfig;
+}
+
+type ModuleDataLike = BusinessModule & {
+  configured?: {
+    settings?: unknown;
+    permissions?: string[];
+  };
+};
 
 export default function BusinessModulesPage() {
   const params = useParams();
@@ -33,10 +51,56 @@ export default function BusinessModulesPage() {
     loading: configLoading, 
     error: configError,
     updateModuleStatus,
-    updateModulePermissions,
-    getEnabledModules
+    updateModulePermissions
   } = useBusinessConfiguration();
   const businessId = params?.id as string;
+
+  const mapModuleType = (moduleId: string): ModuleTypeKey => {
+    const normalized = moduleId.toLowerCase();
+    switch (normalized) {
+      case 'drive':
+        return 'drive';
+      case 'chat':
+        return 'chat';
+      case 'calendar':
+        return 'calendar';
+      case 'analytics':
+        return 'analytics';
+      case 'members':
+        return 'members';
+      case 'hr':
+      case 'hr-onboarding':
+        return 'hr';
+      default:
+        return 'admin';
+    }
+  };
+
+  const deriveModuleConfig = (moduleData: ModuleDataLike): ModuleConfig => {
+    const configured = moduleData.configured as Record<string, unknown> | undefined;
+    const configuredSettings = configured?.settings as Partial<ModuleConfig> | undefined;
+    const configuredPermissionsRaw = configured?.permissions;
+    const directPermissionsRaw = moduleData.permissions;
+
+    const normalizePermissions = (value: unknown): string[] => (
+      Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === 'string')
+        : []
+    );
+
+    const permissions = normalizePermissions(configuredPermissionsRaw).length > 0
+      ? normalizePermissions(configuredPermissionsRaw)
+      : normalizePermissions(directPermissionsRaw);
+
+    return {
+      permissions,
+      storage: configuredSettings?.storage,
+      notifications: configuredSettings?.notifications,
+      security: configuredSettings?.security,
+      integrations: configuredSettings?.integrations,
+      onboarding: configuredSettings?.onboarding
+    };
+  };
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,20 +108,13 @@ export default function BusinessModulesPage() {
   
   // Module selection state
   const [showModuleSelection, setShowModuleSelection] = useState(false);
-  const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [installing, setInstalling] = useState(false);
 
   // Module settings state
   const [showModuleSettings, setShowModuleSettings] = useState(false);
-  const [selectedModuleForSettings, setSelectedModuleForSettings] = useState<any>(null);
+  const [selectedModuleForSettings, setSelectedModuleForSettings] = useState<ModuleSelection | null>(null);
 
-  useEffect(() => {
-    if (businessId && session?.accessToken) {
-      loadBusinessData();
-    }
-  }, [businessId, session?.accessToken]);
-
-  const loadBusinessData = async () => {
+  const loadBusinessData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -71,19 +128,52 @@ export default function BusinessModulesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [businessId]);
 
-  const openModuleSettings = (module: any) => {
-    setSelectedModuleForSettings(module);
+  useEffect(() => {
+    if (businessId && session?.accessToken) {
+      void loadBusinessData();
+    }
+  }, [businessId, session?.accessToken, loadBusinessData]);
+
+  const openModuleSettings = (module: ModuleDataLike) => {
+    const moduleId = typeof module.id === 'string' ? module.id : null;
+    if (!moduleId) {
+      toast.error('Unable to open settings for module without an identifier');
+      return;
+    }
+
+    const moduleName = typeof module.name === 'string' ? module.name : undefined;
+    const moduleConfig = deriveModuleConfig(module);
+
+    setSelectedModuleForSettings({
+      id: moduleId,
+      name: moduleName,
+      moduleType: mapModuleType(moduleId),
+      config: moduleConfig
+    });
     setShowModuleSettings(true);
   };
 
-  const handleModuleSettingsSave = async (config: any) => {
+  const handleModuleSettingsSave = async (config: ModuleConfig) => {
+    if (!selectedModuleForSettings) {
+      toast.error('No module selected');
+      return;
+    }
+
     try {
       await updateModulePermissions(selectedModuleForSettings.id, config.permissions || []);
+      await configureModule(selectedModuleForSettings.id, {
+        enabled: true,
+        permissions: config.permissions || [],
+        settings: { ...config } as Record<string, unknown>,
+      });
+      setSelectedModuleForSettings(prev =>
+        prev ? { ...prev, config } : prev
+      );
       toast.success('Module settings updated successfully');
       setShowModuleSettings(false);
-    } catch (error) {
+    } catch {
       toast.error('Failed to update module settings');
     }
   };
@@ -313,7 +403,6 @@ export default function BusinessModulesPage() {
         isOpen={showModuleSelection}
         onClose={() => setShowModuleSelection(false)}
         onComplete={async (selectedModuleIds: string[]) => {
-          setSelectedModules(selectedModuleIds);
           setShowModuleSelection(false);
           if (selectedModuleIds.length === 0) return;
           try {
@@ -322,7 +411,7 @@ export default function BusinessModulesPage() {
               await updateModuleStatus(id, 'enabled');
             }
             toast.success('Selected enterprise modules installed');
-          } catch (e) {
+          } catch {
             toast.error('Failed to install one or more modules');
           } finally {
             setInstalling(false);
@@ -338,10 +427,11 @@ export default function BusinessModulesPage() {
         <ModuleSettingsPanel
           moduleId={selectedModuleForSettings.id}
           moduleName={selectedModuleForSettings.name || selectedModuleForSettings.id}
-          moduleType={selectedModuleForSettings.id as any}
-          currentConfig={selectedModuleForSettings}
+          moduleType={selectedModuleForSettings.moduleType}
+          currentConfig={selectedModuleForSettings.config}
           onSave={handleModuleSettingsSave}
           onClose={() => setShowModuleSettings(false)}
+          businessId={businessId}
         />
       )}
     </div>

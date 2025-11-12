@@ -57,7 +57,9 @@ export default function DebugAuthPage() {
 
       // Test 4: Test starting impersonation
       try {
-        const startResponse = await adminApiService.startImpersonation('af4d32fc-6ef7-4ce8-a8ba-e5ad6369f0ae', 'Debug test');
+        const startResponse = await adminApiService.startImpersonation('af4d32fc-6ef7-4ce8-a8ba-e5ad6369f0ae', {
+          reason: 'Debug test'
+        });
         results.startImpersonation = {
           success: !startResponse.error,
           error: startResponse.error,

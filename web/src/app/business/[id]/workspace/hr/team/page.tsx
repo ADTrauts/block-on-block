@@ -13,12 +13,17 @@
 
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useHRFeatures } from '@/hooks/useHRFeatures';
 import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContext';
-import { Spinner, Alert, EmptyState } from 'shared/components';
+import { Spinner, Alert, EmptyState, Badge } from 'shared/components';
 import { toast } from 'react-hot-toast';
 import Link from 'next/link';
+import {
+  completeTeamOnboardingTask,
+  getTeamOnboardingTasks,
+  type TeamOnboardingTask
+} from '@/api/hrOnboarding';
 
 interface TeamMember {
   id: string;
@@ -48,6 +53,34 @@ type PendingRequest = {
   reason?: string;
 };
 
+type AttendanceExceptionStatusType = 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED' | 'DISMISSED';
+
+interface TeamAttendanceException {
+  id: string;
+  type: string;
+  status: AttendanceExceptionStatusType;
+  detectedAt: string;
+  detectedSource?: string | null;
+  managerNote?: string | null;
+  resolutionNote?: string | null;
+  employeePosition: {
+    user: { name?: string | null; email: string };
+    position: {
+      title: string;
+      department?: { name?: string | null } | null;
+    };
+  };
+  attendanceRecord?: {
+    id: string;
+    clockInTime?: string | null;
+    clockOutTime?: string | null;
+  } | null;
+  policy?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
 export default function ManagerTeamView() {
   const params = useParams();
   const { data: session } = useSession();
@@ -55,6 +88,7 @@ export default function ManagerTeamView() {
   
   const { businessTier } = useBusinessConfiguration();
   const hrFeatures = useHRFeatures(businessTier || undefined);
+  const onboardingManagerFeatureEnabled = Boolean(hrFeatures.onboarding?.enabled);
   
   const [loading, setLoading] = useState(true);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -62,8 +96,37 @@ export default function ManagerTeamView() {
   const [pending, setPending] = useState<PendingRequest[]>([]);
   const [approving, setApproving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'recent'>('pending');
   const [note, setNote] = useState<Record<string, string>>({});
+  const [exceptions, setExceptions] = useState<TeamAttendanceException[]>([]);
+  const [exceptionsMeta, setExceptionsMeta] = useState({ total: 0, page: 1, pageSize: 20 });
+  const [exceptionsLoading, setExceptionsLoading] = useState(false);
+  const [exceptionError, setExceptionError] = useState<string | null>(null);
+  const [exceptionNotes, setExceptionNotes] = useState<Record<string, string>>({});
+  const [exceptionAction, setExceptionAction] = useState<string | null>(null);
+  const [onboardingTasksLoading, setOnboardingTasksLoading] = useState(false);
+  const [onboardingTasksError, setOnboardingTasksError] = useState<string | null>(null);
+  const [onboardingTasks, setOnboardingTasks] = useState<TeamOnboardingTask[]>([]);
+  const [completingOnboardingTaskId, setCompletingOnboardingTaskId] = useState<string | null>(null);
+  const openExceptionCount = exceptionsMeta.total;
+
+  const fetchOnboardingTasks = useCallback(async () => {
+    if (!businessId || !onboardingManagerFeatureEnabled) {
+      return;
+    }
+    try {
+      setOnboardingTasksLoading(true);
+      setOnboardingTasksError(null);
+      const data = await getTeamOnboardingTasks(businessId);
+      setOnboardingTasks(Array.isArray(data.tasks) ? data.tasks : []);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to load onboarding tasks';
+      setOnboardingTasksError(message);
+      setOnboardingTasks([]);
+    } finally {
+      setOnboardingTasksLoading(false);
+    }
+  }, [businessId, onboardingManagerFeatureEnabled]);
   
   useEffect(() => {
     const load = async () => {
@@ -85,6 +148,33 @@ export default function ManagerTeamView() {
           const pjson = await penRes.json();
           setPending(pjson.requests || []);
         }
+
+        try {
+          setExceptionsLoading(true);
+          setExceptionError(null);
+          const excRes = await fetch(
+            `/api/hr/team/attendance/exceptions?businessId=${encodeURIComponent(businessId)}`
+          );
+          if (!excRes.ok) {
+            const errJson = await excRes.json().catch(() => ({}));
+            throw new Error(errJson.error || 'Failed to load attendance exceptions');
+          }
+          const excJson = await excRes.json();
+          setExceptions(excJson.exceptions || []);
+          setExceptionsMeta({
+            total: excJson.total ?? (excJson.exceptions ? excJson.exceptions.length : 0),
+            page: excJson.page ?? 1,
+            pageSize: excJson.pageSize ?? 20
+          });
+        } catch (excError) {
+          const message =
+            excError instanceof Error ? excError.message : 'Failed to load attendance exceptions';
+          setExceptionError(message);
+          setExceptions([]);
+          setExceptionsMeta({ total: 0, page: 1, pageSize: 20 });
+        } finally {
+          setExceptionsLoading(false);
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -93,6 +183,14 @@ export default function ManagerTeamView() {
     };
     if (businessId) load();
   }, [businessId, session]);
+
+  useEffect(() => {
+    if (onboardingManagerFeatureEnabled) {
+      void fetchOnboardingTasks();
+    } else {
+      setOnboardingTasks([]);
+    }
+  }, [onboardingManagerFeatureEnabled, fetchOnboardingTasks]);
 
   const actOn = async (id: string, decision: 'APPROVE' | 'DENY') => {
     setApproving(id);
@@ -118,6 +216,107 @@ export default function ManagerTeamView() {
       setApproving(null);
     }
   };
+
+  const handleExceptionAction = async (
+    id: string,
+    status: AttendanceExceptionStatusType
+  ) => {
+    setExceptionAction(`${id}:${status}`);
+    try {
+      const payload: Record<string, unknown> = { status };
+      const noteValue = exceptionNotes[id]?.trim();
+
+      if (noteValue) {
+        if (status === 'UNDER_REVIEW') {
+          payload.managerNote = noteValue;
+        } else {
+          payload.resolutionNote = noteValue;
+        }
+      }
+
+      const res = await fetch(
+        `/api/hr/team/attendance/exceptions/${encodeURIComponent(id)}/resolve?businessId=${encodeURIComponent(
+          businessId
+        )}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to update attendance exception');
+      }
+
+      const data = await res.json();
+      const updated: TeamAttendanceException | undefined = data.exception;
+
+      setExceptions((prev) => {
+        if (!updated) {
+          return prev.filter((item) => item.id !== id);
+        }
+
+        if (updated.status === 'RESOLVED' || updated.status === 'DISMISSED') {
+          return prev.filter((item) => item.id !== id);
+        }
+
+        return prev.map((item) => (item.id === id ? updated : item));
+      });
+
+      setExceptionNotes((prev) => {
+        const rest = { ...prev };
+        delete rest[id];
+        return rest;
+      });
+
+      if (updated?.status === 'RESOLVED' || updated?.status === 'DISMISSED') {
+        setExceptionsMeta((prev) => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1)
+        }));
+        toast.success('Attendance exception resolved.');
+      } else if (updated?.status === 'UNDER_REVIEW') {
+        toast.success('Attendance exception marked as under review.');
+      } else {
+        toast.success('Attendance exception updated.');
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to update attendance exception';
+      toast.error(message);
+      console.error('[HR/team] Attendance exception error:', err);
+    } finally {
+      setExceptionAction(null);
+    }
+  };
+
+  const handleCompleteOnboardingTask = useCallback(
+    async (taskId: string) => {
+      if (!businessId) {
+        toast.error('Business ID is required to update onboarding tasks.');
+        return;
+      }
+
+      setCompletingOnboardingTaskId(taskId);
+      try {
+        await completeTeamOnboardingTask(businessId, taskId, {
+          status: 'COMPLETED',
+          approved: true
+        });
+        toast.success('Onboarding task updated');
+        await fetchOnboardingTasks();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to update onboarding task';
+        toast.error(message);
+      } finally {
+        setCompletingOnboardingTaskId(null);
+      }
+    },
+    [businessId, fetchOnboardingTasks]
+  );
   
   if (loading) {
     return (
@@ -160,7 +359,7 @@ export default function ManagerTeamView() {
         <EmptyState
           icon="👥"
           title="No Team Members"
-          description="You don't have any direct reports. Team HR features are available when you manage a team."
+          description="You don&apos;t have any direct reports. Team HR features are available when you manage a team."
         />
         <div className="mt-6 text-center">
           <Link 
@@ -180,12 +379,12 @@ export default function ManagerTeamView() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Team HR</h1>
         <p className="text-gray-600 mt-2">
-          Manage your team's HR information and approvals
+          Manage your team&apos;s HR information and approvals
         </p>
       </div>
       
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-gray-600">Team Members</div>
           <div className="text-2xl font-bold">{teamMembers.length}</div>
@@ -199,10 +398,96 @@ export default function ManagerTeamView() {
           <div className="text-2xl font-bold">0</div>
           <div className="text-xs text-gray-500 mt-1">Coming later</div>
         </div>
+        <div className="bg-white border rounded-lg p-4">
+          <div className="text-sm text-gray-600">Open Attendance Exceptions</div>
+          <div className="text-2xl font-bold">{openExceptionCount}</div>
+          <div className="text-xs text-gray-500 mt-1">
+            Exceptions flagged for your review
+          </div>
+        </div>
       </div>
       
       {/* Team Management Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {onboardingManagerFeatureEnabled && (
+          <div className="border rounded-lg p-6 bg-white md:col-span-2 xl:col-span-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="text-3xl">✅</div>
+                <h3 className="text-lg font-semibold">Onboarding Tasks</h3>
+              </div>
+              {onboardingTasksLoading && <Spinner size={20} />}
+            </div>
+            {onboardingTasksError ? (
+              <Alert type="error" title="Unable to load onboarding tasks">
+                {onboardingTasksError}
+              </Alert>
+            ) : onboardingTasksLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <Spinner size={28} />
+              </div>
+            ) : onboardingTasks.length === 0 ? (
+              <EmptyState
+                icon="✅"
+                title="No pending onboarding tasks"
+                description="You have reviewed all onboarding tasks for your team."
+              />
+            ) : (
+              <div className="space-y-3">
+                {onboardingTasks.map((task) => {
+                  const employeeName =
+                    task.onboardingJourney.employeeHrProfile?.employeePosition?.user?.name ||
+                    task.onboardingJourney.employeeHrProfile?.employeePosition?.user?.email ||
+                    'Team member';
+                  const templateName =
+                    task.onboardingJourney.onboardingTemplate?.name || 'Onboarding journey';
+
+                  return (
+                    <div
+                      key={task.id}
+                      className="border rounded-lg bg-gray-50 px-4 py-3 text-sm flex flex-col gap-2"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div>
+                          <div className="text-gray-500 text-xs uppercase tracking-wide">
+                            {templateName}
+                          </div>
+                          <div className="font-semibold text-gray-900">{task.title}</div>
+                        </div>
+                        <div className="text-right text-xs text-gray-500">
+                          {task.dueDate
+                            ? `Due ${new Date(task.dueDate).toLocaleDateString()}`
+                            : 'No due date'}
+                        </div>
+                      </div>
+                      {task.description && (
+                        <div className="text-gray-600">{task.description}</div>
+                      )}
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="text-xs text-gray-500">
+                          Assigned to: <span className="font-medium text-gray-700">{employeeName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs uppercase tracking-wide text-gray-500">
+                            {task.status}
+                          </span>
+                          <button
+                            onClick={() => handleCompleteOnboardingTask(task.id)}
+                            disabled={completingOnboardingTaskId === task.id}
+                            className="px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60"
+                          >
+                            {completingOnboardingTaskId === task.id ? 'Saving…' : 'Mark Complete'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Team Members */}
         <div className="border rounded-lg p-6 bg-white">
           <div className="text-3xl mb-3">👥</div>
@@ -211,7 +496,7 @@ export default function ManagerTeamView() {
             <EmptyState
               icon="👥"
               title="No Team Members"
-              description="You don't have any direct reports assigned yet."
+              description="You don&apos;t have any direct reports assigned yet."
             />
           ) : (
             <div className="divide-y">
@@ -224,7 +509,7 @@ export default function ManagerTeamView() {
             </div>
           )}
         </div>
-        
+
         {/* Time-Off Approvals */}
         <div className="border rounded-lg p-6 bg-white">
           <div className="text-3xl mb-3">✅</div>
@@ -301,6 +586,143 @@ export default function ManagerTeamView() {
                         className="w-full border rounded px-2 py-1 text-xs"
                         rows={2}
                       />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Attendance Exceptions */}
+        <div className="border rounded-lg p-6 bg-white">
+          <div className="text-3xl mb-3">⚠️</div>
+          <h3 className="text-lg font-semibold mb-2">Attendance Exceptions</h3>
+          {exceptionsLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <Spinner size={24} />
+            </div>
+          ) : exceptionError ? (
+            <Alert type="warning" title="Unable to load attendance exceptions">
+              {exceptionError}
+            </Alert>
+          ) : exceptions.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                icon="✅"
+                title="No open exceptions"
+                description="Attendance exceptions that need review will appear here."
+              />
+            </div>
+          ) : (
+            <div className="border rounded">
+              <div className="grid grid-cols-12 bg-gray-50 px-3 py-2 text-sm font-medium">
+                <div className="col-span-3">Employee</div>
+                <div className="col-span-2">Type</div>
+                <div className="col-span-2">Detected</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-3 text-right">Actions</div>
+              </div>
+              {exceptions.map((exception) => {
+                const detectedDate = new Date(exception.detectedAt);
+                const noteValue = exceptionNotes[exception.id] || '';
+                const actionKeyUnderReview = `${exception.id}:UNDER_REVIEW`;
+                const actionKeyResolve = `${exception.id}:RESOLVED`;
+                const actionKeyDismiss = `${exception.id}:DISMISSED`;
+                return (
+                  <div key={exception.id} className="border-t">
+                    <div className="grid grid-cols-12 px-3 py-3 text-sm items-start gap-y-2">
+                      <div className="col-span-3">
+                        <div className="font-medium">
+                          {exception.employeePosition.user?.name ||
+                            exception.employeePosition.user.email}
+                        </div>
+                        <div className="text-gray-500 text-xs">
+                          {exception.employeePosition.position.title}
+                        </div>
+                        {exception.employeePosition.position?.department?.name && (
+                          <div className="text-gray-400 text-xs">
+                            {exception.employeePosition.position.department?.name}
+                          </div>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs uppercase">
+                          {exception.type.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <div className="col-span-2 text-gray-500 text-xs">
+                        {detectedDate.toLocaleString()}
+                      </div>
+                      <div className="col-span-2">
+                        <Badge
+                          color={
+                            exception.status === 'UNDER_REVIEW'
+                              ? 'yellow'
+                              : exception.status === 'RESOLVED'
+                              ? 'green'
+                              : exception.status === 'DISMISSED'
+                              ? 'gray'
+                              : 'red'
+                          }
+                          size="sm"
+                        >
+                          {exception.status.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                      <div className="col-span-3 flex flex-wrap gap-2 justify-end">
+                        <button
+                          onClick={() => handleExceptionAction(exception.id, 'UNDER_REVIEW')}
+                          disabled={exceptionAction === actionKeyUnderReview}
+                          className="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {exceptionAction === actionKeyUnderReview ? (
+                            <Spinner size={12} />
+                          ) : (
+                            'Flag Review'
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleExceptionAction(exception.id, 'RESOLVED')}
+                          disabled={exceptionAction === actionKeyResolve}
+                          className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {exceptionAction === actionKeyResolve ? (
+                            <Spinner size={12} />
+                          ) : (
+                            'Resolve'
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleExceptionAction(exception.id, 'DISMISSED')}
+                          disabled={exceptionAction === actionKeyDismiss}
+                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {exceptionAction === actionKeyDismiss ? (
+                            <Spinner size={12} />
+                          ) : (
+                            'Dismiss'
+                          )}
+                        </button>
+                      </div>
+                      <div className="col-span-12">
+                        <textarea
+                          placeholder={
+                            exception.status === 'UNDER_REVIEW'
+                              ? 'Add a note for follow-up...'
+                              : 'Add a resolution note...'
+                          }
+                          value={noteValue}
+                          onChange={(e) =>
+                            setExceptionNotes((prev) => ({
+                              ...prev,
+                              [exception.id]: e.target.value
+                            }))
+                          }
+                          className="w-full border rounded px-2 py-1 text-xs"
+                          rows={2}
+                        />
+                      </div>
                     </div>
                   </div>
                 );

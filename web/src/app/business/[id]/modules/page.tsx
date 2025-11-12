@@ -361,7 +361,7 @@ export default function BusinessModulesPage() {
                         variant="secondary"
                         size="sm"
                         className="flex-1"
-                        disabled
+                        onClick={() => router.push(`/business/${businessId}/modules/${module.id}`)}
                       >
                         <SettingsIcon className="w-4 h-4 mr-2" />
                         Configure

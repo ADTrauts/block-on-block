@@ -84,6 +84,76 @@ router.get('/admin/employees/export', checkHRAdmin, hrController.exportEmployees
 router.get('/admin/settings', checkHRAdmin, hrController.getHRSettings);
 router.put('/admin/settings', checkHRAdmin, hrController.updateHRSettings);
 
+// Onboarding (Business Advanced+ pilot)
+router.get(
+  '/admin/onboarding/templates',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.getOnboardingTemplates
+);
+router.post(
+  '/admin/onboarding/templates',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.createOnboardingTemplate
+);
+router.put(
+  '/admin/onboarding/templates/:templateId',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.updateOnboardingTemplate
+);
+router.delete(
+  '/admin/onboarding/templates/:templateId',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.deleteOnboardingTemplate
+);
+router.get(
+  '/admin/onboarding/journeys',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.getOnboardingJourneys
+);
+router.post(
+  '/admin/onboarding/journeys/start',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.startOnboardingJourney
+);
+router.post(
+  '/admin/onboarding/tasks/:taskId/complete',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.completeOnboardingTask
+);
+
+// Attendance (Phase 3 rollout)
+router.get(
+  '/admin/attendance/overview',
+  checkHRFeature('attendance'),
+  checkHRAdmin,
+  hrController.getAttendanceOverview
+);
+router.get(
+  '/admin/attendance/policies',
+  checkHRFeature('attendance'),
+  checkHRAdmin,
+  hrController.getAttendancePolicies
+);
+router.post(
+  '/admin/attendance/policies',
+  checkHRFeature('attendance'),
+  checkHRAdmin,
+  hrController.createAttendancePolicy
+);
+router.put(
+  '/admin/attendance/policies/:id',
+  checkHRFeature('attendance'),
+  checkHRAdmin,
+  hrController.updateAttendancePolicy
+);
+
 // ============================================================================
 // ENTERPRISE-ONLY ADMIN ROUTES
 // Route: /api/hr/admin/*
@@ -142,19 +212,6 @@ router.get('/admin/benefits',
   }
 );
 
-// Advanced Attendance Features (Enterprise only)
-router.post('/admin/attendance/clock-in',
-  checkHRFeature('attendance.clockInOut'),
-  checkHRAdmin,
-  (req, res) => {
-    res.json({ 
-      message: 'Clock in - framework stub',
-      tier: req.hrTier,
-      note: 'Feature implementation pending'
-    });
-  }
-);
-
 // ============================================================================
 // MANAGER ROUTES (Team Management)
 // Route: /api/hr/team/*
@@ -175,6 +232,33 @@ router.post('/team/time-off/:id/approve',
   hrController.approveTeamTimeOff
 );
 
+router.get(
+  '/team/onboarding/tasks',
+  checkHRFeature('onboarding'),
+  checkManagerAccess,
+  hrController.getTeamOnboardingTasks
+);
+router.post(
+  '/team/onboarding/tasks/:taskId/complete',
+  checkHRFeature('onboarding'),
+  checkManagerAccess,
+  hrController.completeTeamOnboardingTask
+);
+
+router.get(
+  '/team/attendance/exceptions',
+  checkHRFeature('attendance'),
+  checkManagerAccess,
+  hrController.getTeamAttendanceExceptions
+);
+
+router.post(
+  '/team/attendance/exceptions/:id/resolve',
+  checkHRFeature('attendance'),
+  checkManagerAccess,
+  hrController.resolveTeamAttendanceException
+);
+
 // Time-off calendar (admins and managers)
 router.get('/team/time-off/calendar',
   checkManagerAccess,
@@ -192,6 +276,26 @@ router.get('/me', checkEmployeeAccess, hrController.getOwnHRData);
 
 // Update own HR data (limited fields)
 router.put('/me', checkEmployeeAccess, hrController.updateOwnHRData);
+
+// Attendance (self-service)
+router.get(
+  '/me/attendance/records',
+  checkHRFeature('attendance'),
+  checkEmployeeAccess,
+  hrController.getMyAttendanceRecords
+);
+router.post(
+  '/me/attendance/punch-in',
+  checkHRFeature('attendance.clockInOut'),
+  checkEmployeeAccess,
+  hrController.recordSelfAttendancePunchIn
+);
+router.post(
+  '/me/attendance/punch-out',
+  checkHRFeature('attendance.clockInOut'),
+  checkEmployeeAccess,
+  hrController.recordSelfAttendancePunchOut
+);
 
 // Request time off (framework stub)
 router.post('/me/time-off/request',
@@ -214,6 +318,19 @@ router.get('/me/time-off/requests',
 router.post('/me/time-off/:id/cancel',
   checkEmployeeAccess,
   hrController.cancelTimeOffRequest
+);
+
+router.get(
+  '/me/onboarding/journeys',
+  checkHRFeature('onboarding'),
+  checkEmployeeAccess,
+  hrController.getMyOnboardingJourneys
+);
+router.post(
+  '/me/onboarding/tasks/:taskId/complete',
+  checkHRFeature('onboarding'),
+  checkEmployeeAccess,
+  hrController.completeMyOnboardingTask
 );
 
 // View own pay stubs (framework stub)

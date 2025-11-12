@@ -58,6 +58,16 @@ model Business {
   managerApprovalHierarchies ManagerApprovalHierarchy[]
   hrModuleSettings HRModuleSettings?
   timeOffRequests TimeOffRequest[] @relation("BusinessTimeOffRequests")
+  adminImpersonations AdminImpersonation[]
+  attendancePolicies AttendancePolicy[]
+  attendanceShiftTemplates AttendanceShiftTemplate[]
+  attendanceShiftAssignments AttendanceShiftAssignment[]
+  attendanceRecords AttendanceRecord[]
+  attendanceExceptions AttendanceException[]
+  onboardingTemplates OnboardingTemplate[] @relation("BusinessOnboardingTemplates")
+  onboardingTaskTemplates OnboardingTaskTemplate[] @relation("BusinessOnboardingTaskTemplates")
+  employeeOnboardingJourneys EmployeeOnboardingJourney[] @relation("BusinessEmployeeOnboardingJourneys")
+  employeeOnboardingTasks EmployeeOnboardingTask[] @relation("BusinessEmployeeOnboardingTasks")
 
   @@index([ein])
   @@map("businesses")

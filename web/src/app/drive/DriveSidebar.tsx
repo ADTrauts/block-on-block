@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   HomeIcon, 
   FolderIcon, 
@@ -25,6 +25,7 @@ interface DriveSidebarProps {
   onContextSwitch?: (dashboardId: string) => void;
   onFolderSelect?: (folder: any) => void;
   selectedFolderId?: string;
+  lockedDashboardId?: string;
 }
 
 interface FolderNode {
@@ -210,7 +211,8 @@ export default function DriveSidebar({
   onTrashDrop,
   onContextSwitch,
   onFolderSelect,
-  selectedFolderId
+  selectedFolderId,
+  lockedDashboardId
 }: DriveSidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -230,25 +232,30 @@ export default function DriveSidebar({
 
   // Generate context drives based on user's dashboards
   const generateContextDrives = (): ContextDrive[] => {
-    if (!allDashboards || allDashboards.length === 0) {
+    const dashboards = allDashboards || [];
+    const filteredDashboards = lockedDashboardId
+      ? dashboards.filter(dashboard => dashboard.id === lockedDashboardId)
+      : dashboards;
+
+    if (filteredDashboards.length === 0) {
       return [{
-        id: 'my-drive',
-        name: 'My Drive',
+        id: lockedDashboardId ? `${lockedDashboardId}-drive` : 'my-drive',
+        name: lockedDashboardId ? 'Workspace Drive' : 'My Drive',
         icon: FolderIcon,
-        dashboardId: 'personal',
-        type: 'personal',
+        dashboardId: lockedDashboardId ?? 'personal',
+        type: lockedDashboardId ? 'business' : 'personal',
         active: true,
-        href: '/drive'
+        href: lockedDashboardId ? `/drive?dashboard=${lockedDashboardId}` : '/drive'
       }];
     }
 
-    return allDashboards.map(dashboard => {
+    return filteredDashboards.map(dashboard => {
       const dashboardType = getDashboardType(dashboard);
       const dashboardDisplayName = getDashboardDisplayName(dashboard);
-      const isActive = currentDashboard?.id === dashboard.id;
-      
+      const isActive = lockedDashboardId
+        ? dashboard.id === lockedDashboardId
+        : currentDashboard?.id === dashboard.id;
 
-      
       return {
         id: `${dashboard.id}-drive`,
         name: `${dashboardDisplayName} Drive`,
@@ -261,20 +268,26 @@ export default function DriveSidebar({
     });
   };
 
-  const contextDrives = generateContextDrives();
+  const contextDrives = useMemo(() => generateContextDrives(), [
+    allDashboards,
+    currentDashboard?.id,
+    lockedDashboardId,
+    getDashboardType,
+    getDashboardDisplayName
+  ]);
 
   // Get session for authentication
   const { data: session } = useSession();
 
   // API functions for folder management
-  const loadRootFolders = useCallback(async (driveId: string) => {
+  const loadRootFolders = useCallback(async (dashboardId: string) => {
     try {
       if (!session?.accessToken) {
         console.error('No session token available for folder loading');
         return;
       }
       
-      const response = await fetch(`/api/drive/folders?dashboardId=${driveId}&parentId=null`, {
+      const response = await fetch(`/api/drive/folders?dashboardId=${dashboardId}&parentId=null`, {
         headers: {
           'Authorization': `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json'
@@ -297,21 +310,21 @@ export default function DriveSidebar({
 
       setFolderTrees(prev => ({
         ...prev,
-        [driveId]: folderNodes
+        [dashboardId]: folderNodes
       }));
     } catch (error) {
       console.error('Failed to load root folders:', error);
     }
   }, [session?.accessToken]);
 
-  const loadSubfolders = useCallback(async (driveId: string, folderId: string) => {
+  const loadSubfolders = useCallback(async (dashboardId: string, folderId: string) => {
     try {
       if (!session?.accessToken) {
         console.error('No session token available for subfolder loading');
         return;
       }
       
-      const response = await fetch(`/api/drive/folders?dashboardId=${driveId}&parentId=${folderId}`, {
+      const response = await fetch(`/api/drive/folders?dashboardId=${dashboardId}&parentId=${folderId}`, {
         headers: {
           'Authorization': `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json'
@@ -334,7 +347,7 @@ export default function DriveSidebar({
 
       // Update the folder tree to include subfolders
       setFolderTrees(prev => {
-        const currentTree = prev[driveId] || [];
+        const currentTree = prev[dashboardId] || [];
         const updateTree = (nodes: FolderNode[]): FolderNode[] => {
           return nodes.map(node => {
             if (node.id === folderId) {
@@ -361,7 +374,7 @@ export default function DriveSidebar({
         
         return {
           ...prev,
-          [driveId]: updateTree(currentTree)
+          [dashboardId]: updateTree(currentTree)
         };
       });
     } catch (error) {
@@ -369,10 +382,10 @@ export default function DriveSidebar({
     }
   }, [session?.accessToken]);
 
-  const handleFolderExpand = useCallback(async (driveId: string, folderId: string) => {
+  const handleFolderExpand = useCallback(async (dashboardId: string, folderId: string) => {
     // Set loading state
     setFolderTrees(prev => {
-      const currentTree = prev[driveId] || [];
+      const currentTree = prev[dashboardId] || [];
       const updateTree = (nodes: FolderNode[]): FolderNode[] => {
         return nodes.map(node => {
           if (node.id === folderId) {
@@ -390,12 +403,12 @@ export default function DriveSidebar({
       
       return {
         ...prev,
-        [driveId]: updateTree(currentTree)
+        [dashboardId]: updateTree(currentTree)
       };
     });
 
     // Load subfolders
-    await loadSubfolders(driveId, folderId);
+    await loadSubfolders(dashboardId, folderId);
   }, [loadSubfolders]);
 
   const handleFolderSelect = useCallback((folder: FolderNode) => {
@@ -404,22 +417,33 @@ export default function DriveSidebar({
     }
   }, [onFolderSelect]);
 
-  const handleDriveExpand = useCallback(async (driveId: string) => {
-    if (expandedDrives.has(driveId)) {
+  const handleDriveExpand = useCallback(async (dashboardId: string) => {
+    if (expandedDrives.has(dashboardId)) {
       // Collapse drive
       setExpandedDrives(prev => {
         const newSet = new Set(prev);
-        newSet.delete(driveId);
+        newSet.delete(dashboardId);
         return newSet;
       });
     } else {
       // Expand drive
-      setExpandedDrives(prev => new Set([...Array.from(prev), driveId]));
-      if (!folderTrees[driveId]) {
-        await loadRootFolders(driveId);
+      setExpandedDrives(prev => new Set([...Array.from(prev), dashboardId]));
+      if (!folderTrees[dashboardId]) {
+        await loadRootFolders(dashboardId);
       }
     }
   }, [expandedDrives, folderTrees, loadRootFolders]);
+
+  // Auto-expand the locked workspace drive so seeded folders are immediately visible
+  useEffect(() => {
+    if (!lockedDashboardId) {
+      return;
+    }
+    const hasDrive = contextDrives.some(drive => drive.dashboardId === lockedDashboardId);
+    if (hasDrive && !expandedDrives.has(lockedDashboardId)) {
+      void handleDriveExpand(lockedDashboardId);
+    }
+  }, [lockedDashboardId, contextDrives, expandedDrives, handleDriveExpand]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -450,6 +474,9 @@ export default function DriveSidebar({
 
   const handleDriveClick = (drive: ContextDrive, event: React.MouseEvent) => {
     event.preventDefault();
+    if (lockedDashboardId) {
+      return;
+    }
     if (onContextSwitch) {
       onContextSwitch(drive.dashboardId);
     }
@@ -457,7 +484,7 @@ export default function DriveSidebar({
 
   const handleDriveExpandClick = (drive: ContextDrive, event: React.MouseEvent) => {
     event.stopPropagation();
-    handleDriveExpand(drive.id);
+    handleDriveExpand(drive.dashboardId);
   };
 
   return (
@@ -502,8 +529,8 @@ export default function DriveSidebar({
         <h3 style={styles.sectionHeader}>Your Drives</h3>
         {contextDrives.map((drive) => {
           const colorScheme = getContextColor(drive.type, drive.active);
-          const isExpanded = expandedDrives.has(drive.id);
-          const hasFolders = folderTrees[drive.id] && folderTrees[drive.id].length > 0;
+          const isExpanded = expandedDrives.has(drive.dashboardId);
+          const hasFolders = folderTrees[drive.dashboardId] && folderTrees[drive.dashboardId].length > 0;
           
           return (
             <div key={drive.id}>
@@ -526,7 +553,7 @@ export default function DriveSidebar({
                   <drive.icon style={{ width: 20, height: 20 }} />
                   <span>{drive.name}</span>
                 </div>
-                {/* Always show expand button - folders are loaded on first expand */}
+                {/* Expand button */}
                 <button
                   style={{
                     background: 'none',
@@ -547,9 +574,9 @@ export default function DriveSidebar({
               {isExpanded && hasFolders && (
                 <div style={{ marginLeft: 16, marginTop: 4 }}>
                   <FolderTree
-                    folders={folderTrees[drive.id] || []}
+                    folders={folderTrees[drive.dashboardId] || []}
                     onFolderSelect={handleFolderSelect}
-                    onFolderExpand={(folderId: string) => handleFolderExpand(drive.id, folderId)}
+                    onFolderExpand={(folderId: string) => handleFolderExpand(drive.dashboardId, folderId)}
                     selectedFolderId={selectedFolderId}
                   />
                 </div>

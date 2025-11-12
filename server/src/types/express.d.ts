@@ -10,6 +10,16 @@ declare global {
     
     interface Request {
       user?: User;
+      originalUser?: User;
+      impersonation?: {
+        id: string;
+        adminId: string;
+        targetUserId: string;
+        businessId?: string | null;
+        context?: string | null;
+        startedAt: Date;
+        expiresAt?: Date | null;
+      };
     }
   }
 }

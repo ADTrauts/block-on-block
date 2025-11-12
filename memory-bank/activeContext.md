@@ -1,6 +1,60 @@
 # Active Context - Vssyl Business Admin & AI Integration
 
-## Current Focus: HR Module Phase 2 Enhancements & Calendar Sync — COMPLETED ✅
+## Current Focus: Employee Onboarding Module — COMPLETE ✅
+
+### **Latest Session Highlights** 🎉
+**Date**: November 12, 2025  
+**Focus**: Shipping the onboarding module end-to-end and validating production readiness
+
+#### **What Shipped**
+- ✅ **Prisma Module & Relations**: Added `prisma/modules/hr/onboarding.prisma` with templates, task templates, journeys, and task instances, plus back-relations on `Business` and `EmployeeHRProfile` so multi-tenant scoping is enforced.
+- ✅ **Backend Services & Routes**: `hrOnboardingService` now exposes template CRUD, journey creation, employee/manager task lists, and completion flows; `hrController` + `hr.ts` deliver new admin/employee/manager endpoints behind the onboarding feature gate.
+- ✅ **Frontend Surfaces**:  
+  - Business admin configuration: module customization panel exposes onboarding template management via the new settings editor tab.  
+  - Employee workspace: onboarding journeys render with progress, actionable tasks, and inline completion.  
+  - Manager workspace: onboarding approvals queue highlights direct-report tasks with one-click completion.
+- ✅ **Shared Utilities**: `useHRFeatures` understands the onboarding feature flag, the module settings context merges onboarding config safely, and the Next.js module settings page keeps state in sync with the overlay dialog.
+- ✅ **Tooling & Verification**: Ran `pnpm prisma:generate` after relation updates, executed the new migration, and confirmed `pnpm type-check` passes across server/web packages.
+
+#### **Outstanding / Next Steps**
+- Capture onboarding analytics (journey velocity, task completion SLAs) and surface them in the admin dashboard.
+- Add notification hooks (email/Slack) when tasks require approvals or when new hires fall behind schedule.
+- Seed default onboarding templates per industry/tier to accelerate business setup.
+- Begin scoping the Training & Learning module (next item in the master module roadmap).
+
+---
+
+## Previous Focus: Impersonation Lab & Persona Seeding — DEFERRED ⏸️
+
+### **Summary**
+Work completed on November 10, 2025 delivered the unified impersonation lab UI, business-scoped session tokens, backend impersonation envelopes, and the beta persona seeder endpoint used for HR smoke testing.
+
+### **Follow-up (Deferred)**
+- Reproduce and fix the 500 error from `/impersonation/businesses/:id/seed-personas`, then surface generated credentials in the UI.
+- Add teardown tooling and telemetry for impersonation sessions once the seeder stabilizes.
+- Once attendance features are stabilized, resume impersonation tasks to support automated HR QA flows.
+
+---
+
+## Previous Focus: Business Workspace Context Synchronization — IN PROGRESS 🚧
+
+### **Latest Session Highlights** 🎉
+**Date**: November 9, 2025  
+**Focus**: Work tab isolation, auto-seeding, and calendar visibility rules
+
+#### **What Shipped**
+- ✅ **Workspace Auto-Seeding**: `seedBusinessWorkspaceResources` now provisions a root drive folder, a primary business calendar, and a “Company HQ” chat channel whenever a business dashboard is created.
+- ✅ **Drive Context Locking**: `DriveSidebar` accepts `lockedDashboardId`, filters the drive list to that dashboard, and expands seeded folders automatically inside the Work tab.
+- ✅ **Chat Context Override**: `ChatModule` triggers `loadConversations()` with the business dashboard override so the seeded HQ channel appears immediately.
+- ✅ **Calendar Filtering**: `CalendarListSidebar` forces “Current Tab” mode for business views and, on personal dashboards, hides business calendars except the shared HR “Schedule” calendar.
+
+#### **Outstanding / Follow-up**
+- Confirm Work tab WebSocket flows reuse the dashboard-scoped channel joins (chat socket service already supports dashboardId but still needs verification under load).
+- Backfill historic business dashboards with seeded resources (existing businesses created before this update may need a one-time script).
+
+---
+
+## Previous Focus: HR Module Phase 2 Enhancements & Calendar Sync — COMPLETED ✅
 
 ### **Latest Session Highlights** 🎉
 **Date**: November 7, 2025  
@@ -12,8 +66,10 @@
 - ✅ **Audit Trail**: All create/update/terminate actions log to `auditLog` with before/after values; manager approvals can add notes and see history in the modal.
 - ✅ **Employee Self-Service**: Pending requests can be cancelled, validation messages surface instantly, and balances refresh after every submission.
 - ✅ **Manager Team View**: Approval queue shows duration, department, optional notes, and supports inline comments before approve/deny.
+- ✅ **Auth Logout Flow**: Avatar menu now performs a client-side redirect to `/auth/login` after `signOut` to avoid blank screen regressions.
 - ✅ **Prisma Workflow Guardrails**: `server/package.json` scripts now rebuild `prisma/schema.prisma` automatically; `prisma/README.md` documents the build→generate→deploy order and baseline procedure.
 - ✅ **Schema Updates Applied**: `time_off_requests` table and `scheduleCalendarId` column re-created safely; migration state baselined so future deploys run cleanly.
+- 🛠️ **Local Dev Environment Validated**: Confirmed server/web `.env` templates, captured `pnpm dev` / filter run commands, and promoted `Andrew.Trautman@Vssyl.com` to `ADMIN` for local testing.
 
 #### **Outstanding / Follow-up**
 - Baseline any remaining shared databases using `prisma migrate resolve` before running future `migrate deploy`.

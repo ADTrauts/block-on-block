@@ -110,15 +110,23 @@ export default function AvatarContextMenu({ className }: AvatarContextMenuProps)
       // Clear any local storage that might interfere
       localStorage.removeItem('lastActiveDashboardId');
       
-      // Sign out with redirect to home page (which will show landing page)
-      await signOut({ 
-        callbackUrl: "/",
-        redirect: true 
+      // Sign out without automatic redirect so we can control navigation
+      const signOutResult = await signOut({ 
+        callbackUrl: "/auth/login",
+        redirect: false 
       });
+
+      if (signOutResult?.url) {
+        router.push(signOutResult.url);
+      } else {
+        router.push('/auth/login');
+      }
+
+      router.refresh();
     } catch (error) {
       console.error('Logout error:', error);
-      // Fallback: force redirect to home
-      window.location.href = '/';
+      // Fallback: force redirect to login
+      window.location.href = '/auth/login';
     }
   };
 

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { redirect } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Shield, LayoutDashboard, Users, BarChart3, CreditCard, Code, Lock, Settings, Activity, LogOut, User, Eye, Home, DollarSign, Package, UserCheck, Key, Bug, Brain, MessageSquare, Search, FileText } from 'lucide-react';
+import { Shield, LayoutDashboard, Users, BarChart3, CreditCard, Code, Lock, Settings, Activity, LogOut, User, Eye, Home, DollarSign, Package, UserCheck, Key, Bug, Brain, MessageSquare, Search, FileText, Gauge } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ImpersonationProvider } from '../../contexts/ImpersonationContext';
@@ -67,7 +67,8 @@ const AdminPortalLayout = ({ children }: AdminPortalLayoutProps) => {
     { id: 'ai-context', label: 'AI Context Debug', icon: Search, path: '/admin-portal/ai-context' },
     { id: 'business-ai', label: 'Business AI Global', icon: Brain, path: '/admin-portal/business-ai' },
     { id: 'support', label: 'Support', icon: MessageSquare, path: '/admin-portal/support' },
-    { id: 'impersonate', label: 'User Impersonation', icon: UserCheck, path: '/admin-portal/impersonate' },
+    { id: 'performance', label: 'Performance & Scalability', icon: Gauge, path: '/admin-portal/performance' },
+    { id: 'impersonate', label: 'Impersonation Lab', icon: Eye, path: '/admin-portal/impersonate' },
     { id: 'test-auth', label: 'Test Auth', icon: Key, path: '/admin-portal/test-auth' },
     { id: 'debug-session', label: 'Debug Session', icon: Bug, path: '/admin-portal/debug-session' },
     { id: 'test-api', label: 'Test API', icon: Code, path: '/admin-portal/test-api' },

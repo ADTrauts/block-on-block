@@ -199,7 +199,12 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
     router.push('/dashboard');
   };
 
-  const currentModule = getCurrentModule();
+  const afterWorkspace = pathname?.split('/workspace/')[1] || '';
+  const pathSegments = afterWorkspace.split('/').filter(Boolean);
+  const pathModule = pathSegments[0] || null;
+  const hasNestedSegments = pathSegments.length > 1;
+  const currentModule = pathModule || getCurrentModule();
+  const shouldRenderNestedRoute = hasNestedSegments;
 
   return (
     <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
@@ -312,6 +317,8 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
               <Spinner size={32} />
               <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>Initializing business workspace...</p>
             </div>
+          ) : shouldRenderNestedRoute ? (
+            <>{children}</>
           ) : (
             <BusinessWorkspaceContent 
               business={business}

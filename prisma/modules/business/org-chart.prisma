@@ -112,6 +112,10 @@ model EmployeePosition {
   managerApprovals  ManagerApprovalHierarchy[] @relation("ManagerApprovals")
   // HR Time-Off back-relation
   timeOffRequests   TimeOffRequest[]          @relation("EmployeePositionTimeOffRequests")
+  // HR Attendance back-relations
+  attendanceAssignments AttendanceShiftAssignment[] @relation("EmployeeAttendanceAssignments")
+  attendanceRecords     AttendanceRecord[]          @relation("EmployeeAttendanceRecords")
+  attendanceExceptions  AttendanceException[]       @relation("EmployeeAttendanceExceptions")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

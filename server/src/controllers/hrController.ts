@@ -6,11 +6,45 @@
  */
 
 import { Request, Response } from 'express';
-import { Prisma, EmployeeType as PrismaEmployeeType } from '@prisma/client';
+import {
+  Prisma,
+  EmployeeType as PrismaEmployeeType,
+  AttendanceExceptionStatus,
+  AttendanceMethod,
+  AttendanceRecordStatus,
+  EmploymentStatus,
+  OnboardingTaskOwnerType,
+  OnboardingTaskStatus,
+  OnboardingTaskType,
+  TimeOffStatus,
+  TimeOffType
+} from '@prisma/client';
+import bcrypt from 'bcrypt';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
-import { AuditService } from '../services/auditService';
 import { syncTimeOffRequestCalendar } from '../services/hrScheduleService';
+import {
+  getAttendanceOverview as getAttendanceOverviewService,
+  listAttendancePolicies,
+  listAttendanceExceptionsForManager,
+  listEmployeeAttendanceRecords,
+  recordPunchIn,
+  recordPunchOut,
+  resolveAttendanceException,
+  ResolveAttendanceExceptionInput,
+  upsertAttendancePolicy
+} from '../services/hrAttendanceService';
+import {
+  archiveOnboardingTemplate,
+  completeOnboardingTask as completeOnboardingTaskService,
+  findEmployeeHrProfileByUser,
+  listEmployeeJourneysForUser,
+  listEmployeeJourneys as listEmployeeJourneysService,
+  listOnboardingTemplates as listOnboardingTemplatesService,
+  listOnboardingTasksForEmployeePositions,
+  startOnboardingJourney as startOnboardingJourneyService,
+  upsertOnboardingTemplate as upsertOnboardingTemplateService
+} from '../services/hrOnboardingService';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -46,13 +80,131 @@ const employeeTerminationSchema = z.object({
   notes: jsonFieldInputSchema
 });
 
+const attendancePolicySchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional().nullable(),
+  timezone: z.string().max(64).optional().nullable(),
+  roundingIncrementMinutes: z.number().int().positive().max(240).optional().nullable(),
+  gracePeriodMinutes: z.number().int().nonnegative().max(120).optional().nullable(),
+  autoClockOutAfterMinutes: z.number().int().positive().max(1440).optional().nullable(),
+  requireGeolocation: z.boolean().optional(),
+  geofenceRadiusMeters: z.number().int().positive().max(50000).optional().nullable(),
+  workingDays: z.array(z.string().min(2).max(16)).optional(),
+  metadata: jsonFieldInputSchema,
+  isDefault: z.boolean().optional(),
+  effectiveFrom: z.string().datetime({ offset: true }).optional().nullable(),
+  effectiveTo: z.string().datetime({ offset: true }).optional().nullable(),
+  active: z.boolean().optional()
+});
+
+const attendancePunchSchema = z.object({
+  employeePositionId: z.string().uuid().optional(),
+  method: z.nativeEnum(AttendanceMethod).default(AttendanceMethod.WEB),
+  source: z.string().max(120).optional(),
+  location: jsonFieldInputSchema,
+  metadata: jsonFieldInputSchema,
+  recordId: z.string().uuid().optional()
+});
+
+const attendanceExceptionStatusEnum = z.nativeEnum(AttendanceExceptionStatus);
+
+const attendanceExceptionFilterSchema = z.object({
+  statuses: z
+    .union([
+      attendanceExceptionStatusEnum,
+      z.array(attendanceExceptionStatusEnum)
+    ])
+    .optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  search: z.string().max(120).optional(),
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional()
+});
+
+const attendanceExceptionResolutionSchema = z.object({
+  status: attendanceExceptionStatusEnum,
+  resolutionNote: z.string().max(1000).optional().nullable(),
+  managerNote: z.string().max(1000).optional().nullable(),
+  adjustments: z
+    .object({
+      clockInTime: z.string().datetime({ offset: true }).nullable().optional(),
+      clockOutTime: z.string().datetime({ offset: true }).nullable().optional(),
+      status: z.nativeEnum(AttendanceRecordStatus).optional(),
+      varianceMinutes: z.number().int().min(-1440).max(1440).optional()
+    })
+    .optional()
+});
+
+const onboardingTaskTemplateSchema = z.object({
+  id: z.string().uuid().optional(),
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000).optional().nullable(),
+  orderIndex: z.number().int().min(0).optional().nullable(),
+  taskType: z.nativeEnum(OnboardingTaskType).optional(),
+  ownerType: z.nativeEnum(OnboardingTaskOwnerType).optional(),
+  ownerReference: z.string().max(255).optional().nullable(),
+  dueOffsetDays: z.number().int().min(-365).max(365).optional().nullable(),
+  requiresApproval: z.boolean().optional(),
+  requiresDocument: z.boolean().optional(),
+  metadata: jsonFieldInputSchema,
+  isActive: z.boolean().optional()
+});
+
+const onboardingTemplateSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional().nullable(),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  applicabilityRules: jsonFieldInputSchema,
+  automationSettings: jsonFieldInputSchema,
+  tasks: z.array(onboardingTaskTemplateSchema).optional()
+});
+
+const onboardingJourneyStartSchema = z.object({
+  employeeHrProfileId: z.string().uuid(),
+  onboardingTemplateId: z.string().uuid().optional(),
+  startDate: z.string().datetime({ offset: true }).optional(),
+  metadata: jsonFieldInputSchema
+});
+
+const onboardingTaskCompletionSchema = z.object({
+  status: z.nativeEnum(OnboardingTaskStatus).optional(),
+  notes: z.string().max(2000).optional().nullable(),
+  metadata: jsonFieldInputSchema,
+  approved: z.boolean().optional(),
+  approvedByUserId: z.string().uuid().optional()
+});
+
+const resolveBusinessId = (req: Request): string | null => {
+  const queryId = req.query.businessId;
+  if (typeof queryId === 'string' && queryId.length > 0) {
+    return queryId;
+  }
+  const bodyId = (req.body as Record<string, unknown>)?.businessId;
+  if (typeof bodyId === 'string' && bodyId.length > 0) {
+    return bodyId;
+  }
+  return null;
+};
+
+type FieldValidationErrorDetails = {
+  fieldErrors: Record<string, string[]>;
+  formErrors: string[];
+};
+
 class FieldValidationError extends Error {
   readonly field: string;
+  readonly details?: FieldValidationErrorDetails;
 
-  constructor(field: string, message: string) {
+  constructor(field: string, message: string, details?: FieldValidationErrorDetails) {
     super(message);
     this.name = 'FieldValidationError';
     this.field = field;
+    this.details = details;
   }
 }
 
@@ -114,6 +266,112 @@ const recordAuditChange = (changes: AuditChangeMap, field: string, previous: unk
   if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
     changes[field] = { before: beforeValue, after: afterValue };
   }
+};
+
+const normalizeWorkingDays = (days?: string[]): string[] => {
+  if (!days || days.length === 0) {
+    return [];
+  }
+
+  const unique = new Set<string>();
+  days.forEach((day) => {
+    const normalized = day.trim().toUpperCase();
+    if (normalized.length > 0) {
+      unique.add(normalized);
+    }
+  });
+  return Array.from(unique);
+};
+
+const normalizeEmployeeTypeValue = (
+  value?: string | null
+): PrismaEmployeeType | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  const validTypes = Object.values(PrismaEmployeeType) as PrismaEmployeeType[];
+
+  if (validTypes.includes(normalized as PrismaEmployeeType)) {
+    return normalized as PrismaEmployeeType;
+  }
+
+  return undefined;
+};
+
+const findActiveEmployeePositionId = async (businessId: string, userId: string): Promise<string | null> => {
+  const position = await prisma.employeePosition.findFirst({
+    where: { businessId, userId, active: true },
+    select: { id: true }
+  });
+  return position?.id ?? null;
+};
+
+interface ManagerContext {
+  managerPositionId: string | null;
+  directReportPositionIds: string[];
+  directReportEmployeePositionIds: string[];
+}
+
+const resolveManagerContext = async (
+  businessId: string,
+  managerUserId: string
+): Promise<ManagerContext> => {
+  const managerPosition = await prisma.employeePosition.findFirst({
+    where: {
+      businessId,
+      userId: managerUserId,
+      active: true
+    },
+    select: {
+      id: true,
+      positionId: true
+    }
+  });
+
+  if (!managerPosition?.positionId) {
+    return {
+      managerPositionId: null,
+      directReportPositionIds: [],
+      directReportEmployeePositionIds: []
+    };
+  }
+
+  const directReportPositions = await prisma.position.findMany({
+    where: {
+      businessId,
+      reportsToId: managerPosition.positionId
+    },
+    select: {
+      id: true
+    }
+  });
+
+  const directReportPositionIds = directReportPositions.map((p) => p.id);
+
+  if (directReportPositionIds.length === 0) {
+    return {
+      managerPositionId: managerPosition.id,
+      directReportPositionIds,
+      directReportEmployeePositionIds: []
+    };
+  }
+
+  const employeePositions = await prisma.employeePosition.findMany({
+    where: {
+      businessId,
+      active: true,
+      positionId: { in: directReportPositionIds }
+    },
+    select: { id: true }
+  });
+
+  return {
+    managerPositionId: managerPosition.id,
+    directReportPositionIds,
+    directReportEmployeePositionIds: employeePositions.map((ep) => ep.id)
+  };
 };
 
 type EmployeeAuditInput = {
@@ -179,16 +437,15 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
     const departmentId = req.query.departmentId as string | undefined;
     const positionId = req.query.positionId as string | undefined;
     const sortBy = (req.query.sortBy as string) || 'createdAt';
-    const sortOrder = (req.query.sortOrder as string) || 'desc';
+    const rawSortOrder = (req.query.sortOrder as string) || 'desc';
+    const sortOrder: Prisma.SortOrder = rawSortOrder === 'asc' ? 'asc' : 'desc';
     const page = Number(req.query.page || 1);
     const pageSize = Math.min(100, Number(req.query.pageSize || 20));
     const skip = (page - 1) * pageSize;
     
     // Build orderBy clauses for active and terminated datasets - Prisma supports nested relations for sorting
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let activeOrderBy: any = { createdAt: 'desc' }; // default
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let terminatedOrderBy: any = { updatedAt: 'desc' }; // default
+    let activeOrderBy: Prisma.EmployeePositionOrderByWithRelationInput = { createdAt: sortOrder };
+    let terminatedOrderBy: Prisma.EmployeeHRProfileOrderByWithRelationInput = { updatedAt: sortOrder };
 
     switch (sortBy) {
       case 'name':
@@ -212,8 +469,8 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
         terminatedOrderBy = { hireDate: sortOrder };
         break;
       default:
-        activeOrderBy = { [sortBy]: sortOrder };
-        terminatedOrderBy = { [sortBy]: sortOrder };
+        activeOrderBy = { [sortBy]: sortOrder } as Prisma.EmployeePositionOrderByWithRelationInput;
+        terminatedOrderBy = { [sortBy]: sortOrder } as Prisma.EmployeeHRProfileOrderByWithRelationInput;
     }
     
     if (status === 'TERMINATED') {
@@ -246,10 +503,8 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
         where.employeePosition = employeePositionFilter;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const [hrProfiles, totalCount] = await Promise.all([
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (prisma as any).employeeHRProfile.findMany({
+        prisma.employeeHRProfile.findMany({
           where,
           include: {
             employeePosition: {
@@ -265,8 +520,7 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
           skip,
           take: pageSize
         }),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (prisma as any).employeeHRProfile.count({ where })
+        prisma.employeeHRProfile.count({ where })
       ]);
 
       return res.json({ 
@@ -662,8 +916,7 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     }
 
     // Soft delete HR profile (retain data for audit)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (prisma as any).employeeHRProfile.update({
+    await prisma.employeeHRProfile.update({
       where: { employeePositionId: id },
       data: {
         deletedAt: new Date(),
@@ -676,6 +929,783 @@ export const deleteEmployee = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting employee:', error);
     res.status(500).json({ error: 'Failed to delete employee' });
+  }
+};
+
+// ============================================================================
+// ONBOARDING (Phase 1-2)
+// ============================================================================
+
+export const getOnboardingTemplates = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const templates = await listOnboardingTemplatesService(businessId);
+    return res.json({ templates });
+  } catch (error) {
+    console.error('Error fetching onboarding templates:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch onboarding templates';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const createOnboardingTemplate = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const payload = parseOnboardingTemplatePayload(req.body);
+    const template = await upsertOnboardingTemplateService({
+      ...payload,
+      businessId
+    });
+
+    return res.status(201).json({ template });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error creating onboarding template:', error);
+    const message = error instanceof Error ? error.message : 'Failed to create onboarding template';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const updateOnboardingTemplate = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { templateId } = req.params;
+    const payload = parseOnboardingTemplatePayload(req.body, templateId);
+    const template = await upsertOnboardingTemplateService({
+      ...payload,
+      businessId
+    });
+
+    return res.json({ template });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error updating onboarding template:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update onboarding template';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const deleteOnboardingTemplate = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { templateId } = req.params;
+    await archiveOnboardingTemplate(businessId, templateId, req.user?.id ?? null);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error archiving onboarding template:', error);
+    const message = error instanceof Error ? error.message : 'Failed to archive onboarding template';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const startOnboardingJourney = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const payload = parseOnboardingJourneyStart(req.body);
+    const journey = await startOnboardingJourneyService({
+      ...payload,
+      businessId,
+      initiatedByUserId: req.user?.id ?? null
+    });
+
+    return res.status(201).json({ journey });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error starting onboarding journey:', error);
+    const message = error instanceof Error ? error.message : 'Failed to start onboarding journey';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const getOnboardingJourneys = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const employeeHrProfileId = req.query.employeeHrProfileId as string | undefined;
+    if (!employeeHrProfileId) {
+      return res.status(400).json({ error: 'employeeHrProfileId is required' });
+    }
+
+    const journeys = await listEmployeeJourneysService(businessId, employeeHrProfileId);
+    return res.json({ journeys });
+  } catch (error) {
+    console.error('Error fetching onboarding journeys:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch onboarding journeys';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const completeOnboardingTask = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { taskId } = req.params;
+    const completedByUserId = req.user?.id;
+    if (!completedByUserId) {
+      return res.status(401).json({ error: 'User context required to complete task' });
+    }
+
+    const payload = parseOnboardingTaskCompletion(req.body);
+
+    const completedTask = await completeOnboardingTaskService({
+      businessId,
+      taskId,
+      completedByUserId,
+      status: payload.status,
+      notes: payload.notes,
+      metadata: payload.metadata,
+      approved: payload.approved,
+      approvedByUserId: payload.approvedByUserId ?? undefined
+    });
+
+    return res.json({ task: completedTask });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error completing onboarding task:', error);
+    const message = error instanceof Error ? error.message : 'Failed to complete onboarding task';
+    return res.status(500).json({ error: message });
+  }
+};
+
+// ============================================================================
+// ONBOARDING - EMPLOYEE & MANAGER ROUTES
+// ============================================================================
+
+export const getMyOnboardingJourneys = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { profile, journeys } = await listEmployeeJourneysForUser(businessId, userId);
+    return res.json({ profile, journeys });
+  } catch (error) {
+    console.error('Error fetching self onboarding journeys:', error);
+    const message = error instanceof Error ? error.message : 'Failed to load onboarding journeys';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const completeMyOnboardingTask = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { taskId } = req.params;
+    const profile = await findEmployeeHrProfileByUser(businessId, userId);
+    if (!profile) {
+      return res.status(404).json({ error: 'Employee profile not found' });
+    }
+
+    const task = await prisma.employeeOnboardingTask.findFirst({
+      where: {
+        id: taskId,
+        businessId,
+        onboardingJourney: {
+          employeeHrProfileId: profile.id
+        }
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Onboarding task not found' });
+    }
+
+    const payload = parseOnboardingTaskCompletion(req.body);
+
+    const completedTask = await completeOnboardingTaskService({
+      businessId,
+      taskId,
+      completedByUserId: userId,
+      status: payload.status ?? OnboardingTaskStatus.COMPLETED,
+      notes: payload.notes,
+      metadata: payload.metadata,
+      approved: payload.approved,
+      approvedByUserId: payload.approvedByUserId ?? undefined
+    });
+
+    return res.json({ task: completedTask });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error completing self onboarding task:', error);
+    const message = error instanceof Error ? error.message : 'Failed to complete onboarding task';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const getTeamOnboardingTasks = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const managerContext = await resolveManagerContext(businessId, userId);
+    if (
+      !managerContext.managerPositionId ||
+      managerContext.directReportEmployeePositionIds.length === 0
+    ) {
+      return res.json({ tasks: [] });
+    }
+
+    const tasks = await listOnboardingTasksForEmployeePositions(
+      businessId,
+      managerContext.directReportEmployeePositionIds
+    );
+
+    return res.json({ tasks });
+  } catch (error) {
+    console.error('Error fetching team onboarding tasks:', error);
+    const message = error instanceof Error ? error.message : 'Failed to load onboarding tasks';
+    return res.status(500).json({ error: message });
+  }
+};
+
+export const completeTeamOnboardingTask = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { taskId } = req.params;
+    const managerContext = await resolveManagerContext(businessId, userId);
+    if (
+      !managerContext.managerPositionId ||
+      managerContext.directReportEmployeePositionIds.length === 0
+    ) {
+      return res.status(403).json({ error: 'No onboarding tasks available for approval' });
+    }
+
+    const task = await prisma.employeeOnboardingTask.findFirst({
+      where: { id: taskId, businessId },
+      include: {
+        onboardingJourney: {
+          include: {
+            employeeHrProfile: {
+              select: {
+                employeePositionId: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Onboarding task not found' });
+    }
+
+    if (
+      !task.onboardingJourney.employeeHrProfile ||
+      !managerContext.directReportEmployeePositionIds.includes(
+        task.onboardingJourney.employeeHrProfile.employeePositionId
+      )
+    ) {
+      return res.status(403).json({ error: 'Not authorized to update this onboarding task' });
+    }
+
+    const payload = parseOnboardingTaskCompletion(req.body);
+
+    const completedTask = await completeOnboardingTaskService({
+      businessId,
+      taskId,
+      completedByUserId: userId,
+      status: payload.status ?? OnboardingTaskStatus.COMPLETED,
+      notes: payload.notes,
+      metadata: payload.metadata,
+      approved: payload.approved ?? true,
+      approvedByUserId: payload.approvedByUserId ?? userId
+    });
+
+    return res.json({ task: completedTask });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({
+        error: error.message,
+        field: error.field,
+        details: error.details
+      });
+    }
+
+    console.error('Error completing team onboarding task:', error);
+    const message = error instanceof Error ? error.message : 'Failed to complete onboarding task';
+    return res.status(500).json({ error: message });
+  }
+};
+
+// ============================================================================
+// ATTENDANCE (Phase 3)
+// ============================================================================
+
+/**
+ * Get high-level attendance overview for admin dashboard.
+ */
+export const getAttendanceOverview = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const overview = await getAttendanceOverviewService(businessId);
+    return res.json({ overview });
+  } catch (error) {
+    console.error('Error fetching attendance overview:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch attendance overview';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * List attendance policies for a business.
+ */
+export const getAttendancePolicies = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const policies = await listAttendancePolicies(businessId);
+    return res.json({ policies });
+  } catch (error) {
+    console.error('Error listing attendance policies:', error);
+    const message = error instanceof Error ? error.message : 'Failed to list attendance policies';
+    return res.status(500).json({ error: message });
+  }
+};
+
+const parseAttendancePolicyBody = (body: unknown, id?: string) => {
+  const result = attendancePolicySchema.safeParse(body);
+  if (!result.success) {
+    const issues = result.error.flatten();
+    const details = {
+      fieldErrors: issues.fieldErrors,
+      formErrors: issues.formErrors
+    };
+    throw new FieldValidationError('attendancePolicy', 'Invalid attendance policy payload', details);
+  }
+
+  const payload = result.data;
+  const metadata = parseJsonField(payload.metadata, 'metadata');
+
+  return {
+    id,
+    name: payload.name,
+    description: payload.description ?? null,
+    timezone: payload.timezone ?? null,
+    roundingIncrementMinutes: payload.roundingIncrementMinutes ?? null,
+    gracePeriodMinutes: payload.gracePeriodMinutes ?? null,
+    autoClockOutAfterMinutes: payload.autoClockOutAfterMinutes ?? null,
+    requireGeolocation: payload.requireGeolocation ?? false,
+    geofenceRadiusMeters: payload.geofenceRadiusMeters ?? null,
+    workingDays: normalizeWorkingDays(payload.workingDays),
+    metadata,
+    isDefault: payload.isDefault ?? false,
+    effectiveFrom: payload.effectiveFrom ? new Date(payload.effectiveFrom) : null,
+    effectiveTo: payload.effectiveTo ? new Date(payload.effectiveTo) : null,
+    active: payload.active ?? true
+  };
+};
+
+const parseOnboardingTemplatePayload = (
+  body: unknown,
+  templateId?: string
+) => {
+  const result = onboardingTemplateSchema.safeParse(body);
+  if (!result.success) {
+    const issues = result.error.flatten();
+    const details = {
+      fieldErrors: issues.fieldErrors,
+      formErrors: issues.formErrors
+    };
+    throw new FieldValidationError('onboardingTemplate', 'Invalid onboarding template payload', details);
+  }
+
+  const payload = result.data;
+  const applicabilityRules = parseJsonField(payload.applicabilityRules, 'applicabilityRules');
+  const automationSettings = parseJsonField(payload.automationSettings, 'automationSettings');
+
+  const tasks = (payload.tasks ?? []).map((task) => {
+    const metadata = parseJsonField(task.metadata, 'metadata');
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description ?? null,
+      orderIndex: task.orderIndex ?? null,
+      taskType: task.taskType ?? OnboardingTaskType.CUSTOM,
+      ownerType: task.ownerType ?? OnboardingTaskOwnerType.EMPLOYEE,
+      ownerReference: task.ownerReference ?? null,
+      dueOffsetDays: task.dueOffsetDays ?? null,
+      requiresApproval: task.requiresApproval ?? false,
+      requiresDocument: task.requiresDocument ?? false,
+      metadata,
+      isActive: task.isActive ?? true
+    };
+  });
+
+  return {
+    id: templateId ?? payload.id,
+    name: payload.name,
+    description: payload.description ?? null,
+    isDefault: payload.isDefault ?? false,
+    isActive: payload.isActive ?? true,
+    ownerUserId: payload.ownerUserId ?? null,
+    applicabilityRules,
+    automationSettings,
+    tasks
+  };
+};
+
+const parseOnboardingJourneyStart = (body: unknown) => {
+  const result = onboardingJourneyStartSchema.safeParse(body);
+  if (!result.success) {
+    const issues = result.error.flatten();
+    const details = {
+      fieldErrors: issues.fieldErrors,
+      formErrors: issues.formErrors
+    };
+    throw new FieldValidationError('onboardingJourney', 'Invalid onboarding journey payload', details);
+  }
+
+  const payload = result.data;
+  const metadata = parseJsonField(payload.metadata, 'metadata');
+
+  return {
+    employeeHrProfileId: payload.employeeHrProfileId,
+    onboardingTemplateId: payload.onboardingTemplateId,
+    startDate: payload.startDate ? new Date(payload.startDate) : undefined,
+    metadata
+  };
+};
+
+const parseOnboardingTaskCompletion = (body: unknown) => {
+  const result = onboardingTaskCompletionSchema.safeParse(body);
+  if (!result.success) {
+    const issues = result.error.flatten();
+    const details = {
+      fieldErrors: issues.fieldErrors,
+      formErrors: issues.formErrors
+    };
+    throw new FieldValidationError('onboardingTask', 'Invalid onboarding task payload', details);
+  }
+
+  const payload = result.data;
+  const metadata = parseJsonField(payload.metadata, 'metadata');
+
+  return {
+    status: payload.status,
+    notes: payload.notes ?? null,
+    metadata,
+    approved: payload.approved ?? false,
+    approvedByUserId: payload.approvedByUserId ?? null
+  };
+};
+
+/**
+ * Create a new attendance policy.
+ */
+export const createAttendancePolicy = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const payload = parseAttendancePolicyBody(req.body);
+
+    const policy = await upsertAttendancePolicy({
+      ...payload,
+      businessId,
+      metadata: payload.metadata === undefined ? undefined : payload.metadata
+    });
+
+    return res.status(201).json({ policy });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({ error: error.message, field: error.field, details: error.details });
+    }
+
+    console.error('Error creating attendance policy:', error);
+    const message = error instanceof Error ? error.message : 'Failed to create attendance policy';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Update an existing attendance policy.
+ */
+export const updateAttendancePolicy = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Policy ID is required' });
+    }
+
+    const payload = parseAttendancePolicyBody(req.body, id);
+
+    const policy = await upsertAttendancePolicy({
+      ...payload,
+      businessId,
+      metadata: payload.metadata === undefined ? undefined : payload.metadata
+    });
+
+    return res.json({ policy });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({ error: error.message, field: error.field, details: error.details });
+    }
+
+    console.error('Error updating attendance policy:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update attendance policy';
+    return res.status(500).json({ error: message });
+  }
+};
+
+const parseAttendancePunchBody = (body: unknown) => {
+  const result = attendancePunchSchema.safeParse(body);
+  if (!result.success) {
+    throw new FieldValidationError('attendancePunch', 'Invalid attendance punch payload');
+  }
+
+  const parsed = result.data;
+  const location = parseJsonField(parsed.location, 'location');
+  const metadata = parseJsonField(parsed.metadata, 'metadata');
+
+  return {
+    ...parsed,
+    location,
+    metadata
+  };
+};
+
+/**
+ * Employee self-service punch in.
+ */
+export const recordSelfAttendancePunchIn = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { employeePositionId, method, source, location, metadata } = parseAttendancePunchBody(req.body);
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'User session missing' });
+    }
+
+    const positionId =
+      employeePositionId ??
+      (await findActiveEmployeePositionId(businessId, userId));
+
+    if (!positionId) {
+      return res.status(404).json({ error: 'Active employee position not found for this user' });
+    }
+
+    const record = await recordPunchIn({
+      businessId,
+      employeePositionId: positionId,
+      method,
+      source: source ?? 'employee-self-service',
+      location: location === undefined ? undefined : location,
+      metadata: metadata === undefined ? undefined : metadata
+    });
+
+    return res.status(201).json({ record });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({ error: error.message, field: error.field });
+    }
+
+    if (error instanceof Error && error.message.includes('in-progress attendance record')) {
+      return res.status(409).json({ error: error.message });
+    }
+
+    console.error('Error recording attendance punch-in:', error);
+    const message = error instanceof Error ? error.message : 'Failed to record attendance punch-in';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Employee self-service punch out.
+ */
+export const recordSelfAttendancePunchOut = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const { employeePositionId, recordId, method, source, location, metadata } = parseAttendancePunchBody(req.body);
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'User session missing' });
+    }
+
+    const positionId =
+      employeePositionId ??
+      (await findActiveEmployeePositionId(businessId, userId));
+
+    if (!positionId) {
+      return res.status(404).json({ error: 'Active employee position not found for this user' });
+    }
+
+    const record = await recordPunchOut({
+      businessId,
+      employeePositionId: positionId,
+      recordId,
+      method,
+      source: source ?? 'employee-self-service',
+      location: location === undefined ? undefined : location,
+      metadata: metadata === undefined ? undefined : metadata
+    });
+
+    return res.json({ record });
+  } catch (error) {
+    if (error instanceof FieldValidationError) {
+      return res.status(400).json({ error: error.message, field: error.field });
+    }
+
+    if (error instanceof Error && error.message.includes('No in-progress attendance record')) {
+      return res.status(404).json({ error: error.message });
+    }
+
+    console.error('Error recording attendance punch-out:', error);
+    const message = error instanceof Error ? error.message : 'Failed to record attendance punch-out';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Get attendance history for the authenticated employee.
+ */
+export const getMyAttendanceRecords = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'User session missing' });
+    }
+
+    const { limit } = req.query;
+    let take = 30;
+    if (typeof limit === 'string') {
+      const parsed = Number.parseInt(limit, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        take = Math.min(parsed, 100);
+      }
+    }
+
+    const employeePositionId = await findActiveEmployeePositionId(businessId, userId);
+    if (!employeePositionId) {
+      return res.status(404).json({ error: 'Active employee position not found for this user' });
+    }
+
+    const records = await listEmployeeAttendanceRecords(businessId, employeePositionId, take);
+    return res.json({ records });
+  } catch (error) {
+    console.error('Error fetching attendance records:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch attendance records';
+    return res.status(500).json({ error: message });
   }
 };
 
@@ -861,8 +1891,6 @@ export const terminateEmployee = async (req: Request, res: Response) => {
  */
 export const getHRSettings = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    
     // TODO: Enable after migration
     // const settings = await prisma.hRModuleSettings.findUnique({
     //   where: { businessId }
@@ -911,40 +1939,29 @@ export const updateHRSettings = async (req: Request, res: Response) => {
  */
 export const getTeamEmployees = async (req: Request, res: Response) => {
   try {
-    const user = req.user;
-    const businessId = req.query.businessId as string;
-    
-    // Get manager's position
-    const managerPosition = await prisma.employeePosition.findFirst({
-      where: {
-        userId: user!.id,
-        businessId,
-        active: true
-      },
-      include: {
-        position: {
-          include: {
-            directReports: true
-          }
-        }
-      }
-    });
-    
-    if (!managerPosition) {
-      return res.json({ employees: [], count: 0 });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    // Direct reports = positions where reportsToId equals manager's positionId
-    const directReportPositions = await prisma.position.findMany({
-      where: { businessId, reportsToId: managerPosition.positionId }
-    });
-    const reportPositionIds = directReportPositions.map((p) => p.id);
+    const businessId = req.query.businessId as string;
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const {
+      managerPositionId,
+      directReportPositionIds
+    } = await resolveManagerContext(businessId, req.user.id);
+
+    if (!managerPositionId || directReportPositionIds.length === 0) {
+      return res.json({ employees: [], count: 0 });
+    }
 
     const teamEmployees = await prisma.employeePosition.findMany({
       where: {
         businessId,
         active: true,
-        positionId: { in: reportPositionIds }
+        positionId: { in: directReportPositionIds }
       },
       include: {
         user: { select: { id: true, name: true, email: true, image: true } },
@@ -960,6 +1977,252 @@ export const getTeamEmployees = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching team employees:', error);
     res.status(500).json({ error: 'Failed to fetch team employees' });
+  }
+};
+
+export const getTeamAttendanceExceptions = async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const managerContext = await resolveManagerContext(businessId, req.user.id);
+
+    if (
+      !managerContext.managerPositionId ||
+      managerContext.directReportEmployeePositionIds.length === 0
+    ) {
+      return res.json({
+        exceptions: [],
+        total: 0,
+        page: 1,
+        pageSize: 20
+      });
+    }
+
+    const normalizedStatuses = (() => {
+      const raw = req.query.status;
+      if (!raw) {
+        return undefined;
+      }
+      const rawArray = Array.isArray(raw) ? raw : [raw];
+      const validValues = new Set(Object.values(AttendanceExceptionStatus));
+      const filtered = rawArray
+        .map((value) => value?.toString().trim().toUpperCase())
+        .filter(
+          (value): value is AttendanceExceptionStatus =>
+            !!value && validValues.has(value as AttendanceExceptionStatus)
+        ) as AttendanceExceptionStatus[];
+      return filtered.length > 0 ? filtered : undefined;
+    })();
+
+    const filterParse = attendanceExceptionFilterSchema.safeParse({
+      statuses: normalizedStatuses,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      search: req.query.search,
+      page: req.query.page,
+      pageSize: req.query.pageSize
+    });
+
+    if (!filterParse.success) {
+      return res.status(400).json({
+        error: 'Invalid filter parameters',
+        details: filterParse.error.flatten()
+      });
+    }
+
+    const filterData = filterParse.data;
+
+    const statusArray = Array.isArray(filterData.statuses)
+      ? filterData.statuses.length > 0
+        ? filterData.statuses
+        : [AttendanceExceptionStatus.OPEN, AttendanceExceptionStatus.UNDER_REVIEW]
+      : filterData.statuses
+      ? [filterData.statuses]
+      : [AttendanceExceptionStatus.OPEN, AttendanceExceptionStatus.UNDER_REVIEW];
+
+    const startDate = filterData.startDate ? new Date(filterData.startDate) : undefined;
+    const endDate = filterData.endDate ? new Date(filterData.endDate) : undefined;
+
+    if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+      return res.status(400).json({ error: 'Invalid date range provided.' });
+    }
+
+    const result = await listAttendanceExceptionsForManager({
+      businessId,
+      employeePositionIds: managerContext.directReportEmployeePositionIds,
+      statuses: statusArray,
+      startDate,
+      endDate,
+      search: filterData.search,
+      page: filterData.page,
+      pageSize: filterData.pageSize
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching attendance exceptions:', error);
+    return res.status(500).json({ error: 'Failed to fetch attendance exceptions' });
+  }
+};
+
+export const resolveTeamAttendanceException = async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const exceptionId = req.params?.id;
+    if (!exceptionId) {
+      return res.status(400).json({ error: 'Exception ID is required' });
+    }
+
+    const managerContext = await resolveManagerContext(businessId, req.user.id);
+    if (
+      !managerContext.managerPositionId ||
+      managerContext.directReportEmployeePositionIds.length === 0
+    ) {
+      return res.status(403).json({ error: 'Not authorized to resolve this exception' });
+    }
+
+    const existingException = await prisma.attendanceException.findFirst({
+      where: {
+        id: exceptionId,
+        businessId
+      },
+      select: {
+        id: true,
+        employeePositionId: true,
+        status: true
+      }
+    });
+
+    if (!existingException) {
+      return res.status(404).json({ error: 'Attendance exception not found' });
+    }
+
+    if (
+      !managerContext.directReportEmployeePositionIds.includes(
+        existingException.employeePositionId
+      )
+    ) {
+      return res.status(403).json({ error: 'Not authorized to resolve this exception' });
+    }
+
+    const payloadParse = attendanceExceptionResolutionSchema.safeParse(req.body);
+    if (!payloadParse.success) {
+      return res.status(400).json({
+        error: 'Invalid resolution payload',
+        details: payloadParse.error.flatten()
+      });
+    }
+
+    const payload = payloadParse.data;
+
+    const allowedStatuses: AttendanceExceptionStatus[] = [
+      AttendanceExceptionStatus.UNDER_REVIEW,
+      AttendanceExceptionStatus.RESOLVED,
+      AttendanceExceptionStatus.DISMISSED
+    ];
+
+    if (!allowedStatuses.includes(payload.status)) {
+      return res.status(400).json({
+        error: 'Unsupported status. Use UNDER_REVIEW, RESOLVED, or DISMISSED.'
+      });
+    }
+
+    let attendanceAdjustments: ResolveAttendanceExceptionInput['attendanceAdjustments'] | undefined;
+    let resolutionPayload: Prisma.InputJsonValue | null = null;
+
+    if (payload.adjustments) {
+      const adjustmentsJson: Record<string, unknown> = {};
+      const adjustments: ResolveAttendanceExceptionInput['attendanceAdjustments'] = {};
+
+      if ('clockInTime' in payload.adjustments) {
+        if (payload.adjustments.clockInTime === null || payload.adjustments.clockInTime === undefined) {
+          adjustments.clockInTime = null;
+        } else {
+          const parsed = new Date(payload.adjustments.clockInTime);
+          if (Number.isNaN(parsed.getTime())) {
+            return res.status(400).json({ error: 'Invalid clockInTime value' });
+          }
+          adjustments.clockInTime = parsed;
+        }
+        adjustmentsJson.clockInTime = payload.adjustments.clockInTime ?? null;
+      }
+
+      if ('clockOutTime' in payload.adjustments) {
+        if (payload.adjustments.clockOutTime === null || payload.adjustments.clockOutTime === undefined) {
+          adjustments.clockOutTime = null;
+        } else {
+          const parsed = new Date(payload.adjustments.clockOutTime);
+          if (Number.isNaN(parsed.getTime())) {
+            return res.status(400).json({ error: 'Invalid clockOutTime value' });
+          }
+          adjustments.clockOutTime = parsed;
+        }
+        adjustmentsJson.clockOutTime = payload.adjustments.clockOutTime ?? null;
+      }
+
+      if (payload.adjustments.status) {
+        adjustments.status = payload.adjustments.status;
+        adjustmentsJson.status = payload.adjustments.status;
+      }
+
+      if ('varianceMinutes' in payload.adjustments) {
+        adjustments.varianceMinutes = payload.adjustments.varianceMinutes ?? null;
+        adjustmentsJson.varianceMinutes = payload.adjustments.varianceMinutes ?? null;
+      }
+
+      attendanceAdjustments = adjustments;
+      resolutionPayload = adjustmentsJson as Prisma.InputJsonValue;
+    }
+
+    await resolveAttendanceException({
+      businessId,
+      exceptionId,
+      managerUserId: req.user.id,
+      status: payload.status,
+      resolutionNote: payload.resolutionNote ?? null,
+      managerNote: payload.managerNote ?? null,
+      resolutionPayload,
+      attendanceAdjustments
+    });
+
+    const refreshed = await prisma.attendanceException.findUnique({
+      where: { id: exceptionId },
+      include: {
+        employeePosition: {
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+            position: {
+              include: {
+                department: { select: { id: true, name: true } },
+                tier: { select: { id: true, name: true } }
+              }
+            }
+          }
+        },
+        attendanceRecord: true,
+        policy: { select: { id: true, name: true } }
+      }
+    });
+
+    return res.json({ exception: refreshed });
+  } catch (error) {
+    console.error('Error resolving attendance exception:', error);
+    return res.status(500).json({ error: 'Failed to resolve attendance exception' });
   }
 };
 
@@ -1114,15 +2377,13 @@ async function calculateTimeOffBalance(
   userId: string,
   businessId: string,
   employeePositionId: string,
-  type?: string
+  type?: TimeOffType
 ): Promise<{ available: number; used: number; allotment: number; accrued: number; pending: number }> {
   const now = new Date();
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const endOfYear = new Date(now.getFullYear(), 11, 31);
   
-  // Get employee HR profile for custom allotments
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hrProfile = await (prisma as any).employeeHRProfile.findUnique({
+  const hrProfile = await prisma.employeeHRProfile.findUnique({
     where: { employeePositionId },
     select: { hireDate: true }
   });
@@ -1135,10 +2396,10 @@ async function calculateTimeOffBalance(
     UNPAID: 0
   };
   
-  let allotment = type ? (defaultAllotments[type] || 0) : 15;
+  let allotment = type ? defaultAllotments[type] || 0 : 15;
   
   // If employee was hired mid-year, prorate allotment
-  if (hrProfile?.hireDate && type === 'PTO') {
+  if (hrProfile?.hireDate && type === TimeOffType.PTO) {
     const hireDate = new Date(hrProfile.hireDate);
     if (hireDate > startOfYear) {
       const daysInYear = 365;
@@ -1149,40 +2410,44 @@ async function calculateTimeOffBalance(
   }
   
   // Get approved requests for this year
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const approved = await (prisma as any).timeOffRequest.findMany({
+  const approved = await prisma.timeOffRequest.findMany({
     where: { 
       businessId, 
       employeePositionId, 
-      status: 'APPROVED',
+      status: TimeOffStatus.APPROVED,
       ...(type ? { type } : {}),
       startDate: { gte: startOfYear, lte: endOfYear }
     }
   });
   
   // Get pending requests (for display purposes)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pending = await (prisma as any).timeOffRequest.findMany({
+  const pending = await prisma.timeOffRequest.findMany({
     where: { 
       businessId, 
       employeePositionId, 
-      status: 'PENDING',
+      status: TimeOffStatus.PENDING,
       ...(type ? { type } : {}),
       startDate: { gte: startOfYear, lte: endOfYear }
     }
   });
   
   // Calculate used days from approved requests
-  const usedDays = approved.reduce((acc: number, r: any) => {
+  const usedDays = approved.reduce((acc: number, request) => {
     const one = 24 * 60 * 60 * 1000;
-    const days = Math.max(1, Math.round((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / one) + 1);
+    const days = Math.max(
+      1,
+      Math.round((request.endDate.getTime() - request.startDate.getTime()) / one) + 1
+    );
     return acc + days;
   }, 0);
   
   // Calculate pending days
-  const pendingDays = pending.reduce((acc: number, r: any) => {
+  const pendingDays = pending.reduce((acc: number, request) => {
     const one = 24 * 60 * 60 * 1000;
-    const days = Math.max(1, Math.round((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / one) + 1);
+    const days = Math.max(
+      1,
+      Math.round((request.endDate.getTime() - request.startDate.getTime()) / one) + 1
+    );
     return acc + days;
   }, 0);
   
@@ -1238,13 +2503,18 @@ export const requestTimeOff = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No active employee position found for user' });
     }
 
+    // Normalize and validate time-off type
+    const normalizedType = type.toUpperCase() as TimeOffType;
+    if (!Object.values(TimeOffType).includes(normalizedType)) {
+      return res.status(400).json({ error: 'Invalid time-off type requested' });
+    }
+
     // Check for overlapping requests (excluding canceled)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const overlapping = await (prisma as any).timeOffRequest.findFirst({
+    const overlapping = await prisma.timeOffRequest.findFirst({
       where: {
         businessId,
         employeePositionId: employeePosition.id,
-        status: { not: 'CANCELED' },
+        status: { not: TimeOffStatus.CANCELED },
         OR: [
           {
             AND: [
@@ -1269,8 +2539,8 @@ export const requestTimeOff = async (req: Request, res: Response) => {
     }
 
     // Check balance for PTO requests
-    if (type === 'PTO') {
-      const balance = await calculateTimeOffBalance(user.id, businessId, employeePosition.id, 'PTO');
+    if (normalizedType === TimeOffType.PTO) {
+      const balance = await calculateTimeOffBalance(user.id, businessId, employeePosition.id, TimeOffType.PTO);
       
       // Calculate requested days
       const one = 24 * 60 * 60 * 1000;
@@ -1285,17 +2555,15 @@ export const requestTimeOff = async (req: Request, res: Response) => {
     }
 
     // Create the time-off request
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const request = await (prisma as any).timeOffRequest.create({
+    const request = await prisma.timeOffRequest.create({
       data: {
         businessId,
         employeePositionId: employeePosition.id,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        type: type as any,
+        type: normalizedType,
         startDate: start,
         endDate: end,
         reason: reason || null,
-        status: 'PENDING',
+        status: TimeOffStatus.PENDING,
         requestedById: user.id
       }
     });
@@ -1328,9 +2596,12 @@ export const getPendingTeamTimeOff = async (req: Request, res: Response) => {
     const reportPositionIds = directReportPositions.map((p) => p.id);
 
     // Pending requests for those positions
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const requests = await (prisma as any).timeOffRequest.findMany({
-      where: { businessId, status: 'PENDING', employeePosition: { positionId: { in: reportPositionIds } } },
+    const requests = await prisma.timeOffRequest.findMany({
+      where: {
+        businessId,
+        status: TimeOffStatus.PENDING,
+        employeePosition: { positionId: { in: reportPositionIds } }
+      },
       include: {
         employeePosition: {
           include: {
@@ -1357,8 +2628,7 @@ export const approveTeamTimeOff = async (req: Request, res: Response) => {
     const { decision, note } = req.body as { decision: 'APPROVE' | 'DENY'; note?: string };
 
     // Load request
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tor = await (prisma as any).timeOffRequest.findFirst({ where: { id, businessId } });
+    const tor = await prisma.timeOffRequest.findFirst({ where: { id, businessId } });
     if (!tor) return res.status(404).json({ error: 'Request not found' });
 
     // Confirm manager has authority (direct reports of this manager)
@@ -1372,9 +2642,8 @@ export const approveTeamTimeOff = async (req: Request, res: Response) => {
     }
 
     // Update status
-    const status = decision === 'APPROVE' ? 'APPROVED' : 'DENIED';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (prisma as any).timeOffRequest.update({
+    const status = decision === 'APPROVE' ? TimeOffStatus.APPROVED : TimeOffStatus.DENIED;
+    await prisma.timeOffRequest.update({
       where: { id },
       data: { status, approvedById: user.id, approvedAt: new Date(), managerNote: note || null }
     });
@@ -1397,15 +2666,14 @@ export const getTimeOffBalance = async (req: Request, res: Response) => {
     const user = req.user!;
     const businessId = req.query.businessId as string;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ep = await prisma.employeePosition.findFirst({ where: { userId: user.id, businessId, active: true } });
     if (!ep) return res.json({ balance: { pto: 0, sick: 0, personal: 0 }, used: { pto: 0, sick: 0, personal: 0 } });
 
     // Calculate balances for each type
     const [ptoBalance, sickBalance, personalBalance] = await Promise.all([
-      calculateTimeOffBalance(user.id, businessId, ep.id, 'PTO'),
-      calculateTimeOffBalance(user.id, businessId, ep.id, 'SICK'),
-      calculateTimeOffBalance(user.id, businessId, ep.id, 'PERSONAL')
+      calculateTimeOffBalance(user.id, businessId, ep.id, TimeOffType.PTO),
+      calculateTimeOffBalance(user.id, businessId, ep.id, TimeOffType.SICK),
+      calculateTimeOffBalance(user.id, businessId, ep.id, TimeOffType.PERSONAL)
     ]);
 
     return res.json({ 
@@ -1453,15 +2721,15 @@ export const getMyTimeOffRequests = async (req: Request, res: Response) => {
     const employeePosition = await prisma.employeePosition.findFirst({ where: { userId: user.id, businessId } });
     if (!employeePosition) return res.json({ requests: [], count: 0, page, pageSize });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const requests = await (prisma as any).timeOffRequest.findMany({
+    const requests = await prisma.timeOffRequest.findMany({
       where: { businessId, employeePositionId: employeePosition.id },
       orderBy: { requestedAt: 'desc' },
       skip,
       take: pageSize
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const total = await (prisma as any).timeOffRequest.count({ where: { businessId, employeePositionId: employeePosition.id } });
+    const total = await prisma.timeOffRequest.count({
+      where: { businessId, employeePositionId: employeePosition.id }
+    });
 
     return res.json({ requests, count: total, page, pageSize });
   } catch (error) {
@@ -1481,8 +2749,7 @@ export const cancelTimeOffRequest = async (req: Request, res: Response) => {
     const { id } = req.params; // timeOffRequestId
 
     // Find the request
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const request = await (prisma as any).timeOffRequest.findFirst({
+    const request = await prisma.timeOffRequest.findFirst({
       where: { id, businessId },
       include: {
         employeePosition: {
@@ -1501,15 +2768,14 @@ export const cancelTimeOffRequest = async (req: Request, res: Response) => {
     }
 
     // Only allow canceling pending requests
-    if (request.status !== 'PENDING') {
+    if (request.status !== TimeOffStatus.PENDING) {
       return res.status(400).json({ error: 'Only pending requests can be canceled' });
     }
 
     // Update status to CANCELED
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (prisma as any).timeOffRequest.update({
+    await prisma.timeOffRequest.update({
       where: { id },
-      data: { status: 'CANCELED' }
+      data: { status: TimeOffStatus.CANCELED }
     });
 
     try {
@@ -1561,7 +2827,7 @@ export const getTimeOffCalendar = async (req: Request, res: Response) => {
     // Build where clause
     const where: Record<string, unknown> = {
       businessId,
-      status: { in: ['PENDING', 'APPROVED'] },
+      status: { in: [TimeOffStatus.PENDING, TimeOffStatus.APPROVED] },
       ...dateFilter
     };
 
@@ -1574,8 +2840,7 @@ export const getTimeOffCalendar = async (req: Request, res: Response) => {
       };
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const requests = await (prisma as any).timeOffRequest.findMany({
+    const requests = await prisma.timeOffRequest.findMany({
       where,
       include: {
         employeePosition: {
@@ -1628,12 +2893,11 @@ export const getTimeOffReports = async (req: Request, res: Response) => {
     const end = endDate ? new Date(endDate) : new Date(new Date().getFullYear(), 11, 31);
 
     // Get all time-off requests in date range
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const requests = await (prisma as any).timeOffRequest.findMany({
+    const requests = await prisma.timeOffRequest.findMany({
       where: {
         businessId,
         startDate: { gte: start, lte: end },
-        status: { in: ['APPROVED', 'PENDING'] }
+        status: { in: [TimeOffStatus.APPROVED, TimeOffStatus.PENDING] }
       },
       include: {
         employeePosition: {
@@ -1664,11 +2928,12 @@ export const getTimeOffReports = async (req: Request, res: Response) => {
     const departmentUsage: Record<string, { name: string; totalDays: number; requestCount: number; employees: Set<string> }> = {};
     const typeUsage: Record<string, number> = {};
     let totalDays = 0;
-    let totalRequests = requests.length;
+    const totalRequests = requests.length;
 
-    requests.forEach((req: any) => {
-      const deptName = req.employeePosition.position?.department?.name || 'Unassigned';
-      const deptId = req.employeePosition.position?.department?.id || 'unassigned';
+    requests.forEach((request) => {
+      const employeePosition = request.employeePosition;
+      const deptName = employeePosition.position?.department?.name ?? 'Unassigned';
+      const deptId = employeePosition.position?.department?.id ?? 'unassigned';
       
       if (!departmentUsage[deptId]) {
         departmentUsage[deptId] = {
@@ -1680,13 +2945,16 @@ export const getTimeOffReports = async (req: Request, res: Response) => {
       }
       
       const one = 24 * 60 * 60 * 1000;
-      const days = Math.max(1, Math.round((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / one) + 1);
+      const days = Math.max(
+        1,
+        Math.round((request.endDate.getTime() - request.startDate.getTime()) / one) + 1
+      );
       
       departmentUsage[deptId].totalDays += days;
       departmentUsage[deptId].requestCount += 1;
-      departmentUsage[deptId].employees.add(req.employeePosition.userId);
+      departmentUsage[deptId].employees.add(employeePosition.userId);
       
-      typeUsage[req.type] = (typeUsage[req.type] || 0) + days;
+      typeUsage[request.type] = (typeUsage[request.type] || 0) + days;
       totalDays += days;
     });
 
@@ -1746,8 +3014,10 @@ export const importEmployeesCSV = async (req: Request & { file?: Express.Multer.
     }
     
     // Parse CSV content
-    const csvContent = req.file.buffer?.toString('utf-8') || 
-                      (typeof req.file === 'string' ? require('fs').readFileSync(req.file, 'utf-8') : '');
+    const csvContent = req.file.buffer?.toString('utf-8');
+    if (!csvContent) {
+      return res.status(400).json({ error: 'Unable to read CSV file contents' });
+    }
     
     const lines = csvContent.split('\n').filter((line: string) => line.trim());
     if (lines.length < 2) {
@@ -1789,7 +3059,6 @@ export const importEmployeesCSV = async (req: Request & { file?: Express.Multer.
     let skipped = 0;
     
     // Generate random password for imported users
-    const bcrypt = require('bcrypt');
     const generateRandomPassword = () => {
       return Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
     };
@@ -1947,20 +3216,21 @@ export const importEmployeesCSV = async (req: Request & { file?: Express.Multer.
         });
         
         if (employeePosition) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (prisma as any).employeeHRProfile.upsert({
+          await prisma.employeeHRProfile.upsert({
             where: { employeePositionId: employeePosition.id },
             create: {
               employeePositionId: employeePosition.id,
               businessId,
               hireDate,
-              employeeType: rowData.employeetype?.toUpperCase() || 'FULL_TIME',
+              employeeType:
+                normalizeEmployeeTypeValue(rowData.employeetype) ??
+                PrismaEmployeeType.FULL_TIME,
               workLocation: rowData.worklocation || null,
               employmentStatus: 'ACTIVE'
             },
             update: {
               hireDate,
-              employeeType: rowData.employeetype?.toUpperCase() || undefined,
+              employeeType: normalizeEmployeeTypeValue(rowData.employeetype),
               workLocation: rowData.worklocation || undefined,
               employmentStatus: 'ACTIVE'
             }
@@ -2034,11 +3304,10 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
     }> = [];
     
     if (status === 'TERMINATED') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const hrProfiles = await (prisma as any).employeeHRProfile.findMany({
+      const hrProfiles = await prisma.employeeHRProfile.findMany({
         where: {
           businessId,
-          employmentStatus: 'TERMINATED'
+          employmentStatus: EmploymentStatus.TERMINATED
         },
         include: {
           employeePosition: {
@@ -2055,15 +3324,15 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
         }
       });
       
-      employees = hrProfiles.map((profile: any) => ({
-        name: profile.employeePosition?.user?.name || '',
-        email: profile.employeePosition?.user?.email || '',
-        title: profile.employeePosition?.position?.title || '',
-        department: profile.employeePosition?.position?.department?.name || '',
-        tier: profile.employeePosition?.position?.tier?.name || '',
-        hireDate: profile.hireDate ? new Date(profile.hireDate).toISOString().split('T')[0] : null,
-        employeeType: profile.employeeType || null,
-        workLocation: profile.workLocation || null
+      employees = hrProfiles.map((profile) => ({
+        name: profile.employeePosition?.user?.name ?? '',
+        email: profile.employeePosition?.user?.email ?? '',
+        title: profile.employeePosition?.position?.title ?? '',
+        department: profile.employeePosition?.position?.department?.name ?? '',
+        tier: profile.employeePosition?.position?.tier?.name ?? '',
+        hireDate: profile.hireDate ? profile.hireDate.toISOString().split('T')[0] : null,
+        employeeType: profile.employeeType ?? null,
+        workLocation: profile.workLocation ?? null
       }));
     } else {
       const where: Record<string, unknown> = {
@@ -2108,11 +3377,11 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
         title: ep.position?.title || '',
         department: ep.position?.department?.name || '',
         tier: ep.position?.tier?.name || '',
-        hireDate: (ep.hrProfile as any)?.hireDate 
-          ? new Date((ep.hrProfile as any).hireDate).toISOString().split('T')[0] 
-          : null,
-        employeeType: (ep.hrProfile as any)?.employeeType || null,
-        workLocation: (ep.hrProfile as any)?.workLocation || null
+      hireDate: ep.hrProfile?.hireDate
+        ? ep.hrProfile.hireDate.toISOString().split('T')[0]
+        : null,
+      employeeType: ep.hrProfile?.employeeType ?? null,
+      workLocation: ep.hrProfile?.workLocation ?? null
       }));
     }
     

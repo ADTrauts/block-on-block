@@ -26,6 +26,10 @@ interface HRFeatures {
     clockInOut: boolean;
     geolocation: boolean;
   };
+  onboarding: {
+    enabled: boolean;
+    automation: boolean;
+  };
   payroll: boolean;
   recruitment: boolean;
   performance: boolean;
@@ -72,6 +76,10 @@ export function useHRFeatures(businessTier?: string): UseHRFeaturesReturn {
           clockInOut: true,
           geolocation: true
         },
+      onboarding: {
+        enabled: true,
+        automation: true
+      },
         payroll: true,
         recruitment: true,
         performance: true,
@@ -93,6 +101,10 @@ export function useHRFeatures(businessTier?: string): UseHRFeaturesReturn {
           clockInOut: false,  // No clock in/out
           geolocation: false
         },
+      onboarding: {
+        enabled: true,
+        automation: false
+      },
         payroll: false,        // Enterprise only
         recruitment: false,    // Enterprise only
         performance: false,    // Enterprise only
@@ -113,6 +125,10 @@ export function useHRFeatures(businessTier?: string): UseHRFeaturesReturn {
         enabled: false,
         clockInOut: false,
         geolocation: false
+      },
+      onboarding: {
+        enabled: false,
+        automation: false
       },
       payroll: false,
       recruitment: false,

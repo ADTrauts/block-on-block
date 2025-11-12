@@ -35,6 +35,14 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [loading, setLoading] = useState(false);
   const [masterCalendarActive, setMasterCalendarActive] = useState(true);
+  const isContextLocked = Boolean(contextType && contextId);
+  const shouldFilterBusinessCalendars = useMemo(() => {
+    if (isContextLocked || !currentDashboard) {
+      return false;
+    }
+    const type = getDashboardType(currentDashboard).toUpperCase();
+    return type === 'PERSONAL';
+  }, [currentDashboard, getDashboardType, isContextLocked]);
 
   const contextQuery = useMemo(() => {
     if (contextType && contextId) {
@@ -48,12 +56,19 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
     return { contextType: type, contextId: id } as ContextQuery;
   }, [contextType, contextId, currentDashboard, getDashboardType]);
 
+  // Force current-tab mode when a specific context is provided
+  useEffect(() => {
+    if (isContextLocked && overlayMode !== 'CURRENT_TAB') {
+      setOverlayMode('CURRENT_TAB');
+    }
+  }, [isContextLocked, overlayMode, setOverlayMode]);
+
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       try {
         // All Tabs mode: skip context filters to load all user calendars
-        const shouldUseAllTabs = overlayMode === 'ALL_TABS';
+        const shouldUseAllTabs = !isContextLocked && overlayMode === 'ALL_TABS';
         if (!shouldUseAllTabs && (!contextQuery.contextType || !contextQuery.contextId)) {
           setCalendars([]);
           setCalCtx([]);
@@ -64,6 +79,21 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
           ? await calendarAPI.listCalendars()
           : await calendarAPI.listCalendars(contextQuery);
         if (resp?.success) {
+          const applyFilters = (list: Calendar[]): Calendar[] => {
+            if (!shouldFilterBusinessCalendars) {
+              return list;
+            }
+            return list.filter(calendar => {
+              if (calendar.contextType !== 'BUSINESS') {
+                return true;
+              }
+              const name = calendar.name?.trim().toLowerCase();
+              return calendar.isSystem === true &&
+                calendar.isDeletable === false &&
+                name === 'schedule';
+            });
+          };
+
           if (resp.data.length === 0 && overlayMode === 'CURRENT_TAB' && currentDashboard) {
             // Attempt auto-provision only if calendar module is active on this dashboard
             const calendarActive = currentDashboard.widgets?.some((w: DashboardWidget) => w.type === 'calendar');
@@ -79,16 +109,18 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
               } catch {}
               const refetch = await calendarAPI.listCalendars(contextQuery);
               if (refetch?.success) {
-                setCalCtx(refetch.data);
-                setCalendars(refetch.data);
+                const filtered = applyFilters(refetch.data);
+                setCalCtx(filtered);
+                setCalendars(filtered);
               }
             } else {
               setCalCtx([]);
               setCalendars([]);
             }
           } else {
-            setCalCtx(resp.data);
-            setCalendars(resp.data);
+            const filtered = applyFilters(resp.data);
+            setCalCtx(filtered);
+            setCalendars(filtered);
           }
         }
       } finally {
@@ -96,7 +128,7 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
       }
     };
     run();
-  }, [overlayMode, contextQuery, currentDashboard, getDashboardDisplayName]);
+  }, [overlayMode, contextQuery, currentDashboard, getDashboardDisplayName, isContextLocked, shouldFilterBusinessCalendars]);
 
   // Event counts will be added in future update
   const totalEvents = calendars.length;
@@ -108,11 +140,12 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Vssyl</h2>
           <select
-            value={overlayMode}
-            onChange={e => setOverlayMode(e.target.value as 'ALL_TABS' | 'CURRENT_TAB')}
-            className="text-xs border rounded px-2 py-1 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+            value={isContextLocked ? 'CURRENT_TAB' : overlayMode}
+            onChange={e => !isContextLocked && setOverlayMode(e.target.value as 'ALL_TABS' | 'CURRENT_TAB')}
+            disabled={isContextLocked}
+            className="text-xs border rounded px-2 py-1 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200 disabled:opacity-60"
           >
-            <option value="ALL_TABS">All Tabs</option>
+            {!isContextLocked && <option value="ALL_TABS">All Tabs</option>}
             <option value="CURRENT_TAB">Current Tab</option>
           </select>
         </div>
@@ -183,13 +216,35 @@ export default function CalendarListSidebar({ contextType, contextId }: Calendar
               const name = prompt('Calendar name');
               if (!name) return;
               const extendedDashboard = currentDashboard as ExtendedDashboard;
-              const body: { name: string; contextType: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD'; contextId: string } = currentDashboard
-                ? { name, contextType: getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD', contextId: extendedDashboard.business?.id || extendedDashboard.household?.id || currentDashboard.id }
-                : { name, contextType: 'PERSONAL', contextId: '' };
+              const resolvedContextType = isContextLocked
+                ? contextType!
+                : currentDashboard
+                  ? getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD'
+                  : 'PERSONAL';
+              const resolvedContextId = isContextLocked
+                ? contextId!
+                : extendedDashboard?.business?.id || extendedDashboard?.household?.id || currentDashboard?.id || '';
+              const body: { name: string; contextType: 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD'; contextId: string } = {
+                name,
+                contextType: resolvedContextType,
+                contextId: resolvedContextId
+              };
               const resp = await calendarAPI.createCalendar(body);
               if (resp?.success) {
-                setCalendars([resp.data, ...calendars]);
-                setCalCtx([resp.data, ...calendars]);
+                const isAllowedBusinessCalendar = (calendar: Calendar) => {
+                  if (calendar.contextType !== 'BUSINESS') {
+                    return true;
+                  }
+                  const lowered = calendar.name?.trim().toLowerCase();
+                  return calendar.isSystem === true &&
+                    calendar.isDeletable === false &&
+                    lowered === 'schedule';
+                };
+
+                if (!shouldFilterBusinessCalendars || isAllowedBusinessCalendar(resp.data)) {
+                  setCalendars([resp.data, ...calendars]);
+                  setCalCtx([resp.data, ...calendars]);
+                }
               }
             }}
             className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-medium"

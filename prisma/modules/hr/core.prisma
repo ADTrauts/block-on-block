@@ -64,6 +64,7 @@ model EmployeeHRProfile {
   // performanceReviews PerformanceReview[]
   // benefitEnrollments BenefitEnrollment[]
   // timeOffRequests    TimeOffRequest[]
+  onboardingJourneys EmployeeOnboardingJourney[]
   
   // ============================================================================
   // INDEXES (Performance optimization)

@@ -75,19 +75,25 @@ model SecurityEvent {
 
 // Admin impersonation sessions
 model AdminImpersonation {
-  id          String   @id @default(uuid())
-  adminId     String
-  admin       User     @relation("AdminImpersonator", fields: [adminId], references: [id])
-  targetUserId String
-  targetUser  User     @relation("ImpersonatedUser", fields: [targetUserId], references: [id])
-  startedAt   DateTime @default(now())
-  endedAt     DateTime?
-  reason      String?
-  auditLogs   AuditLog[]
+  id              String   @id @default(uuid())
+  adminId         String
+  admin           User     @relation("AdminImpersonator", fields: [adminId], references: [id])
+  targetUserId    String
+  targetUser      User     @relation("ImpersonatedUser", fields: [targetUserId], references: [id])
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  reason          String?
+  context         String? // Optional description of impersonation scope (e.g., module or purpose)
+  sessionTokenHash String? @unique // Hashed token shared with client to authenticate impersonated requests
+  expiresAt       DateTime? // Optional expiration for impersonation session
+  auditLogs       AuditLog[]
 
   @@index([adminId])
   @@index([targetUserId])
   @@index([startedAt])
+  @@index([businessId])
   @@map("admin_impersonations")
 }
 

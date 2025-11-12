@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 
@@ -8,12 +9,34 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   role: string;
+  name?: string | null;
+  emailVerified?: Date | null;
+  image?: string | null;
+  stripeCustomerId?: string | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+  userNumber?: string | null;
+  countryId?: string | null;
+  regionId?: string | null;
+  townId?: string | null;
+  locationDetectedAt?: Date | null;
+  locationUpdatedAt?: Date | null;
 }
 
 // Extend Express Request type to include our custom properties
 // @ts-ignore - Express Request has any types in its definition
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
+  originalUser?: AuthenticatedUser;
+  impersonation?: {
+    id: string;
+    adminId: string;
+    targetUserId: string;
+    businessId?: string | null;
+    context?: string | null;
+    startedAt: Date;
+    expiresAt?: Date | null;
+  };
 }
 
 // JWT Payload interface
@@ -39,6 +62,7 @@ if (!JWT_SECRET) {
 export async function authenticateJWT(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
+  const impersonationToken = req.headers['x-impersonation-token'] as string | undefined;
 
   await logger.debug('Authentication attempt', { 
     operation: 'auth_attempt',
@@ -69,33 +93,92 @@ export async function authenticateJWT(req: Request, res: Response, next: NextFun
     });
     
     // Fetch full user data from database
+    const userSelect = {
+      id: true,
+      email: true,
+      role: true,
+      name: true,
+      emailVerified: true,
+      image: true,
+      stripeCustomerId: true,
+      createdAt: true,
+      updatedAt: true,
+      userNumber: true,
+      countryId: true,
+      regionId: true,
+      townId: true,
+      locationDetectedAt: true,
+      locationUpdatedAt: true
+    } as const;
+
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        name: true,
-        emailVerified: true,
-        image: true,
-        stripeCustomerId: true,
-        createdAt: true,
-        updatedAt: true,
-        userNumber: true,
-        countryId: true,
-        regionId: true,
-        townId: true,
-        locationDetectedAt: true,
-        locationUpdatedAt: true
-      }
+      select: userSelect
     });
     
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
     }
     
-    // Set full user data
-    (req as AuthenticatedRequest).user = user;
+    const authRequest = req as AuthenticatedRequest;
+    authRequest.user = user;
+
+    // Handle impersonation if present
+    if (impersonationToken && user.role === 'ADMIN') {
+      const impersonationTokenHash = crypto.createHash('sha256').update(impersonationToken).digest('hex');
+
+      const impersonation = await prisma.adminImpersonation.findFirst({
+        where: {
+          adminId: user.id,
+          endedAt: null,
+          sessionTokenHash: impersonationTokenHash
+        },
+        include: {
+          targetUser: {
+            select: userSelect
+          }
+        }
+      });
+
+      if (impersonation) {
+        const now = new Date();
+        if (impersonation.expiresAt && impersonation.expiresAt < now) {
+          await prisma.adminImpersonation.update({
+            where: { id: impersonation.id },
+            data: {
+              endedAt: now,
+              sessionTokenHash: null
+            }
+          });
+          await logger.warn('Impersonation token expired', {
+            operation: 'auth_impersonation_expired',
+            adminId: user.id,
+            impersonationId: impersonation.id
+          });
+        } else if (impersonation.targetUser) {
+          await logger.debug('Applying impersonation context', {
+            operation: 'auth_impersonation_applied',
+            adminId: user.id,
+            impersonatedUserId: impersonation.targetUserId,
+            impersonationId: impersonation.id,
+            businessId: impersonation.businessId ?? undefined,
+            impersonationContext: impersonation.context ?? undefined
+          });
+
+          authRequest.originalUser = user;
+          authRequest.user = impersonation.targetUser;
+          authRequest.impersonation = {
+            id: impersonation.id,
+            adminId: user.id,
+            targetUserId: impersonation.targetUserId,
+            businessId: impersonation.businessId ?? undefined,
+            context: impersonation.context ?? undefined,
+            startedAt: impersonation.startedAt,
+            expiresAt: impersonation.expiresAt ?? undefined
+          };
+        }
+      }
+    }
     
     next();
   } catch (error) {

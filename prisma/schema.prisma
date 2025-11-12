@@ -250,6 +250,10 @@ model User {
   impersonatedUsers AdminImpersonation[] @relation("ImpersonatedUser")
   impersonatedBy AdminImpersonation[] @relation("AdminImpersonator")
 
+  // HR attendance exception relations
+  attendanceExceptionsDetected AttendanceException[] @relation("AttendanceExceptionDetectedBy")
+  attendanceExceptionsResolved AttendanceException[] @relation("AttendanceExceptionResolvedBy")
+
   // Support system relations
   supportTickets SupportTicket[] // Tickets created by this user
   assignedTickets SupportTicket[] @relation("AssignedTickets") // Tickets assigned to this user (if admin/agent)
@@ -691,6 +695,16 @@ model Business {
   managerApprovalHierarchies ManagerApprovalHierarchy[]
   hrModuleSettings HRModuleSettings?
   timeOffRequests TimeOffRequest[] @relation("BusinessTimeOffRequests")
+  adminImpersonations AdminImpersonation[]
+  attendancePolicies AttendancePolicy[]
+  attendanceShiftTemplates AttendanceShiftTemplate[]
+  attendanceShiftAssignments AttendanceShiftAssignment[]
+  attendanceRecords AttendanceRecord[]
+  attendanceExceptions AttendanceException[]
+  onboardingTemplates OnboardingTemplate[] @relation("BusinessOnboardingTemplates")
+  onboardingTaskTemplates OnboardingTaskTemplate[] @relation("BusinessOnboardingTaskTemplates")
+  employeeOnboardingJourneys EmployeeOnboardingJourney[] @relation("BusinessEmployeeOnboardingJourneys")
+  employeeOnboardingTasks EmployeeOnboardingTask[] @relation("BusinessEmployeeOnboardingTasks")
 
   @@index([ein])
   @@map("businesses")
@@ -1406,6 +1420,10 @@ model EmployeePosition {
   managerApprovals  ManagerApprovalHierarchy[] @relation("ManagerApprovals")
   // HR Time-Off back-relation
   timeOffRequests   TimeOffRequest[]          @relation("EmployeePositionTimeOffRequests")
+  // HR Attendance back-relations
+  attendanceAssignments AttendanceShiftAssignment[] @relation("EmployeeAttendanceAssignments")
+  attendanceRecords     AttendanceRecord[]          @relation("EmployeeAttendanceRecords")
+  attendanceExceptions  AttendanceException[]       @relation("EmployeeAttendanceExceptions")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3170,19 +3188,25 @@ model SecurityEvent {
 
 // Admin impersonation sessions
 model AdminImpersonation {
-  id          String   @id @default(uuid())
-  adminId     String
-  admin       User     @relation("AdminImpersonator", fields: [adminId], references: [id])
-  targetUserId String
-  targetUser  User     @relation("ImpersonatedUser", fields: [targetUserId], references: [id])
-  startedAt   DateTime @default(now())
-  endedAt     DateTime?
-  reason      String?
-  auditLogs   AuditLog[]
+  id              String   @id @default(uuid())
+  adminId         String
+  admin           User     @relation("AdminImpersonator", fields: [adminId], references: [id])
+  targetUserId    String
+  targetUser      User     @relation("ImpersonatedUser", fields: [targetUserId], references: [id])
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  reason          String?
+  context         String? // Optional description of impersonation scope (e.g., module or purpose)
+  sessionTokenHash String? @unique // Hashed token shared with client to authenticate impersonated requests
+  expiresAt       DateTime? // Optional expiration for impersonation session
+  auditLogs       AuditLog[]
 
   @@index([adminId])
   @@index([targetUserId])
   @@index([startedAt])
+  @@index([businessId])
   @@map("admin_impersonations")
 }
 
@@ -3814,6 +3838,203 @@ enum TimeOffStatus {
   CANCELED
 }
 
+// ============================================================================
+// ATTENDANCE POLICIES & CONFIGURATION
+// ============================================================================
+
+model AttendancePolicy {
+  id                      String   @id @default(uuid())
+  businessId              String
+  business                Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name                    String
+  description             String?
+  timezone                String?
+  roundingIncrementMinutes Int?
+  gracePeriodMinutes      Int?
+  autoClockOutAfterMinutes Int?
+  requireGeolocation      Boolean  @default(false)
+  geofenceRadiusMeters    Int?
+  workingDays             String[] @default([])
+  metadata                Json?
+  isDefault               Boolean  @default(false)
+  effectiveFrom           DateTime?
+  effectiveTo             DateTime?
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  shiftTemplates          AttendanceShiftTemplate[]
+  attendanceRecords       AttendanceRecord[]         @relation("PolicyAttendanceRecords")
+  attendanceExceptions    AttendanceException[]      @relation("PolicyAttendanceExceptions")
+
+  @@index([businessId])
+  @@index([active])
+  @@map("attendance_policies")
+}
+
+model AttendanceShiftTemplate {
+  id                String   @id @default(uuid())
+  businessId        String
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  timezone          String?
+  startMinutes      Int      // Minutes from midnight local time
+  endMinutes        Int
+  breakMinutes      Int?
+  daysOfWeek        String[] @default([])
+  policyId          String?
+  policy            AttendancePolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  metadata          Json?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  assignments       AttendanceShiftAssignment[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([policyId])
+  @@index([isActive])
+  @@map("attendance_shift_templates")
+}
+
+model AttendanceShiftAssignment {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  shiftTemplateId     String
+  shiftTemplate       AttendanceShiftTemplate @relation(fields: [shiftTemplateId], references: [id], onDelete: Cascade)
+  employeePositionId  String
+  employeePosition    EmployeePosition @relation("EmployeeAttendanceAssignments", fields: [employeePositionId], references: [id], onDelete: Cascade)
+  effectiveFrom       DateTime
+  effectiveTo         DateTime?
+  status              AttendanceShiftAssignmentStatus @default(ACTIVE)
+  isPrimary           Boolean  @default(true)
+  overrides           Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  attendanceRecords   AttendanceRecord[] @relation("ShiftAttendanceRecords")
+
+  @@unique([employeePositionId, shiftTemplateId, effectiveFrom])
+  @@index([businessId])
+  @@index([employeePositionId])
+  @@index([shiftTemplateId])
+  @@index([status])
+  @@map("attendance_shift_assignments")
+}
+
+model AttendanceRecord {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  employeePositionId  String
+  employeePosition    EmployeePosition @relation("EmployeeAttendanceRecords", fields: [employeePositionId], references: [id], onDelete: Cascade)
+  shiftAssignmentId   String?
+  shiftAssignment     AttendanceShiftAssignment? @relation("ShiftAttendanceRecords", fields: [shiftAssignmentId], references: [id], onDelete: SetNull)
+  policyId            String?
+  policy              AttendancePolicy? @relation("PolicyAttendanceRecords", fields: [policyId], references: [id], onDelete: SetNull)
+  workDate            DateTime
+  clockInTime         DateTime?
+  clockInMethod       AttendanceMethod?
+  clockInLocation     Json?
+  clockInSource       String?
+  clockOutTime        DateTime?
+  clockOutMethod      AttendanceMethod?
+  clockOutLocation    Json?
+  clockOutSource      String?
+  status              AttendanceRecordStatus @default(IN_PROGRESS)
+  durationMinutes     Int?
+  varianceMinutes     Int?
+  metadata            Json?
+  exceptionFlagged    Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  exceptions          AttendanceException[] @relation("RecordAttendanceExceptions")
+
+  @@index([businessId, workDate])
+  @@index([employeePositionId, workDate])
+  @@index([status])
+  @@map("attendance_records")
+}
+
+model AttendanceException {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attendanceRecordId  String?
+  attendanceRecord    AttendanceRecord? @relation("RecordAttendanceExceptions", fields: [attendanceRecordId], references: [id], onDelete: SetNull)
+  employeePositionId  String
+  employeePosition    EmployeePosition @relation("EmployeeAttendanceExceptions", fields: [employeePositionId], references: [id], onDelete: Cascade)
+  policyId            String?
+  policy              AttendancePolicy? @relation("PolicyAttendanceExceptions", fields: [policyId], references: [id], onDelete: SetNull)
+  type                AttendanceExceptionType
+  status              AttendanceExceptionStatus @default(OPEN)
+  detectedAt          DateTime  @default(now())
+  detectedById        String?
+  detectedBy          User?     @relation("AttendanceExceptionDetectedBy", fields: [detectedById], references: [id], onDelete: SetNull)
+  detectedSource      String?
+  details             Json?
+  managerNote         String?
+  resolutionNote      String?
+  resolvedById        String?
+  resolvedBy          User?     @relation("AttendanceExceptionResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt          DateTime?
+  resolutionPayload   Json?
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([businessId, status])
+  @@index([employeePositionId])
+  @@index([attendanceRecordId])
+  @@map("attendance_exceptions")
+}
+
+// ============================================================================
+// ENUMERATIONS
+// ============================================================================
+
+enum AttendanceShiftAssignmentStatus {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum AttendanceRecordStatus {
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  VOID
+}
+
+enum AttendanceMethod {
+  WEB
+  MOBILE
+  ADMIN
+  AUTO
+  HARDWARE
+}
+
+enum AttendanceExceptionType {
+  MISSED_PUNCH
+  LATE_ARRIVAL
+  EARLY_DEPARTURE
+  ABSENCE
+  GEO_VIOLATION
+  POLICY_OVERRIDE
+  OTHER
+}
+
+enum AttendanceExceptionStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
 
 
 
@@ -3887,6 +4108,7 @@ model EmployeeHRProfile {
   // performanceReviews PerformanceReview[]
   // benefitEnrollments BenefitEnrollment[]
   // timeOffRequests    TimeOffRequest[]
+  onboardingJourneys EmployeeOnboardingJourney[]
   
   // ============================================================================
   // INDEXES (Performance optimization)
@@ -4034,5 +4256,232 @@ model HRModuleSettings {
 // 3. Proper indexing for performance
 // 4. Reference EmployeeHRProfile (not directly to User)
 // ============================================================================
+
+
+
+// ============================================================================
+// HR MODULE
+// ============================================================================
+
+// ============================================================================
+// HR MODULE - EMPLOYEE ONBOARDING
+// ============================================================================
+// Purpose: Structured onboarding journeys, templates, and task tracking
+// Status: Planning → Phase 1 (data layer scaffolding)
+// Tier: Business Advanced (core) + Enterprise (automation, analytics)
+// ============================================================================
+
+// ============================================================================
+// ONBOARDING TEMPLATE DEFINITIONS (Business-level configuration)
+// ============================================================================
+model OnboardingTemplate {
+  id          String   @id @default(uuid())
+
+  // BUSINESS SCOPING (multi-tenant isolation)
+  businessId  String
+  business    Business @relation("BusinessOnboardingTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // TEMPLATE METADATA
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  ownerUserId String?  // Optional: specific user who owns/maintains this template
+
+  // APPLICABILITY & AUTOMATION (stored as JSON for flexibility)
+  // Example: { roles: ['manager'], departments: ['sales'], locations: ['NY'], employmentTypes: ['FULL_TIME'] }
+  applicabilityRules Json?
+
+  // Automation/advanced configuration (Enterprise only)
+  automationSettings Json? // { autoStartOnHire: true, autoAssignBuddy: true, calendarSync: true }
+
+  // RELATIONSHIPS
+  taskTemplates           OnboardingTaskTemplate[]
+  employeeOnboardingJourneys EmployeeOnboardingJourney[]
+
+  // SOFT DELETE / ARCHIVE
+  archivedAt   DateTime?
+  archivedBy   String?
+
+  // TIMESTAMPS
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([isActive])
+  @@index([isDefault])
+  @@map("hr_onboarding_templates")
+}
+
+// ============================================================================
+// ONBOARDING TASK TEMPLATE (Reusable task definitions)
+// ============================================================================
+model OnboardingTaskTemplate {
+  id                 String   @id @default(uuid())
+
+  // RELATIONS & SCOPING
+  onboardingTemplateId String
+  onboardingTemplate   OnboardingTemplate @relation(fields: [onboardingTemplateId], references: [id], onDelete: Cascade)
+
+  businessId          String
+  business            Business @relation("BusinessOnboardingTaskTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // TASK DETAILS
+  title               String
+  description         String?
+  orderIndex          Int      @default(0) // Controls ordering within the template
+
+  taskType            OnboardingTaskType       @default(CUSTOM)
+  ownerType           OnboardingTaskOwnerType  @default(EMPLOYEE)
+  ownerReference      String?  // Optional: position/role/user reference
+
+  // Due date offset relative to journey start (in days)
+  dueOffsetDays       Int?     // e.g., -1 = day before start, 0 = start day, 5 = five days after start
+
+  requiresApproval    Boolean  @default(false)
+  requiresDocument    Boolean  @default(false)
+
+  // Additional metadata (e.g., document templates, equipment SKUs, training course IDs)
+  metadata            Json?
+
+  isActive            Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  taskInstances       EmployeeOnboardingTask[] @relation("TaskTemplateTasks")
+
+  @@index([businessId])
+  @@index([onboardingTemplateId])
+  @@index([taskType])
+  @@index([ownerType])
+  @@map("hr_onboarding_task_templates")
+}
+
+// ============================================================================
+// EMPLOYEE ONBOARDING JOURNEY (Live instance per employee)
+// ============================================================================
+model EmployeeOnboardingJourney {
+  id                String   @id @default(uuid())
+
+  // RELATIONSHIPS
+  businessId        String
+  business          Business @relation("BusinessEmployeeOnboardingJourneys", fields: [businessId], references: [id], onDelete: Cascade)
+
+  employeeHrProfileId String
+  employeeHrProfile   EmployeeHRProfile @relation(fields: [employeeHrProfileId], references: [id], onDelete: Cascade)
+
+  onboardingTemplateId String?
+  onboardingTemplate   OnboardingTemplate? @relation(fields: [onboardingTemplateId], references: [id])
+
+  // JOURNEY STATUS
+  status            OnboardingJourneyStatus @default(IN_PROGRESS)
+  startDate         DateTime
+  completionDate    DateTime?
+  cancelledAt       DateTime?
+  cancelledReason   String?
+
+  // JOURNEY METADATA
+  // Example: { department: 'Engineering', jobLevel: 'L3', buddyId: '...', notes: '...' }
+  metadata          Json?
+
+  // RELATIONSHIPS
+  tasks             EmployeeOnboardingTask[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([employeeHrProfileId])
+  @@index([status])
+  @@map("hr_employee_onboarding_journeys")
+}
+
+// ============================================================================
+// EMPLOYEE ONBOARDING TASK (Concrete task instance)
+// ============================================================================
+model EmployeeOnboardingTask {
+  id                  String   @id @default(uuid())
+
+  // RELATIONSHIPS & SCOPING
+  onboardingJourneyId String
+  onboardingJourney   EmployeeOnboardingJourney @relation(fields: [onboardingJourneyId], references: [id], onDelete: Cascade)
+
+  businessId          String
+  business            Business @relation("BusinessEmployeeOnboardingTasks", fields: [businessId], references: [id], onDelete: Cascade)
+
+  onboardingTaskTemplateId String?
+  onboardingTaskTemplate   OnboardingTaskTemplate? @relation("TaskTemplateTasks", fields: [onboardingTaskTemplateId], references: [id])
+
+  // TASK DETAILS
+  title               String
+  description         String?
+  taskType            OnboardingTaskType      @default(CUSTOM)
+  ownerType           OnboardingTaskOwnerType @default(EMPLOYEE)
+  ownerReference      String?
+
+  assignedToUserId    String?  // Convenience reference for notifications/approvals
+  dueDate             DateTime?
+
+  status              OnboardingTaskStatus    @default(PENDING)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  completedByUserId   String?
+
+  requiresApproval    Boolean  @default(false)
+  approvedAt          DateTime?
+  approvedByUserId    String?
+
+  notes               String?
+  metadata            Json?
+
+  orderIndex          Int      @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([onboardingJourneyId])
+  @@index([status])
+  @@index([taskType])
+  @@index([ownerType])
+  @@map("hr_employee_onboarding_tasks")
+}
+
+// ============================================================================
+// ENUMERATIONS
+// ============================================================================
+enum OnboardingTaskType {
+  DOCUMENT      // Provide/read/acknowledge documents
+  EQUIPMENT     // Equipment or uniform distribution/setup
+  TRAINING      // Training module or certification
+  MEETING       // Scheduled meeting or introduction
+  FORM          // Fill out internal/external forms
+  CUSTOM        // Custom/general task
+}
+
+enum OnboardingTaskOwnerType {
+  EMPLOYEE      // Task assigned to the new employee
+  MANAGER       // Direct manager
+  HR            // HR representative
+  BUDDY         // Assigned buddy/mentor
+  IT            // IT/support staff
+  OTHER         // Other actor (specify in metadata/ownerReference)
+}
+
+enum OnboardingJourneyStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OnboardingTaskStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
 
 

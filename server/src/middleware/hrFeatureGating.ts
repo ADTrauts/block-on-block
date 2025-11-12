@@ -25,6 +25,10 @@ interface HRFeatures {
     clockInOut: boolean;
     geolocation: boolean;
   };
+  onboarding: {
+    enabled: boolean;
+    automation: boolean;
+  };
   payroll: boolean;
   recruitment: boolean;
   performance: boolean;
@@ -43,6 +47,10 @@ const TIER_FEATURES: Record<string, HRFeatures> = {
       clockInOut: false,  // No clock in/out
       geolocation: false
     },
+    onboarding: {
+      enabled: true,
+      automation: false
+    },
     payroll: false,       // Enterprise only
     recruitment: false,   // Enterprise only
     performance: false,   // Enterprise only
@@ -58,6 +66,10 @@ const TIER_FEATURES: Record<string, HRFeatures> = {
       enabled: true,
       clockInOut: true,
       geolocation: true
+    },
+    onboarding: {
+      enabled: true,
+      automation: true
     },
     payroll: true,
     recruitment: true,
@@ -108,7 +120,8 @@ export function getRequiredTierForFeature(featureName: string): string {
     'benefits',
     'attendance.clockInOut',
     'attendance.geolocation',
-    'employees.customFields'
+    'employees.customFields',
+    'onboarding.automation'
   ];
   
   return ENTERPRISE_ONLY.includes(featureName) 
