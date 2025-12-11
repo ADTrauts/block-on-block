@@ -15,10 +15,31 @@ import {
   Share,
   Trash2,
   Star,
-  Eye
+  Eye,
+  Pin
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { ShareModal, ShareLinkModal } from 'shared/components';
+import { 
+  toggleFileStarred,
+  toggleFolderStarred,
+  File as DriveFile,
+  Folder as DriveFolder,
+  downloadFile,
+  shareItemByEmail,
+  listFilePermissions,
+  grantFilePermission,
+  updateFilePermission,
+  revokeFilePermission,
+  listFolderPermissions,
+  grantFolderPermission,
+  updateFolderPermission,
+  revokeFolderPermission,
+  shareFolderByEmail,
+  searchUsers,
+  getBusinessMembers
+} from '@/api/drive';
 
 interface DriveItem {
   id: string;
@@ -35,15 +56,14 @@ interface DriveItem {
 }
 
 interface DriveModuleProps {
-  businessId?: string;
   className?: string;
   refreshTrigger?: number;
   dashboardId?: string | null;
 }
 
-export default function DriveModule({ businessId, dashboardId, className = '', refreshTrigger }: DriveModuleProps) {
+export default function DriveModule({ dashboardId, className = '', refreshTrigger }: DriveModuleProps) {
   const { data: session } = useSession();
-  const { currentDashboard } = useDashboard();
+  const { currentDashboard, getDashboardType } = useDashboard();
   const [items, setItems] = useState<DriveItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -59,6 +79,9 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
   const [fileTypeFilter, setFileTypeFilter] = useState<string>('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: DriveItem } | null>(null);
   const [previewFile, setPreviewFile] = useState<DriveItem | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareItem, setShareItem] = useState<DriveItem | null>(null);
+  const [shareLinkModal, setShareLinkModal] = useState<{ email: string; shareLink: string; itemName: string; itemType: 'file' | 'folder' } | null>(null);
 
   const effectiveDashboardId = dashboardId || currentDashboard?.id || null;
 
@@ -69,7 +92,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
       return;
     }
     
-    // CRITICAL: ONLY use dashboardId - no fallback to businessId or currentDashboard
+    // CRITICAL: ONLY use dashboardId - no fallback to currentDashboard
     // BusinessId is NOT a dashboard ID and will cause data leakage
     if (!effectiveDashboardId) {
       console.error('❌ DriveModule: No dashboardId provided! Cannot load drive content.');
@@ -85,7 +108,6 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
       dashboardId,
       resolvedDashboardId: effectiveDashboardId,
       resolvedContextId: contextId,
-      businessId: businessId || '(not used - deprecated)',
       currentDashboardId: currentDashboard?.id || '(not used - business routes ignored)'
     });
     
@@ -140,7 +162,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
         size: file.size,
         modifiedAt: file.updatedAt || file.createdAt,
         createdBy: file.createdBy || 'Unknown',
-        permissions: ['view', 'edit'], // Default permissions
+        permissions: ['view', 'edit'], // Default permissions - fetch from /api/drive/files/:id/permissions when viewing file details
         mimeType: file.type,
         starred: false,
         shared: false
@@ -153,7 +175,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
         type: 'folder' as const,
         modifiedAt: folder.updatedAt || folder.createdAt,
         createdBy: folder.createdBy || 'Unknown',
-        permissions: ['view', 'edit'], // Default permissions
+        permissions: ['view', 'edit'], // Default permissions - fetch from /api/drive/files/:id/permissions when viewing file details
         starred: false,
         shared: false
       }));
@@ -179,7 +201,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
         message: err instanceof Error ? err.message : 'Unknown error',
         session: !!session,
         hasToken: !!session?.accessToken,
-        businessId,
+        dashboardId: effectiveDashboardId,
         currentDashboard: currentDashboard?.id,
         currentFolder,
         filesUrl,
@@ -190,7 +212,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, effectiveDashboardId, businessId, currentDashboard?.id, currentFolder]);
+  }, [session?.accessToken, effectiveDashboardId, currentFolder]);
 
   useEffect(() => {
     loadFilesAndFolders();
@@ -355,15 +377,62 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
   };
 
   const handleShare = (itemId: string) => {
-    // In a real app, this would open a sharing dialog
-    toast.success('Sharing options opened');
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    
+    // Both files and folders can now be shared
+    setShareItem(item);
+    setShareModalOpen(true);
   };
 
-  const handleStar = (itemId: string) => {
-    setItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, starred: !item.starred } : item
-    ));
-    toast.success('Star status updated');
+  const handleDownload = async (itemId: string) => {
+    if (!session?.accessToken) {
+      toast.error('Please log in to download files');
+      return;
+    }
+
+    const item = items.find(i => i.id === itemId);
+    if (!item || item.type !== 'file') {
+      toast.error('Only files can be downloaded');
+      return;
+    }
+
+    try {
+      await downloadFile(session.accessToken, itemId);
+      toast.success('Download started');
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error('Failed to download file');
+    }
+  };
+
+  const handleStar = async (itemId: string) => {
+    if (!session?.accessToken) {
+      toast.error('Please log in to pin items');
+      return;
+    }
+
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
+    try {
+      let updatedItem: DriveFile | DriveFolder;
+      if (item.type === 'file') {
+        updatedItem = await toggleFileStarred(session.accessToken, itemId);
+      } else {
+        updatedItem = await toggleFolderStarred(session.accessToken, itemId);
+      }
+
+      // Update local state with the response from the server
+      setItems(prev => prev.map(i => 
+        i.id === itemId ? { ...i, starred: updatedItem.starred } : i
+      ));
+      
+      toast.success(updatedItem.starred ? '📌 Pinned' : 'Unpinned');
+    } catch (error) {
+      console.error('Failed to toggle pin:', error);
+      toast.error('Failed to update pin status');
+    }
   };
 
   const handleContextMenu = (e: React.MouseEvent, item: DriveItem) => {
@@ -473,7 +542,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
     fileTypeFilter,
     session: !!session,
     hasToken: !!session?.accessToken,
-    businessId,
+    dashboardId: effectiveDashboardId,
     currentDashboard: currentDashboard?.id,
     currentFolder,
     filesUrl: `/api/drive/files?${new URLSearchParams({
@@ -702,9 +771,9 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
                       handleStar(item.id);
                     }}
                     className="p-1 bg-white rounded-full shadow-sm hover:bg-gray-50"
-                    title={item.starred ? 'Unstar' : 'Star'}
+                    title={item.starred ? 'Unpin' : 'Pin'}
                   >
-                    <Star className={`w-4 h-4 ${item.starred ? 'text-yellow-500 fill-current' : 'text-gray-400'}`} />
+                    <Pin className={`w-4 h-4 ${item.starred ? 'text-yellow-500 fill-current' : 'text-gray-400'}`} />
                   </button>
                   {item.type === 'file' && (
                     <>
@@ -721,7 +790,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          window.open(item.thumbnail || '#', '_blank');
+                          handleDownload(item.id);
                         }}
                         className="p-1 bg-white rounded-full shadow-sm hover:bg-gray-50"
                         title="Download"
@@ -748,7 +817,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
                     {formatDate(item.modifiedAt)}
                   </p>
                   {item.starred && (
-                    <Star className="w-3 h-3 text-yellow-500 fill-current mx-auto mt-1" />
+                    <Pin className="w-3 h-3 text-yellow-500 fill-current mx-auto mt-1" />
                   )}
                 </div>
               </Card>
@@ -780,7 +849,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    {item.starred && <Star className="w-4 h-4 text-yellow-500 fill-current" />}
+                    {item.starred && <Pin className="w-4 h-4 text-yellow-500 fill-current" />}
                     {item.shared && <Share className="w-4 h-4 text-blue-500" />}
                     <div className="flex items-center space-x-1">
                       <Button
@@ -791,7 +860,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
                           handleStar(item.id);
                         }}
                       >
-                        <Star className={`w-4 h-4 ${item.starred ? 'text-yellow-500 fill-current' : 'text-gray-400'}`} />
+                        <Pin className={`w-4 h-4 ${item.starred ? 'text-yellow-500 fill-current' : 'text-gray-400'}`} />
                       </Button>
                       <Button
                         variant="ghost"
@@ -932,8 +1001,8 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
               setContextMenu(null);
             }}
           >
-            <Star className="w-4 h-4" />
-            <span>{contextMenu.item.starred ? 'Unstar' : 'Star'}</span>
+            <Pin className="w-4 h-4" />
+            <span>{contextMenu.item.starred ? 'Unpin' : 'Pin'}</span>
           </button>
           {contextMenu.item.type === 'file' && (
             <>
@@ -950,7 +1019,7 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
               <button
                 className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center space-x-2"
                 onClick={() => {
-                  window.open(contextMenu.item.thumbnail || '#', '_blank');
+                  handleDownload(contextMenu.item.id);
                   setContextMenu(null);
                 }}
               >
@@ -971,6 +1040,196 @@ export default function DriveModule({ businessId, dashboardId, className = '', r
             <span>Delete</span>
           </button>
         </div>
+      )}
+
+      {/* Share Modal */}
+      {shareModalOpen && shareItem && session?.accessToken && (
+        <ShareModal
+          item={{
+            id: shareItem.id,
+            name: shareItem.name,
+            type: shareItem.type
+          }}
+          onClose={() => {
+            setShareModalOpen(false);
+            setShareItem(null);
+          }}
+          onShare={async (email: string, permission: 'view' | 'edit') => {
+            try {
+              let result;
+              if (shareItem.type === 'file') {
+                result = await shareItemByEmail(session.accessToken!, shareItem.id, email, permission);
+              } else {
+                result = await shareFolderByEmail(session.accessToken!, shareItem.id, email, permission);
+              }
+              
+              if (result.shareLink) {
+                // User doesn't exist - show share link modal
+                setShareLinkModal({
+                  email: email,
+                  shareLink: result.shareLink,
+                  itemName: shareItem.name,
+                  itemType: shareItem.type
+                });
+                // Close the share modal
+                setShareModalOpen(false);
+                setShareItem(null);
+              } else {
+                // User exists - shared successfully
+                toast.success(result.message);
+                setShareModalOpen(false);
+                setShareItem(null);
+              }
+            } catch (error) {
+              console.error('Share failed:', error);
+              const itemType = shareItem.type === 'file' ? 'file' : 'folder';
+              toast.error(error instanceof Error ? error.message : `Failed to share ${itemType}`);
+              throw error;
+            }
+          }}
+          onShareWithUser={async (userId: string, permission: 'view' | 'edit') => {
+            try {
+              const canRead = true;
+              const canWrite = permission === 'edit';
+              if (shareItem.type === 'file') {
+                await grantFilePermission(session.accessToken!, shareItem.id, userId, canRead, canWrite);
+                toast.success('File shared');
+              } else {
+                await grantFolderPermission(session.accessToken!, shareItem.id, userId, canRead, canWrite);
+                toast.success('Folder shared');
+              }
+              setShareModalOpen(false);
+              setShareItem(null);
+            } catch (error) {
+              console.error('Share failed:', error);
+              const itemType = shareItem.type === 'file' ? 'file' : 'folder';
+              toast.error(`Failed to share ${itemType}`);
+              throw error;
+            }
+          }}
+          onCopyLink={async () => {
+            try {
+              // Generate a shareable link
+              const itemType = shareItem.type === 'file' ? 'file' : 'folder';
+              const shareUrl = `${window.location.origin}/drive/shared?${itemType}=${shareItem.id}`;
+              await navigator.clipboard.writeText(shareUrl);
+              toast.success('Share link copied to clipboard');
+            } catch (error) {
+              console.error('Copy failed:', error);
+              toast.error('Failed to copy link');
+              throw error;
+            }
+          }}
+          shareLink={shareItem ? `${window.location.origin}/drive/shared?${shareItem.type === 'file' ? 'file' : 'folder'}=${shareItem.id}` : undefined}
+          onListPermissions={async (itemId: string) => {
+            try {
+              const permissions = shareItem.type === 'file'
+                ? await listFilePermissions(session.accessToken!, itemId)
+                : await listFolderPermissions(session.accessToken!, itemId);
+              return permissions.map((p: any) => ({
+                id: p.id,
+                userId: p.userId,
+                canRead: p.canRead,
+                canWrite: p.canWrite,
+                user: {
+                  id: p.user.id,
+                  name: p.user.name,
+                  email: p.user.email
+                }
+              }));
+            } catch (error) {
+              console.error('Failed to list permissions:', error);
+              return [];
+            }
+          }}
+          onUpdatePermission={async (itemId: string, userId: string, canRead: boolean, canWrite: boolean) => {
+            try {
+              if (shareItem.type === 'file') {
+                await updateFilePermission(session.accessToken!, itemId, userId, canRead, canWrite);
+              } else {
+                await updateFolderPermission(session.accessToken!, itemId, userId, canRead, canWrite);
+              }
+              toast.success('Permission updated');
+            } catch (error) {
+              console.error('Update permission failed:', error);
+              toast.error('Failed to update permission');
+              throw error;
+            }
+          }}
+          onRevokePermission={async (itemId: string, userId: string) => {
+            try {
+              if (shareItem.type === 'file') {
+                await revokeFilePermission(session.accessToken!, itemId, userId);
+              } else {
+                await revokeFolderPermission(session.accessToken!, itemId, userId);
+              }
+              toast.success('Permission revoked');
+            } catch (error) {
+              console.error('Revoke permission failed:', error);
+              toast.error('Failed to revoke permission');
+              throw error;
+            }
+          }}
+          onSearchUsers={async (query: string) => {
+            try {
+              const users = await searchUsers(session.accessToken!, query);
+              return users.map(user => ({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                connectionStatus: user.connectionStatus || 'none',
+                relationshipId: user.relationshipId || null,
+                organization: user.organization || null
+              }));
+            } catch (error) {
+              console.error('Search users failed:', error);
+              return [];
+            }
+          }}
+          onGetBusinessMembers={async () => {
+            try {
+              if (!currentDashboard) {
+                return [];
+              }
+              const dashboardType = getDashboardType(currentDashboard);
+              if (dashboardType !== 'business') {
+                return [];
+              }
+              const businessDashboard = currentDashboard as { business?: { id: string } };
+              if (!businessDashboard.business?.id) {
+                return [];
+              }
+              const members = await getBusinessMembers(session.accessToken!, businessDashboard.business.id);
+              return members;
+            } catch (error) {
+              console.error('Get business members failed:', error);
+              return [];
+            }
+          }}
+          currentDashboard={currentDashboard ? {
+            id: currentDashboard.id,
+            type: (() => {
+              const type = getDashboardType(currentDashboard);
+              // ShareModal doesn't support 'household', map it to 'personal'
+              return type === 'household' ? 'personal' : type as 'personal' | 'business' | 'educational';
+            })(),
+            businessId: (currentDashboard as { business?: { id: string } }).business?.id
+          } : null}
+        />
+      )}
+
+      {/* Share Link Modal - shown when sharing with non-user email */}
+      {shareLinkModal && (
+        <ShareLinkModal
+          isOpen={!!shareLinkModal}
+          onClose={() => {
+            setShareLinkModal(null);
+          }}
+          itemName={shareLinkModal.itemName}
+          itemType={shareLinkModal.itemType}
+          shareLink={shareLinkModal.shareLink}
+          email={shareLinkModal.email}
+        />
       )}
     </div>
   );

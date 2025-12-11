@@ -5,13 +5,13 @@ import {
   FolderIcon, 
   UserGroupIcon, 
   ClockIcon, 
-  StarIcon, 
   TrashIcon, 
   PlusIcon, 
   ArrowUpTrayIcon,
   BriefcaseIcon,
   AcademicCapIcon
 } from '@heroicons/react/24/outline';
+import { Pin } from 'lucide-react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useDashboard } from '../../contexts/DashboardContext';
@@ -72,7 +72,7 @@ interface StyleProps {
 const utilityFolders: UtilityFolder[] = [
   { icon: UserGroupIcon, label: 'Shared with me', href: '/drive/shared' },
   { icon: ClockIcon, label: 'Recent', href: '/drive/recent' },
-  { icon: StarIcon, label: 'Starred', href: '/drive/starred' },
+  { icon: Pin, label: 'Pinned', href: '/drive/starred' },
   { icon: TrashIcon, label: 'Trash', href: '/drive/trash', isTrash: true },
 ];
 
@@ -605,7 +605,7 @@ export default function DriveSidebar({
               onMouseEnter={e => (e.currentTarget.style.backgroundColor = folder.isTrash ? '#fecaca' : '#f3f4f6')}
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = folder.isTrash ? '#fee2e2' : 'transparent')}
             >
-              <folder.icon style={{ width: 20, height: 20 }} />
+              <folder.icon style={{ width: 20, height: 20, color: folder.isTrash ? '#b91c1c' : '#374151' }} />
               <span>{folder.label}</span>
             </div>
           </Link>

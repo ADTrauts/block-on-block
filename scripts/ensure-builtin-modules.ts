@@ -1,10 +1,11 @@
 /**
  * Ensure Built-in Modules Script
  * 
- * Ensures that Drive, Chat, and Calendar Module records exist in the database
+ * Ensures that Drive, Chat, Calendar, HR, and Scheduling Module records exist in the database
  * This follows the same pattern as business module auto-installation
  * 
- * Run with: npx ts-node scripts/ensure-builtin-modules.ts
+ * Run from server directory with: cd server && npx ts-node ../scripts/ensure-builtin-modules.ts
+ * Or set DATABASE_URL environment variable before running
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -109,6 +110,74 @@ const BUILT_IN_MODULES = [
     enterprisePrice: 0,
     isProprietary: true,
     revenueSplit: 0
+  },
+  {
+    id: 'hr',
+    name: 'HR Management',
+    description: 'Human resources management system for employee lifecycle, attendance, time-off, payroll, and performance management',
+    version: '1.0.0',
+    category: 'PRODUCTIVITY',
+    tags: ['hr', 'human-resources', 'employees', 'attendance', 'payroll', 'business', 'time-off'],
+    icon: 'users',
+    screenshots: [],
+    manifest: {
+      name: 'HR Management',
+      version: '1.0.0',
+      description: 'Human resources management system',
+      author: 'Vssyl',
+      license: 'proprietary',
+      entryPoint: '/business/[id]/admin/hr',
+      permissions: ['hr:admin', 'hr:employees:write', 'hr:team:view', 'hr:team:approve', 'hr:self:view'],
+      dependencies: [],
+      runtime: { apiVersion: '1.0' },
+      frontend: { entryUrl: '/business/[id]/admin/hr' },
+      settings: {
+        requiresBusinessContext: true,
+        minimumTier: 'business-advanced'
+      }
+    },
+    dependencies: [],
+    permissions: ['hr:admin', 'hr:employees:write', 'hr:team:view', 'hr:team:approve', 'hr:self:view'],
+    status: 'APPROVED',
+    pricingTier: 'business-advanced',
+    basePrice: 0,
+    enterprisePrice: 0,
+    isProprietary: true,
+    revenueSplit: 0
+  },
+  {
+    id: 'scheduling',
+    name: 'Employee Scheduling',
+    description: 'Employee shift scheduling and workforce planning for businesses with shift management, availability, and swap requests',
+    version: '1.0.0',
+    category: 'PRODUCTIVITY',
+    tags: ['scheduling', 'shifts', 'roster', 'staffing', 'coverage', 'business', 'workforce'],
+    icon: 'calendar-clock',
+    screenshots: [],
+    manifest: {
+      name: 'Employee Scheduling',
+      version: '1.0.0',
+      description: 'Employee shift scheduling system',
+      author: 'Vssyl',
+      license: 'proprietary',
+      entryPoint: '/business/[id]/admin/scheduling',
+      permissions: ['scheduling:admin', 'scheduling:schedules:write', 'scheduling:team:view', 'scheduling:swaps:approve', 'scheduling:self:view'],
+      dependencies: [],
+      runtime: { apiVersion: '1.0' },
+      frontend: { entryUrl: '/business/[id]/admin/scheduling' },
+      settings: {
+        requiresBusinessContext: true,
+        minimumTier: 'business-basic'
+      }
+    },
+    dependencies: [],
+    permissions: ['scheduling:admin', 'scheduling:schedules:write', 'scheduling:team:view', 'scheduling:swaps:approve', 'scheduling:self:view'],
+    status: 'APPROVED',
+    pricingTier: 'business-basic',
+    basePrice: 0,
+    enterprisePrice: 0,
+    isProprietary: true,
+    revenueSplit: 0
   }
 ];
 
@@ -185,7 +254,7 @@ async function ensureBuiltInModules() {
     
     if (createdCount > 0) {
       console.log('\n✅ Built-in modules ensured successfully!');
-      console.log('   Drive, Chat, and Calendar are now available in the database.');
+      console.log('   Drive, Chat, Calendar, HR, and Scheduling are now available in the database.');
     } else {
       console.log('\n✅ All built-in modules already exist in the database.');
     }

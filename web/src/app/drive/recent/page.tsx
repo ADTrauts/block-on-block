@@ -2,20 +2,87 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useDashboard } from '@/contexts/DashboardContext';
 import { getRecentActivity, Activity } from '@/api/drive';
 import { LoadingOverlay } from 'shared/components/LoadingOverlay';
 import { Alert } from 'shared/components/Alert';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { ClockIcon, DocumentIcon, FolderIcon, TrashIcon, ArrowDownTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
+import DriveSidebar from '../DriveSidebar';
 
 const RecentPage = () => {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const { currentDashboard, navigateToDashboard } = useDashboard();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
+
+  // Sidebar handlers
+  const handleCreateFolder = useCallback(async () => {
+    if (!session?.accessToken) return;
+    const name = prompt('Enter folder name:');
+    if (!name) return;
+    try {
+      const response = await fetch('/api/drive/folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({ 
+          name,
+          dashboardId: currentDashboard?.id || null,
+          parentId: null
+        }),
+      });
+      if (!response.ok) console.error('Failed to create folder');
+    } catch (error) {
+      console.error('Error creating folder:', error);
+    }
+  }, [session, currentDashboard]);
+
+  const handleFileUpload = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files || !session?.accessToken) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('file', file);
+          if (currentDashboard?.id) formData.append('dashboardId', currentDashboard.id);
+          const response = await fetch('/api/drive/files', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session.accessToken}` },
+            body: formData,
+          });
+          if (!response.ok) console.error('Upload failed:', response.status);
+        }
+      } catch (error) {
+        console.error('Upload failed:', error);
+      }
+    };
+    input.click();
+  }, [session, currentDashboard]);
+
+  const handleContextSwitch = useCallback(async (dashboardId: string) => {
+    await navigateToDashboard(dashboardId);
+    router.push(`/drive?dashboard=${dashboardId}`);
+  }, [navigateToDashboard, router]);
+
+  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
+    setSelectedFolder(folder);
+  }, []);
 
   useEffect(() => {
     if (status === 'authenticated' && session) {
@@ -38,18 +105,6 @@ const RecentPage = () => {
       setLoading(false);
     }
   }, [session, status]);
-
-  if (status === 'loading' || loading) {
-    return <LoadingOverlay message="Loading recent activity..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <Alert type="error" title="Error">{error}</Alert>
-      </div>
-    );
-  }
 
   const renderActivityIcon = (type: Activity['type']) => {
     const iconClasses = "w-5 h-5";
@@ -95,11 +150,33 @@ const RecentPage = () => {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Recent Activity</h1>
-        <p className="text-gray-600">Track your recent file and folder activities</p>
-      </div>
+    <div className="flex h-screen bg-gray-50">
+      {/* Drive Sidebar */}
+      <DriveSidebar 
+        onNewFolder={handleCreateFolder} 
+        onFileUpload={handleFileUpload} 
+        onFolderUpload={handleFileUpload}
+        onContextSwitch={handleContextSwitch}
+        onFolderSelect={handleFolderSelect}
+        selectedFolderId={selectedFolder?.id}
+      />
+      
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+        {status === 'loading' || loading ? (
+          <div className="flex items-center justify-center h-full">
+            <LoadingOverlay message="Loading recent activity..." />
+          </div>
+        ) : error ? (
+          <div className="p-6">
+            <Alert type="error" title="Error">{error}</Alert>
+          </div>
+        ) : (
+          <div className="p-6">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Recent Activity</h1>
+            <p className="text-gray-600">Track your recent file and folder activities</p>
+          </div>
 
       {activities.length === 0 ? (
         <div className="text-center py-12">
@@ -141,6 +218,9 @@ const RecentPage = () => {
           ))}
         </div>
       )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

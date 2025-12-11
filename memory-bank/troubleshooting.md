@@ -2,7 +2,112 @@
 
 > **📚 Prevent These Errors:** See [../.cursor/rules/coding-standards.mdc](../.cursor/rules/coding-standards.mdc) for comprehensive coding rules that prevent these recurring issues.
 
-## Current Session Issues & Solutions (October 2025)
+## Current Session Issues & Solutions (December 2025)
+
+### **Dashboard Page 500 Errors - RESOLVED** ✅
+
+#### **Problem**: Dashboard Page Returning 500 Errors with useContext Errors
+**Symptoms:**
+```
+TypeError: Cannot read properties of null (reading 'useContext')
+Server Error
+GET http://localhost:3000/dashboard/[id] 500 (Internal Server Error)
+No default component was found for a parallel route rendered on this page
+```
+
+**Root Cause**: 
+- Server component trying to use client-side hooks during SSR
+- `usePathname` and other Next.js hooks being called during server-side rendering
+- React context not available during SSR phase
+
+**Solution Applied (December 2025):**
+1. **Converted Dashboard Page to Client Component**: Changed from server component (`async function`) to client component (`'use client'`)
+2. **Moved Authentication to useEffect**: Authentication checks now happen in `useEffect` instead of during render
+3. **Replaced getServerSession with useSession**: Using client-side session hook instead of server-side session check
+4. **Proper Loading States**: Added loading states while session is being checked
+
+**Files Modified:**
+- `web/src/app/dashboard/[id]/page.tsx` — Converted to client component, fixed authentication flow
+- `web/src/app/dashboard/[id]/error.tsx` — Enhanced error boundary with better error display
+
+**Technical Implementation:**
+```typescript
+// Before (Server Component - Caused SSR errors)
+export default async function DashboardPage({ params }: DashboardPageProps) {
+  const session = await getServerSession(authOptions);
+  if (!session) redirect("/auth/login");
+  return <DashboardClient dashboardId={id} />;
+}
+
+// After (Client Component - Works correctly)
+'use client';
+export default function DashboardPage() {
+  const { data: session, status } = useSession();
+  useEffect(() => {
+    if (status === 'unauthenticated') router.push('/auth/login');
+  }, [session, status, router]);
+  return <DashboardClient dashboardId={id} />;
+}
+```
+
+**Result**: ✅ Dashboard pages now load correctly without SSR errors
+
+---
+
+### **File Download 404/ENOENT Errors - RESOLVED** ✅
+
+#### **Problem**: File Downloads Failing with 404 and ENOENT Errors
+**Symptoms:**
+```
+GET http://localhost:3000/api/drive/files/[id]/download 404 (Not Found)
+ENOENT: no such file or directory, stat '/Users/.../uploads/http:/localhost:5000...'
+```
+
+**Root Cause**: 
+- File's `url` field in database contained full URLs (e.g., `http://localhost:5000/uploads/files/...`)
+- Download function was trying to use URL as file path
+- File's `path` field (actual file path) was being ignored
+- No file existence validation before attempting download
+
+**Solution Applied (December 2025):**
+1. **Prioritize `file.path` Over `file.url`**: Download function now uses `file.path` from database first
+2. **URL Path Extraction**: Added fallback logic to extract path from URL when `file.path` is not available
+3. **File Existence Validation**: Added `fs.existsSync()` check before attempting download
+4. **Proper Path Construction**: Uses `LOCAL_UPLOAD_DIR` environment variable for correct path construction
+5. **Enhanced Error Logging**: Added detailed logging showing file path, URL, and database path for debugging
+
+**Files Modified:**
+- `server/src/controllers/fileController.ts` — Fixed download function path handling, added file existence checks, added `fs` import
+
+**Technical Implementation:**
+```typescript
+// Before (Incorrect path handling)
+const filePath = path.join(__dirname, '../../uploads', file.url.replace('/uploads/', ''));
+
+// After (Proper path handling)
+let filePath: string;
+if (file.path) {
+  // Use actual file path from database
+  const uploadDir = process.env.LOCAL_UPLOAD_DIR || path.join(__dirname, '../../uploads');
+  filePath = path.join(uploadDir, file.path);
+} else if (file.url) {
+  // Extract path from URL if file.path not available
+  const urlPath = file.url.replace(/^https?:\/\/[^\/]+/, '').replace(/^\/uploads\//, '');
+  const uploadDir = process.env.LOCAL_UPLOAD_DIR || path.join(__dirname, '../../uploads');
+  filePath = path.join(uploadDir, urlPath);
+}
+
+// Check if file exists
+if (!fs.existsSync(filePath)) {
+  return res.status(404).json({ message: 'File not found on disk' });
+}
+```
+
+**Result**: ✅ File downloads now work correctly for both new files (with `file.path`) and legacy files (with URLs)
+
+---
+
+## Previous Session Issues & Solutions (October 2025)
 
 ### **Login 403 Authentication Errors - RESOLVED** ✅
 
@@ -13,52 +118,167 @@ Failed to load resource: the server responded with a status of 403 ()
 Failed to load conversations: Error: HTTP error! status: 403
 api/trash/items:1  Failed to load resource: the server responded with a status of 403 ()
 api/dashboard:1  Failed to load resource: the server responded with a status of 403 ()
+api/modules/installed?scope=business&businessId=...:1  Failed to load resource: the server responded with a status of 403 ()
 ```
 
 **User Experience:**
 - Login succeeds with "Login successful, redirecting to dashboard" message
 - Dashboard page loads but shows "Failed to load dashboards" error
-- Multiple API calls fail with 403 errors
+- Multiple API calls fail with 403 errors (chat, modules, org chart, business data)
 - After manual page reload, everything works fine
 - This happens **every time** on initial login
+- NEXT_REDIRECT error appears in console (expected Next.js behavior)
 
 **Root Cause**: Race condition in authentication flow
 - User logs in → `signIn()` completes successfully
 - **Immediately** redirects to `/dashboard` (no delay)
 - NextAuth session cookie hasn't fully propagated to browser yet
-- Dashboard components make API calls before session is available
+- Dashboard components and contexts make API calls before session is available
 - **403 errors occur** because API calls have no valid authentication token
+- Contexts like `BusinessConfigurationContext` and `ChatContext` fire on mount before session ready
 - After page reload, session is established → all API calls work
 
-**Solution Applied:**
-Added 300ms delay after successful login before redirecting to dashboard. This ensures:
-1. NextAuth session cookie is fully set in browser
-2. Session state is propagated to `useSession()` hook  
-3. Dashboard API calls have valid authentication tokens on first load
+**Solution Applied (Updated November 2025):**
+Implemented comprehensive session readiness checks with three layers of protection:
+
+1. **Login Page**: `waitForSession()` now actually polls for session availability
+   - Waits minimum 300ms for cookie propagation
+   - Then polls `getSession()` every 100ms until session with `accessToken` is confirmed
+   - Maximum 5 second timeout before proceeding
+   - Only redirects when session is confirmed ready
+
+2. **SessionReadyGate Component**: Global gate preventing providers from mounting without session
+   - New component `web/src/components/auth/SessionReadyGate.tsx` wraps all authenticated providers
+   - Checks current route (public vs protected) using `usePathname()`
+   - Public routes (login, register, landing) render immediately
+   - Protected routes wait for `session?.accessToken` before rendering children
+   - Shows loading spinner with timeout message while waiting
+   - Prevents all contexts (ChatContext, BusinessConfigurationContext, etc.) from mounting until session ready
+
+3. **BusinessConfigurationContext**: Added session checks before API calls
+   - `loadConfiguration()` checks for `session?.accessToken` before making any API calls
+   - `useEffect` waits for both `businessId` AND `session?.accessToken` before loading
+   - `loadOrgChart()` also checks for session before making calls
+   - All API calls use `session!.accessToken` directly after session check
+
+4. **ChatContext**: Already had proper session checks (no changes needed)
 
 **Files Modified:**
-- `web/src/app/auth/login/page.tsx` - Added `waitForSession()` helper function with 300ms minimum delay
+- `web/src/app/auth/login/page.tsx` - Updated `waitForSession()` to poll for actual session availability
+- `web/src/components/auth/SessionReadyGate.tsx` - NEW: Global gate component that prevents providers from mounting without session
+- `web/src/app/layout.tsx` - Wrapped authenticated provider stack with `SessionReadyGate`
+- `web/src/contexts/BusinessConfigurationContext.tsx` - Added session checks in `loadConfiguration()` and `loadOrgChart()`, updated `useEffect` dependencies
 
 **Technical Implementation:**
 ```typescript
-// After successful signIn, wait for session to be established
-if (result?.ok) {
-  console.log('Login successful, waiting for session to be established...');
-  setRedirecting(true);
+// 1. Login page - waitForSession() now actually checks for session
+async function waitForSession() {
+  const maxWait = 5000; // 5 seconds max
+  const checkInterval = 100; // Check every 100ms
+  const minDelay = 300; // Minimum 300ms for cookie propagation
+  const startTime = Date.now();
   
-  // Add delay to ensure NextAuth session cookie is fully propagated
-  await waitForSession(); // 300ms minimum delay
+  // First, wait minimum delay for cookie propagation
+  await new Promise(resolve => setTimeout(resolve, minDelay));
   
-  console.log('Session established, redirecting to dashboard');
-  router.push('/dashboard');
+  // Then poll for actual session availability
+  while (Date.now() - startTime < maxWait) {
+    try {
+      const session = await getSession();
+      if (session?.accessToken) {
+        console.log('Session confirmed with access token, redirecting...');
+        return; // Session is ready
+      }
+    } catch (error) {
+      console.warn('Error checking session:', error);
+    }
+    
+    // Wait before next check
+    await new Promise(resolve => setTimeout(resolve, checkInterval));
+  }
+  
+  console.warn('Session wait timeout reached, proceeding anyway');
 }
+
+// 2. SessionReadyGate - Global gate preventing provider mounting
+export function SessionReadyGate({ children }: SessionReadyGateProps) {
+  const { data: session, status } = useSession();
+  const pathname = usePathname();
+  const publicRoutes = ['/auth/login', '/auth/register', '/landing', '/'];
+  const isPublicRoute = publicRoutes.some(route => pathname?.startsWith(route));
+
+  const isReady = useMemo(() => {
+    // Public routes always render immediately
+    if (isPublicRoute) return true;
+    
+    // For protected routes, wait for session token
+    if (status === 'loading') return false;
+    if (status === 'unauthenticated') return true; // Route protection handles redirect
+    
+    // Authenticated state requires access token
+    return Boolean(session?.accessToken);
+  }, [status, session?.accessToken, pathname, isPublicRoute]);
+
+  if (!isReady) {
+    return <LoadingSpinner />; // Shows "Establishing secure session..." message
+  }
+
+  return <>{children}</>;
+}
+
+// 3. BusinessConfigurationContext - session check before API calls
+const loadConfiguration = useCallback(async (businessId: string) => {
+  // Don't proceed if session is not ready
+  if (!session?.accessToken) {
+    console.log('[BusinessConfig] Waiting for session before loading configuration...');
+    return;
+  }
+  // ... rest of function
+}, [session?.accessToken]);
+
+// useEffect waits for both businessId and session
+useEffect(() => {
+  const targetBusinessId = workCredentials?.businessId || businessId;
+  
+  // Only load if we have both businessId and session token
+  if (targetBusinessId && session?.accessToken) {
+    loadConfiguration(targetBusinessId);
+    subscribeToUpdates(targetBusinessId);
+  }
+}, [workCredentials?.businessId, businessId, session?.accessToken, ...]);
+```
+
+**Layout Integration:**
+```typescript
+// web/src/app/layout.tsx
+<SessionProvider>
+  <SessionReadyGate>  {/* NEW: Gate prevents providers from mounting without session */}
+    <WorkAuthProvider>
+      <DashboardProvider>
+        <GlobalBrandingProvider>
+          <GlobalSearchProvider>
+            <ChatProvider>
+              <GlobalTrashProvider>
+                {/* ... rest of providers */}
+              </GlobalTrashProvider>
+            </ChatProvider>
+          </GlobalSearchProvider>
+        </GlobalBrandingProvider>
+      </DashboardProvider>
+    </WorkAuthProvider>
+  </SessionReadyGate>
+</SessionProvider>
 ```
 
 **Verification:**
 - ✅ No 403 errors on initial login
 - ✅ Dashboard loads correctly on first try
 - ✅ No "Failed to load dashboards" message
+- ✅ Business configuration loads without errors
+- ✅ Chat conversations load without errors
+- ✅ Org chart data loads without errors
 - ✅ Smooth user experience without page reload required
+- ✅ NEXT_REDIRECT error still appears (expected Next.js behavior, harmless)
 
 ---
 
@@ -274,5 +494,5 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ||
 
 ---
 
-*Last Updated: January 2025*
-*Session: API Routing Fixes & Browser Cache Issues*
+*Last Updated: November 2025*
+*Session: Session Timing Fix - Comprehensive Session Readiness Checks*

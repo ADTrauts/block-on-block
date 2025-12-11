@@ -13,6 +13,13 @@ export default function Error({ error, reset }: ErrorProps) {
     console.error(error);
   }, [error]);
 
+  // Use window.location instead of Next.js router to avoid context issues
+  const handleGoHome = () => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/';
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-gray-50 items-center justify-center">
       <div className="text-center">
@@ -30,7 +37,7 @@ export default function Error({ error, reset }: ErrorProps) {
             Try again
           </button>
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={handleGoHome}
             className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
           >
             Go home

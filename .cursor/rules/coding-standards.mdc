@@ -115,6 +115,35 @@ if (!user) {
 
 ## 🛣️ API Routing Patterns
 
+### Backend Controller/Route Naming Convention
+
+**CRITICAL**: Route handler names MUST match exported controller function names exactly.
+
+```typescript
+// ✅ CORRECT: Matching names
+
+// routes/module.ts
+import * as moduleController from '../controllers/moduleController.js';  // Note .js extension
+router.get('/admin/items', checkAdmin, moduleController.getItems);
+router.get('/admin/items/:id', checkAdmin, moduleController.getItemById);
+
+// controllers/moduleController.ts
+export async function getItems(req: Request, res: Response): Promise<void> { }
+export async function getItemById(req: Request, res: Response): Promise<void> { }
+
+// ❌ WRONG: Name mismatch
+// routes/module.ts calls moduleController.getItems
+// controllers/moduleController.ts exports listItems  // MISMATCH!
+```
+
+**Rules:**
+1. **Use `.js` extension**: Import controllers with `.js` (TypeScript resolution)
+2. **Match names exactly**: Route calls must match exported function names
+3. **Export all stubs**: Even unimplemented functions must be exported
+4. **Standard naming**: Use `get[Items]`, `get[Item]ById`, `create[Item]`, `update[Item]`, `delete[Item]`
+
+---
+
 ### Next.js API Proxy (MANDATORY PATTERN)
 ```typescript
 // web/src/app/api/[...slug]/route.ts
@@ -153,6 +182,115 @@ fetch('https://vssyl-server-235369681725.us-central1.run.app/api/...')
 // ✅ CORRECT: Let proxy handle it
 fetch('/api/conversations')
 ```
+
+---
+
+## 🔌 API Client Implementation Pattern
+
+### Frontend API Client Structure
+
+**CRITICAL**: API client files do NOT import from `apiClient` - they use native `fetch` with helper functions.
+
+```typescript
+// ✅ CORRECT: API client structure (web/src/api/[module].ts)
+
+// Helper function for auth headers
+function authHeaders(token: string, headers: Record<string, string> = {}) {
+  return { ...headers, Authorization: `Bearer ${token}` };
+}
+
+// API functions use native fetch
+export async function getData(businessId: string, token?: string): Promise<Data[]> {
+  if (!token) throw new Error('Authentication required');
+  const res = await fetch(`/api/module/data?businessId=${businessId}`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to fetch data');
+  const data = await res.json();
+  return data.items || data;
+}
+```
+
+**Rules:**
+1. **NO apiClient import** - Use native `fetch` directly
+2. **Include authHeaders helper** - Copy from existing API files (drive.ts, chat.ts)
+3. **Always check token** - Throw error if missing
+4. **Consistent error handling** - Check `res.ok` and throw descriptive errors
+5. **Use /api/ prefix** - All calls go through Next.js proxy
+
+---
+
+## 🎨 Shared Component Import Pattern
+
+### Correct Import Path
+
+```typescript
+// ✅ CORRECT: Import from 'shared/components'
+import { Button, Card, Spinner } from 'shared/components';
+
+// ❌ WRONG: These paths don't exist
+import { Button } from '@/components/ui/button';
+import { Button } from '../../shared/src/components/Button';
+```
+
+### Available Components & Props
+
+**Button variants:**
+```typescript
+variant?: 'primary' | 'secondary' | 'ghost'  // NOT 'outline' or 'default'
+size?: 'sm' | 'md' | 'lg'
+```
+
+**Card component:**
+```typescript
+// Simple Card - no subcomponents
+<Card className="optional-classes">
+  <div className="p-4">
+    <h3 className="text-lg font-semibold">Title</h3>
+    <p>Content</p>
+  </div>
+</Card>
+
+// ❌ WRONG: These don't exist
+<CardHeader>, <CardTitle>, <CardContent>
+```
+
+**Other components:**
+- `Alert`, `Badge`, `Spinner`, `Tabs`, `Switch`, `Modal`, `Input`, `Textarea`
+- Check `shared/src/components/` for full list
+
+---
+
+## 📊 Backend Query Parameter Handling
+
+### TypeScript-Safe Query Params
+
+```typescript
+// ✅ CORRECT: Validate query param types
+const { businessId, status } = req.query;
+
+if (!businessId || typeof businessId !== 'string') {
+  res.status(400).json({ error: 'Business ID is required' });
+  return;
+}
+
+const where: Prisma.ModelWhereInput = {
+  businessId: businessId  // Now safely typed as string
+};
+
+if (status && typeof status === 'string') {
+  where.status = status as Prisma.EnumStatusFilter;
+}
+
+// ❌ WRONG: Direct casting without validation
+const businessId = req.query.businessId as string;  // Can fail if array
+```
+
+**Rules:**
+1. **Check existence**: `if (!param)` before using
+2. **Check type**: `typeof param === 'string'` for strings
+3. **Handle arrays**: Query params can be `string | string[] | ParsedQs | ParsedQs[]`
+4. **No direct casting**: Always validate before casting
 
 ---
 
@@ -301,19 +439,29 @@ prisma/schema.prisma  # This is AUTO-GENERATED!
 
 ### Build Commands (ALWAYS in this order)
 ```bash
+# ✅ CORRECT: Use pnpm prisma commands directly
 # 1. Build schema from modules
-npm run prisma:build
+pnpm prisma:build
 
 # 2. Generate Prisma client
-npm run prisma:generate
+pnpm prisma:generate
 
-# 3. Run migrations
-npm run prisma:migrate
+# 3. Run migrations (development)
+pnpm prisma:migrate
+
+# 4. Apply migrations (production)
+pnpm prisma migrate deploy
 
 # OR use combined commands:
-npm run prisma:generate  # Does build + generate
-npm run prisma:migrate   # Does build + migrate
+pnpm prisma:generate  # Does build + generate
+pnpm prisma:migrate   # Does build + migrate
+
+# ❌ WRONG: Don't use npm or npx for Prisma commands
+npm run prisma:build  # Wrong!
+npx prisma generate   # Wrong!
 ```
+
+**Critical Rule**: ALWAYS use `pnpm prisma` commands. The project uses pnpm as the package manager, and using `npm run` or `npx prisma` may use incorrect versions from global installation instead of the locked version in `pnpm-lock.yaml`.
 
 ### Database Connection
 ```typescript
@@ -587,6 +735,7 @@ logger.info('User action', {
   metadata: { fileId, fileName }
 });
 
+// ✅ CORRECT: Error logging format
 logger.error('Operation failed', { 
   operation: 'database_query',
   error: { 
@@ -602,6 +751,35 @@ console.log('Debug info'); // Will be migrated when file is edited
 // ✅ NEW CODE: ALWAYS use logger for new code
 await logger.info('New feature info', { operation: 'feature_name' });
 ```
+
+### Error Logging Pattern (TypeScript)
+
+```typescript
+// ✅ CORRECT: Type-safe error logging
+try {
+  // ... operation
+} catch (error: unknown) {
+  const err = error as Error;
+  logger.error('Operation failed', {
+    operation: 'operation_name',
+    error: { message: err.message, stack: err.stack }
+  });
+  res.status(500).json({ error: 'Friendly error message' });
+}
+
+// ❌ WRONG: Non-standard error format (causes TypeScript errors)
+catch (error) {
+  logger.error('Failed', {
+    error: error instanceof Error ? { message: error.message } : { error }
+  });
+}
+```
+
+**Rules:**
+1. **Catch as `unknown`**: Always use `catch (error: unknown)`
+2. **Cast to Error**: `const err = error as Error;`
+3. **Standard format**: `error: { message: err.message, stack: err.stack }`
+4. **Include operation**: Always add `operation: 'operation_name'` field
 
 ### Logging Utility Structure
 ```typescript
@@ -649,6 +827,201 @@ export const logger = {
 
 ---
 
+## 🤖 AI Context System (MANDATORY FOR ALL MODULES)
+
+### Critical Rule: AI Context is Not Optional
+
+**EVERY MODULE MUST IMPLEMENT AI CONTEXT PROVIDERS.**
+
+This is a core platform requirement that makes Vssyl intelligent. Without AI context, the AI assistant cannot answer questions about module data, making it useless to users.
+
+### Why This is Mandatory
+
+- ✅ **Enables Natural Language Queries**: Users can ask "How many employees?" instead of navigating complex UIs
+- ✅ **Platform Differentiation**: Most SaaS platforms don't have this level of AI integration
+- ✅ **User Experience**: Creates a cohesive, intelligent experience across all modules
+- ✅ **Accessibility**: Non-technical users can interact with data using plain English
+
+### Implementation Checklist (Required)
+
+When building ANY new module, you MUST implement AI context:
+
+**1. Planning Phase**:
+- [ ] Identify 3-5 key questions users will ask about this module
+- [ ] Determine what data the AI needs to answer those questions
+- [ ] Design 2-3+ context provider endpoints
+
+**2. Backend Implementation**:
+- [ ] Create `[module]AIContextController.ts` with context provider functions
+- [ ] Implement each context provider with proper error handling
+- [ ] Add routes under `/api/[module]/ai/context/*`
+- [ ] Register module in `registerBuiltInModules.ts` with full AI context
+- [ ] Test each endpoint with sample businessId
+
+**3. Module Registration**:
+```typescript
+// server/src/startup/registerBuiltInModules.ts
+{
+  moduleId: 'your-module',
+  moduleName: 'Your Module',
+  aiContext: {
+    keywords: ['relevant', 'search', 'terms'],
+    patterns: [
+      'how many items',
+      'show me the list',
+      'what is the status'
+    ],
+    entities: ['item', 'category', 'status'],
+    actions: ['count items', 'list items', 'check status'],
+    contextProviders: [
+      {
+        name: 'module_overview',
+        description: 'General statistics and counts',
+        endpoint: '/api/your-module/ai/context/overview'
+      },
+      {
+        name: 'specific_context',
+        description: 'Specific data for targeted queries',
+        endpoint: '/api/your-module/ai/context/specific'
+      }
+    ]
+  }
+}
+```
+
+**4. Context Provider Pattern**:
+```typescript
+/**
+ * GET /api/[module]/ai/context/[provider]
+ * Returns [specific context] for AI understanding
+ */
+export async function getContextForAI(req: Request, res: Response) {
+  try {
+    const userId = (req as any).user?.id || (req as any).user?.sub;
+    const { businessId } = req.query;
+    
+    // 1. Validate authentication
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Authentication required' 
+      });
+    }
+
+    // 2. Validate businessId (multi-tenant scoping)
+    if (!businessId || typeof businessId !== 'string') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'businessId is required' 
+      });
+    }
+
+    // 3. Verify access
+    const member = await prisma.businessMember.findUnique({
+      where: { businessId_userId: { businessId, userId } },
+    });
+
+    if (!member || !member.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied' 
+      });
+    }
+
+    // 4. Query data
+    const data = await prisma.yourModel.findMany({
+      where: { businessId },
+      // ... relevant includes
+    });
+
+    // 5. Format for AI (structured with summary)
+    const context = {
+      summary: {
+        totalCount: data.length,
+        status: data.length > 0 ? 'has-data' : 'empty'
+      },
+      details: data.map(item => ({
+        // Relevant fields only
+      }))
+    };
+
+    // 6. Return standardized response
+    res.json({
+      success: true,
+      context,
+      metadata: {
+        provider: 'your-module',
+        endpoint: 'overview',
+        businessId,
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in getContextForAI:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch context',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}
+```
+
+### Response Format (Standardized)
+
+All AI context providers MUST return this format:
+
+```typescript
+{
+  success: true,
+  context: {
+    summary: {
+      // High-level metrics AI can use for quick answers
+      totalCount: 45,
+      status: 'good' | 'warning' | 'critical',
+      requiresAction: boolean
+    },
+    details: {
+      // Specific data points
+      items: [...],
+      breakdown: {...}
+    }
+  },
+  metadata: {
+    provider: 'module-name',
+    endpoint: 'context-provider-name',
+    businessId: 'xxx',
+    timestamp: '2025-11-13T...'
+  }
+}
+```
+
+### Current Implementation Status
+
+**✅ Implemented** (5 modules):
+- **Drive**: `recent_files`, `storage_stats`, `file_search`
+- **Chat**: `recent_conversations`, `unread_messages`, `conversation_history`
+- **Calendar**: `upcoming_events`, `today_schedule`, `availability`
+- **HR**: `hr_overview`, `employee_count`, `time_off_summary`
+- **Scheduling**: `scheduling_overview`, `coverage_status`, `scheduling_conflicts`
+
+**🚧 Required for Future Modules**:
+- All new modules MUST implement AI context from day one
+- No exceptions - this is a core platform requirement
+
+### Don't Skip This!
+
+Common mistakes:
+- ❌ "We'll add AI context later" → NO! Implement it NOW
+- ❌ "This module is too simple for AI" → Every module needs it
+- ❌ "Just return raw database records" → Format for AI consumption
+- ❌ "Generic getAll endpoint is fine" → Create specific context providers
+
+For complete documentation, see: `memory-bank/aiContextSystem.md`
+
+---
+
 ## 📋 Development Workflow
 
 ### Starting Development
@@ -669,10 +1042,10 @@ pnpm lint
 pnpm type-check
 
 # 3. Build Prisma schema (if database changes)
-npm run prisma:build
+pnpm prisma:build
 
 # 4. Generate Prisma client (if schema changed)
-npm run prisma:generate
+pnpm prisma:generate
 ```
 
 ### Deployment Checklist
@@ -699,6 +1072,14 @@ npm run prisma:generate
 8. **Forget fallback URLs** in environment variable logic
 9. **Log sensitive data** (tokens, passwords, secrets)
 10. **Skip environment variable validation** at startup
+11. **Import from non-existent `apiClient`** (use native fetch with authHeaders)
+12. **Use wrong component import paths** (use `shared/components` not `@/components/ui`)
+13. **Use non-existent Button variants** (`primary`|`secondary`|`ghost` only)
+14. **Use Card subcomponents** (no CardHeader, CardTitle, CardContent)
+15. **Cast query params without validation** (always check `typeof param === 'string'`)
+16. **Mismatch controller/route names** (must match exactly)
+17. **Forget `.js` extension** on controller imports
+18. **Skip AI context implementation** (EVERY module MUST have AI context providers)
 
 ---
 
@@ -727,6 +1108,15 @@ npm run prisma:generate
 3. **Handle errors** gracefully
 4. **Use transactions** for related operations
 5. **Encode special characters** in connection strings
+
+### Every Module (MANDATORY)
+1. **Implement AI context** from day one (2-3+ context providers)
+2. **Register in `registerBuiltInModules.ts`** with full AI context definition
+3. **Create dedicated `*AIContextController.ts`** file
+4. **Add routes** under `/api/[module]/ai/context/*`
+5. **Test context endpoints** with real businessId
+6. **Document** what questions the AI can answer
+7. **Follow standardized response format** (success, context, metadata)
 
 ---
 

@@ -37,6 +37,7 @@ import {
 import {
   archiveOnboardingTemplate,
   completeOnboardingTask as completeOnboardingTaskService,
+  deliverOnboardingDocuments,
   findEmployeeHrProfileByUser,
   listEmployeeJourneysForUser,
   listEmployeeJourneys as listEmployeeJourneysService,
@@ -45,6 +46,9 @@ import {
   startOnboardingJourney as startOnboardingJourneyService,
   upsertOnboardingTemplate as upsertOnboardingTemplateService
 } from '../services/hrOnboardingService';
+import { ensureBusinessDashboardForUser } from '../services/dashboardService';
+import { ensureEmployeeDocumentsFolder } from '../services/driveService';
+import { getBusinessHRFeatures } from '../middleware/hrFeatureGating';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -1029,6 +1033,55 @@ export const deleteOnboardingTemplate = async (req: Request, res: Response) => {
   }
 };
 
+export const getOnboardingDocumentLibrary = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'User context required' });
+    }
+
+    const dashboard = await ensureBusinessDashboardForUser(userId, businessId);
+    if (!dashboard) {
+      return res.status(500).json({ error: 'Failed to prepare business workspace' });
+    }
+
+    const folder = await ensureEmployeeDocumentsFolder(userId, dashboard.id);
+
+    const files = await prisma.file.findMany({
+      where: {
+        userId,
+        folderId: folder.id,
+        trashedAt: null
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        size: true,
+        url: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    return res.json({
+      folderId: folder.id,
+      dashboardId: dashboard.id,
+      files
+    });
+  } catch (error) {
+    console.error('Error fetching onboarding document library:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch onboarding documents';
+    return res.status(500).json({ error: message });
+  }
+};
+
 export const startOnboardingJourney = async (req: Request, res: Response) => {
   try {
     const businessId = resolveBusinessId(req);
@@ -1043,7 +1096,32 @@ export const startOnboardingJourney = async (req: Request, res: Response) => {
       initiatedByUserId: req.user?.id ?? null
     });
 
-    return res.status(201).json({ journey });
+    let deliveredDocuments: Array<{ checklistId: string; fileId: string }> = [];
+
+    try {
+      const profile = await prisma.employeeHRProfile.findUnique({
+        where: { id: payload.employeeHrProfileId },
+        include: {
+          employeePosition: {
+            select: { userId: true }
+          }
+        }
+      });
+
+      const employeeUserId = profile?.employeePosition?.userId;
+
+      if (employeeUserId) {
+        deliveredDocuments = await deliverOnboardingDocuments({
+          businessId,
+          employeeUserId,
+          initiatedByUserId: req.user?.id ?? null
+        });
+      }
+    } catch (deliveryError) {
+      console.error('Error delivering onboarding documents:', deliveryError);
+    }
+
+    return res.status(201).json({ journey, deliveredDocuments });
   } catch (error) {
     if (error instanceof FieldValidationError) {
       return res.status(400).json({
@@ -1142,8 +1220,14 @@ export const getMyOnboardingJourneys = async (req: Request, res: Response) => {
     return res.json({ profile, journeys });
   } catch (error) {
     console.error('Error fetching self onboarding journeys:', error);
-    const message = error instanceof Error ? error.message : 'Failed to load onboarding journeys';
-    return res.status(500).json({ error: message });
+    return res.json({
+      profile: null,
+      journeys: [],
+      message:
+        error instanceof Error
+          ? `Onboarding journeys unavailable: ${error.message}`
+          : 'Onboarding journeys unavailable.'
+    });
   }
 };
 
@@ -1697,7 +1781,7 @@ export const getMyAttendanceRecords = async (req: Request, res: Response) => {
 
     const employeePositionId = await findActiveEmployeePositionId(businessId, userId);
     if (!employeePositionId) {
-      return res.status(404).json({ error: 'Active employee position not found for this user' });
+    return res.json({ records: [], message: 'No active employee position found; returning empty attendance history.' });
     }
 
     const records = await listEmployeeAttendanceRecords(businessId, employeePositionId, take);
@@ -1926,6 +2010,25 @@ export const updateHRSettings = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error updating HR settings:', error);
     res.status(500).json({ error: 'Failed to update HR settings' });
+  }
+};
+
+export const getHRFeatureAvailability = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'Business ID required' });
+    }
+
+    const { tier, features } = await getBusinessHRFeatures(businessId);
+
+    return res.status(200).json({
+      tier,
+      features
+    });
+  } catch (error) {
+    console.error('Error fetching HR feature availability:', error);
+    return res.status(500).json({ error: 'Failed to load HR feature availability' });
   }
 };
 
@@ -2257,7 +2360,34 @@ export const getOwnHRData = async (req: Request, res: Response) => {
     });
     
     if (!employeePosition) {
-      return res.status(404).json({ error: 'Employee data not found' });
+      const membership = await prisma.businessMember.findFirst({
+        where: {
+          businessId,
+          userId: user!.id,
+          isActive: true
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, image: true }
+          },
+          job: true
+        }
+      });
+
+      return res.json({
+        employee: membership
+          ? {
+              id: membership.id,
+              user: membership.user,
+              position: null,
+              job: membership.job,
+              active: true,
+              metadata: {},
+              stub: true
+            }
+          : null,
+        message: 'No active employee position found; returning fallback data.'
+      });
     }
     
     res.json({ employee: employeePosition });
@@ -2289,80 +2419,14 @@ export const updateOwnHRData = async (req: Request, res: Response) => {
 // ============================================================================
 
 /**
- * Get HR overview context for AI
- * Framework: Returns basic HR statistics
+ * AI CONTEXT PROVIDERS
+ * Delegate to dedicated AI context controller
  */
-export const getHROverviewContext = async (req: Request, res: Response) => {
-  try {
-    const businessId = req.query.businessId as string;
-    
-    const employeeCount = await prisma.employeePosition.count({
-      where: { businessId, active: true }
-    });
-    
-    // TODO: Enable after migration
-    // const hrProfileCount = await prisma.employeeHRProfile.count({
-    //   where: { businessId, deletedAt: null }
-    // });
-    const hrProfileCount = 0;
-    
-    res.json({
-      businessId,
-      totalEmployees: employeeCount,
-      hrProfilesCreated: hrProfileCount,
-      modules: {
-        employees: true,
-        attendance: req.hrFeatures?.attendance || false,
-        payroll: req.hrFeatures?.payroll || false
-      },
-      tier: req.hrTier
-    });
-  } catch (error) {
-    console.error('Error fetching HR overview:', error);
-    res.status(500).json({ error: 'Failed to fetch HR overview' });
-  }
-};
-
-/**
- * Get headcount context for AI
- * Framework: Returns employee counts
- */
-export const getHeadcountContext = async (req: Request, res: Response) => {
-  try {
-    const businessId = req.query.businessId as string;
-    
-    // TODO: Add department and position breakdowns
-    const totalCount = await prisma.employeePosition.count({
-      where: { businessId, active: true }
-    });
-    
-    res.json({
-      total: totalCount,
-      note: 'Detailed breakdown coming in feature implementation'
-    });
-  } catch (error) {
-    console.error('Error fetching headcount:', error);
-    res.status(500).json({ error: 'Failed to fetch headcount' });
-  }
-};
-
-/**
- * Get time-off context for AI
- * Framework: Stub - will return time-off data when feature is implemented
- */
-export const getTimeOffContext = async (req: Request, res: Response) => {
-  try {
-    // TODO: Implement when time-off feature is added
-    res.json({
-      message: 'Time-off feature not yet implemented',
-      outToday: [],
-      outThisWeek: []
-    });
-  } catch (error) {
-    console.error('Error fetching time-off context:', error);
-    res.status(500).json({ error: 'Failed to fetch time-off data' });
-  }
-};
+export {
+  getHROverviewContext,
+  getEmployeeHeadcountContext as getHeadcountContext,
+  getTimeOffSummaryContext as getTimeOffContext
+} from './hrAIContextController';
 
 // ============================================================================
 // TIME-OFF IMPLEMENTATION (Phase 3)

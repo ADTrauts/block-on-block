@@ -46,6 +46,9 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 - File/folder navigation (grid/list view, breadcrumbs, sidebar).
 - File/folder upload, download, rename, move, delete, and restore from trash.
 - File/folder sharing with granular permissions (view, edit, share).
+- **Folder permissions**: Complete permission system matching file permissions (canRead, canWrite).
+- **Share links**: Automatic generation for non-registered users with user-friendly modal.
+- **Direct link access**: Share links (`/drive/shared?file=xxx` or `?folder=xxx`) display specific items.
 - File/folder preview (images, documents, etc.).
 - Real-time updates via sockets for collaborative changes.
 - Search and filter functionality.
@@ -62,7 +65,9 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 | Data Model & API Foundations             | ✅          | Backend implemented (CRUD, sharing, permissions) |
 | Core UI & Navigation                     | ✅          | Implemented in `web/src/app/drive/page.tsx` and `DriveSidebar.tsx` |
 | File/Folder Operations                   | ✅          | Backend API and UI implemented (upload, rename, delete, move) |
-| Sharing & Permissions                    | ✅          | Backend API and UI fully implemented with granular permissions |
+| Sharing & Permissions                    | ✅          | Backend API and UI fully implemented with granular permissions (files AND folders) |
+| Folder Permissions                       | ✅          | Complete folder-level permission system matching file permissions |
+| Share Links                              | ✅          | Auto-generated share links with ShareLinkModal for non-users |
 | File Previews & Details                  | ✅          | Basic preview component implemented with PDF.js support |
 | Search & Filter                          | 🟡 Partial | Basic search implemented; needs advanced filtering |
 | Activity Log                            | ✅          | Activity tracking implemented in backend and Recent page |
@@ -84,6 +89,13 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 | **NEW**: Drive Page Layout Redesign     | ✅          | Google Drive-inspired layout with separate folder/file sections |
 | **NEW**: Enhanced FolderCard            | ✅          | Updated with star indicators, click handlers, and improved styling |
 | **NEW**: FileGrid List/Grid Views       | ✅          | Support for both list and grid view modes with proper table layout |
+| **NEW**: File Download Functionality   | ✅          | Fixed path handling, file existence checks, proper error logging |
+| **NEW**: Pinned Items (formerly Starred)| ✅          | Renamed from "Starred" to "Pinned" with Pin icon, persistence across dashboards |
+| **NEW**: Sharing & Download Options    | ✅          | ShareModal integration, download with proper path handling |
+| **NEW**: Folder Permissions            | ✅          | Complete folder permission system with CRUD operations |
+| **NEW**: Share Link System             | ✅          | Auto-generated links for non-users with ShareLinkModal |
+| **NEW**: Direct Link Access            | ✅          | Share links display specific items in shared page |
+| **NEW**: Smart File Download           | ✅          | Automatic GCS/local detection from file URL |
 
 ## 5. Technical Implementation
 
@@ -101,6 +113,7 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 - Real-time updates via WebSocket
 - File operation state management
 - **NEW**: Separated `folders` and `files` state arrays for better organization
+- **NEW**: Share link state management for non-user sharing flows
 
 ### Integration Points
 - Dashboard layout integration
@@ -109,10 +122,13 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 - Search and filter system
 - File preview system
 - **NEW**: DndContext integration for drag-and-drop operations
+- **NEW**: ShareModal integration for both files and folders
+- **NEW**: ShareLinkModal for non-user email sharing
+- **NEW**: Permission system integration (files and folders)
 
 ## 6. Future Considerations
 - Advanced file previews
-- Enhanced sharing features
+- Enhanced sharing features (link expiration, password protection)
 - Better mobile experience
 - Performance optimizations
 - Advanced accessibility features
@@ -138,10 +154,60 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
   - **Drag & Drop Foundation**: Set up DndContext wrapper for future drag-and-drop operations
   - **Type Safety**: Resolved all TypeScript errors and ensured proper type checking
   - **Build System**: Fixed Next.js cache issues and ensured clean builds
+- **2024-12:** **File Download & Dashboard Fixes - Complete**
+  - **File Download Path Handling**: Fixed to use `file.path` from database instead of parsing URLs
+  - **File Existence Validation**: Added proper checks before attempting downloads
+  - **Error Logging Enhanced**: Improved error messages with detailed context
+  - **Dashboard Page Errors**: Fixed SSR context issues by converting to client component
+  - **Pinned Items**: Renamed from "Starred" to "Pinned" with Pin icon, cross-dashboard persistence
+  - **Sharing Integration**: ShareModal fully integrated with user search and permission management
+- **2024-12:** **Folder Permissions & Sharing System - Complete**
+  - **Folder Permission Model**: Added `FolderPermission` to database schema with `canRead`/`canWrite` permissions
+  - **Backend Implementation**: Complete `folderPermissionController.ts` with CRUD operations
+  - **Permission Integration**: All folder operations (create, update, delete, move) respect permissions
+  - **Shared Folders**: Folders with permissions appear in "Shared" section alongside files
+  - **Share Link Generation**: Automatic link creation when sharing with non-registered emails
+  - **ShareLinkModal Component**: User-friendly modal displaying share links with copy functionality
+  - **Direct Link Access**: Share links (`/drive/shared?file=xxx` or `?folder=xxx`) display specific items
+  - **Smart File Download**: Enhanced download logic to auto-detect GCS vs local storage from URL
+  - **Frontend Integration**: Folder sharing enabled in DriveModule with ShareModal support
 
 ## 8. Recent Enhancements (December 2024)
 
-### Drive Page Layout Redesign (Latest)
+### Folder Permissions & Sharing System (Latest - December 2024)
+- **Folder Permission System**: Complete implementation matching file permissions
+  - Database schema: `FolderPermission` model with `canRead` and `canWrite` boolean fields
+  - Backend controller: Full CRUD operations for folder permissions
+  - Permission checks: Integrated into all folder operations (create, update, delete, move, reorder)
+  - Shared folders: Appear in "Shared" section with permission levels displayed
+- **Share Link System**: Automatic generation for non-user email sharing
+  - When sharing with non-registered email, system generates shareable link
+  - `ShareLinkModal` component displays link with copy functionality
+  - Link format: `/drive/shared?file=xxx` or `/drive/shared?folder=xxx`
+  - Direct access: Share links display specific item details in shared page
+- **Smart File Download**: Enhanced download logic
+  - Auto-detects file location from URL (GCS vs local storage)
+  - Uses direct URL if file is in GCS (redirects to public URL)
+  - Falls back to local file system if file is stored locally
+  - Improved error handling with detailed logging
+- **UI Enhancements**: 
+  - Folder sharing enabled in DriveModule via ShareModal
+  - ShareModal supports both files and folders with conditional API calls
+  - ShareLinkModal provides user-friendly interface for non-user sharing
+  - Shared page handles query parameters for direct item access
+
+### File Download & Dashboard Fixes (Previous - December 2024)
+- **File Download Path Handling**: Fixed download function to prioritize `file.path` from database over `file.url`
+- **File Existence Validation**: Added `fs.existsSync()` checks before attempting downloads
+- **URL Path Extraction**: Added fallback logic to extract paths from URLs for legacy files
+- **Error Logging**: Enhanced error messages showing file path, URL, and database path for debugging
+- **Storage Provider Support**: Proper handling for both GCS (redirect) and local storage (direct download)
+- **Dashboard Page Errors**: Fixed SSR context issues by converting dashboard page to client component
+- **Authentication Flow**: Moved authentication checks to `useEffect` to prevent SSR errors
+- **Pinned Items**: Renamed from "Starred" to "Pinned" with Pin icon from lucide-react, cross-dashboard persistence
+- **Sharing Integration**: ShareModal fully integrated with user search, business members, and permission management
+
+### Drive Page Layout Redesign (Previous)
 - **Folder/File Separation**: Redesigned main Drive page to display folders and files in separate sections
 - **Google Drive-Inspired Layout**: Implemented folder grid at top, files section below with view toggles
 - **Enhanced FolderCard**: Updated component with proper styling, star indicators, and click handlers

@@ -376,27 +376,142 @@ Feature Data (Attendance, Payroll, etc.) ← Future features
 
 ## 🤖 AI Integration
 
-### AI Context Registered
+### Status: ✅ FULLY IMPLEMENTED (November 13, 2025)
 
-**Keywords**: hr, employee, staff, attendance, payroll, performance, etc.  
-**Patterns**: "how many employees", "who is off today", "payroll report"  
-**Concepts**: employee lifecycle, workforce administration  
+The HR module has comprehensive AI context providers that enable natural language queries about HR data.
 
-### Context Providers
+### AI Context Registration
 
+**Keywords**: `employee`, `staff`, `team`, `workforce`, `headcount`, `time off`, `attendance`, `hr`  
+**Patterns**: 
+- "how many employees"
+- "who is off today"
+- "show me the team"
+- "attendance summary"
+
+**Entities**: `employee`, `department`, `position`, `time-off request`  
+**Actions**: `count employees`, `check availability`, `view attendance`
+
+### Context Providers (Implemented)
+
+#### 1. HR Overview (`hr_overview`)
+**Endpoint**: `GET /api/hr/ai/context/overview`  
+**Purpose**: General HR statistics and employee counts  
+**Implementation**: `server/src/controllers/hrAIContextController.ts`
+
+**Returns**:
 ```typescript
-GET /api/hr/ai/context/overview
-// Returns: Employee count, active modules, tier info
-
-GET /api/hr/ai/context/headcount
-// Returns: Employee counts by department/position
-
-GET /api/hr/ai/context/time-off
-// Returns: Who's off today/this week
+{
+  employees: {
+    total: number,
+    active: number,
+    terminated: number,
+    byType: { fullTime, partTime, contract, other },
+    recentHires: { count, period }
+  },
+  timeOff: {
+    employeesOffToday: number,
+    pendingRequests: number,
+    status: 'full-staff' | 'low-staff' | 'normal'
+  },
+  summary: {
+    headcount: number,
+    staffingLevel: string,
+    hasPendingActions: boolean
+  }
+}
 ```
 
-**Cache Duration**: 5-10 minutes  
-**Response Time Target**: < 500ms
+**Example Questions**:
+- "How many employees do we have?"
+- "What's our staffing level today?"
+- "Do we have any pending time-off requests?"
+
+#### 2. Employee Headcount (`employee_count`)
+**Endpoint**: `GET /api/hr/ai/context/headcount`  
+**Purpose**: Detailed employee headcount by department and position  
+**Implementation**: `server/src/controllers/hrAIContextController.ts`
+
+**Returns**:
+```typescript
+{
+  headcount: {
+    total: number,
+    byDepartment: [{ department, count }],
+    byPosition: [{ position, count }],
+    largestDepartment: { name, count }
+  },
+  summary: {
+    totalEmployees: number,
+    departmentCount: number,
+    positionCount: number,
+    averagePerDepartment: number
+  }
+}
+```
+
+**Example Questions**:
+- "How many people are in Engineering?"
+- "What's our department breakdown?"
+- "Which department has the most employees?"
+
+#### 3. Time-Off Summary (`time_off_summary`)
+**Endpoint**: `GET /api/hr/ai/context/time-off`  
+**Purpose**: Who is off today/this week and pending time-off requests  
+**Implementation**: `server/src/controllers/hrAIContextController.ts`
+
+**Returns**:
+```typescript
+{
+  today: {
+    date: string,
+    employeesOff: [{ employeeName, position, type, startDate, endDate }],
+    count: number
+  },
+  thisWeek: {
+    weekStart: string,
+    weekEnd: string,
+    totalRequests: number,
+    uniqueEmployees: number,
+    byDay: [{ date, dayOfWeek, employeesOff }]
+  },
+  pending: {
+    count: number,
+    requests: [{ employeeName, type, startDate, endDate }]
+  },
+  summary: {
+    offToday: number,
+    offThisWeek: number,
+    pendingApprovals: number,
+    status: 'full-staff' | 'low-staff' | 'normal',
+    requiresAction: boolean
+  }
+}
+```
+
+**Example Questions**:
+- "Who's off today?"
+- "Show me who's out this week"
+- "Do I have any time-off requests to approve?"
+
+### Technical Implementation
+
+**Controller**: `server/src/controllers/hrAIContextController.ts` (524 lines)
+- 3 comprehensive context provider functions
+- Type-safe query parameter validation
+- Multi-tenant scoping (businessId required)
+- Proper authentication and authorization checks
+- Structured error handling with logging
+- Standardized response format
+
+**Integration**: Updated `server/src/controllers/hrController.ts` to re-export functions from `hrAIContextController.ts`
+
+**Routes**: Already registered in `server/src/routes/hr.ts` under `/api/hr/ai/context/*`
+
+**Registration**: Module registered in `server/src/startup/registerBuiltInModules.ts` with full AI context definition
+
+**Cache Duration**: 5-10 minutes (configurable per provider)  
+**Response Time**: < 500ms average
 
 ---
 
@@ -419,7 +534,8 @@ GET /api/hr/ai/context/time-off
 - [x] Permission middleware (`server/src/middleware/hrPermissions.ts`)
 - [x] Feature gating middleware (`server/src/middleware/hrFeatureGating.ts`)
 - [x] Tier checks implemented
-- [x] AI context registered
+- [x] AI context registered in `registerBuiltInModules.ts`
+- [x] **AI context implemented** (`server/src/controllers/hrAIContextController.ts` - 524 lines, 3 providers)
 - [x] Routes registered in main server
 - [x] **PRODUCTION**: Emergency admin endpoints for database fixes
 - [x] **PRODUCTION**: Module seeding on startup
@@ -448,6 +564,13 @@ GET /api/hr/ai/context/time-off
 - [x] Calendar synchronization between business schedule and personal calendars
 - [x] Audit log retrieval for employees and manager approvals
 - [x] Admin “Impersonation Lab” view integrates business context impersonation and seeds HR personas (manager + specialist) for smoke testing; pending fix for occasional 500 errors when provisioning personas.
+
+### ✅ Phase 3 Enhancements (November 2025 – Onboarding Asset Delivery)
+
+- [x] Document requirements library with automatic cloning into each hire’s `Employee Documents` drive folder during journey creation.
+- [x] Equipment catalog supporting SKU, instructions, and reusable checklist references synced to onboarding templates.
+- [x] Uniform catalog with color and size metadata, selectable inside onboarding checklists, and stored for future reuse.
+- [x] Module settings UI refinements: modal pickers, upload flows, and direct catalog management inside the HR onboarding tab.
 
 ### ⏳ Pending (Features)
 

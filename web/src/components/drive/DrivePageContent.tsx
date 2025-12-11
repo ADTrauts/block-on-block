@@ -16,7 +16,7 @@ export function DrivePageContent({ className = '' }: DrivePageContentProps) {
   const { currentDashboard, navigateToDashboard } = useDashboard();
   const router = useRouter();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [selectedFolder, setSelectedFolder] = useState<any>(null);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
 
   // File upload handler
   const handleFileUpload = useCallback(() => {
@@ -95,9 +95,11 @@ export function DrivePageContent({ className = '' }: DrivePageContentProps) {
   }, [navigateToDashboard, router]);
 
   // Folder selection handler
-  const handleFolderSelect = useCallback((folder: any) => {
+  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
     setSelectedFolder(folder);
-    // TODO: Update main content to show folder contents
+    // Folder selection is handled by DriveModuleWrapper which receives dashboardId
+    // The selected folder ID is passed to DriveModule via props if needed
+    // For now, folder navigation is handled by the DriveModule's currentFolder state
     console.log('Selected folder:', folder);
   }, []);
 

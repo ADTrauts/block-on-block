@@ -1,6 +1,7 @@
 import { Request, Response, RequestHandler } from 'express';
 import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
+import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import { getOrCreateChatFilesFolder } from '../services/driveService';
 import { NotificationService } from '../services/notificationService';
@@ -95,7 +96,13 @@ export async function listFiles(req: Request, res: Response) {
     let paramIndex = 2;
     
     // Dashboard context filtering
-    if (dashboardId) {
+    // When fetching starred items, show across all dashboards (don't filter by dashboardId)
+    if (starred === 'true') {
+      // Show starred items from all dashboards
+      await logger.debug('Starred items requested - showing across all dashboards', {
+        operation: 'file_list_starred_all_dashboards'
+      });
+    } else if (dashboardId) {
       query += ` AND "dashboardId" = $${paramIndex}`;
       params.push(dashboardId);
       paramIndex++;
@@ -334,8 +341,16 @@ export async function getItemActivity(req: Request, res: Response) {
 }
 
 export async function downloadFile(req: Request, res: Response) {
-  // TODO: When migrating to Google Cloud Storage or S3, serve or redirect to the cloud URL here.
-  
+  // Log download request for debugging
+  await logger.debug('Download file request received', {
+    operation: 'file_download_request',
+    method: req.method,
+    path: req.path,
+    params: req.params,
+    query: req.query,
+    hasUser: !!req.user
+  });
+
   // Check for token in query params (for file preview)
   let userId: string;
   if (req.query.token) {
@@ -349,6 +364,11 @@ export async function downloadFile(req: Request, res: Response) {
   } else if (hasUserId(req.user)) {
     userId = req.user.id;
   } else {
+    await logger.warn('Download file request without authentication', {
+      operation: 'file_download_unauthorized',
+      path: req.path,
+      params: req.params
+    });
     return res.sendStatus(401);
   }
   
@@ -361,7 +381,45 @@ export async function downloadFile(req: Request, res: Response) {
     if (!(await canReadFile(userId, id))) return res.status(403).json({ message: 'Forbidden' });
     const file = await prisma.file.findUnique({ where: { id } });
     if (!file) return res.status(404).json({ message: 'File not found' });
-    const filePath = path.join(__dirname, '../../uploads', file.url.replace('/uploads/', ''));
+    
+    // Log file details for debugging
+    await logger.info('File download request', {
+      operation: 'file_download_start',
+      fileId: id,
+      fileName: file.name,
+      fileUrl: file.url,
+      filePath: file.path,
+      storageProvider: storageService.getProvider()
+    });
+    
+    // If file has a direct URL that's accessible, use it first (simplest approach)
+    if (file.url && (file.url.startsWith('http://') || file.url.startsWith('https://'))) {
+      // Check if it's a GCS URL or any external URL
+      const isExternalUrl = file.url.includes('storage.googleapis.com') ||
+                           file.url.includes('googleapis.com') ||
+                           file.url.includes('storage.cloud.google.com') ||
+                           file.url.includes('vssyl-storage') ||
+                           !file.url.includes('localhost');
+      
+      if (isExternalUrl) {
+        await logger.info('Using file URL directly for download', {
+          operation: 'file_download_direct_url',
+          fileId: id,
+          fileUrl: file.url
+        });
+        res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+        return res.redirect(file.url);
+      }
+    }
+    
+    // Determine file location from URL/path, not just current storage provider setting
+    // Check if file URL indicates it's in GCS
+    const isGCSFile = file.url && (
+      file.url.includes('storage.googleapis.com') ||
+      file.url.includes('googleapis.com') ||
+      file.url.includes('storage.cloud.google.com') ||
+      (file.path && !file.path.startsWith('/') && !file.path.includes('uploads'))
+    );
     
     // Create activity record for file download
     await prisma.activity.create({
@@ -378,8 +436,131 @@ export async function downloadFile(req: Request, res: Response) {
       },
     });
     
-    res.download(filePath, file.name);
+    if (isGCSFile || storageService.getProvider() === 'gcs') {
+      // For Google Cloud Storage, use the public URL from storageService
+      // The file.path should contain the GCS path (e.g., "files/userId-timestamp.pdf")
+      // If file.path is not available, try to extract it from file.url
+      let gcsPath = file.path;
+      
+      if (!gcsPath && file.url) {
+        // Extract GCS path from URL
+        // Handle URLs like: https://storage.googleapis.com/bucket-name/path/to/file
+        // or: https://bucket-name.storage.googleapis.com/path/to/file
+        const urlMatch = file.url.match(/storage\.googleapis\.com\/[^\/]+\/(.+)$/) ||
+                        file.url.match(/\.storage\.googleapis\.com\/(.+)$/) ||
+                        file.url.match(/storage\.cloud\.google\.com\/[^\/]+\/(.+)$/);
+        if (urlMatch) {
+          gcsPath = urlMatch[1];
+        } else {
+          // Try to extract from any URL format
+          gcsPath = file.url.split('/').slice(-2).join('/'); // Get last two segments
+        }
+      }
+      
+      if (gcsPath) {
+        const publicUrl = storageService.getPublicUrl(gcsPath);
+        
+        await logger.info('Redirecting to GCS public URL for download', {
+          operation: 'file_download_gcs',
+          fileId: id,
+          gcsPath,
+          publicUrl,
+          originalUrl: file.url
+        });
+        
+        // Set Content-Disposition header for download
+        res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+        return res.redirect(publicUrl);
+      } else {
+        // If we can't determine GCS path, try using the URL directly if it's a GCS URL
+        if (file.url && isGCSFile) {
+          await logger.info('Using file URL directly for GCS download', {
+            operation: 'file_download_gcs_direct',
+            fileId: id,
+            fileUrl: file.url
+          });
+          res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+          return res.redirect(file.url);
+        }
+      }
+    }
+    
+    // Local storage - serve file directly
+    // Use file.path if available (actual file path), otherwise extract from file.url
+    let filePath: string;
+    
+    if (file.path) {
+      // file.path should be the actual file path (e.g., "files/userId-timestamp.pdf")
+      const uploadDir = process.env.LOCAL_UPLOAD_DIR || path.join(__dirname, '../../uploads');
+      filePath = path.join(uploadDir, file.path);
+    } else if (file.url) {
+      // Extract path from URL if file.path is not available
+      // Handle both full URLs (http://localhost:5000/uploads/files/...) and relative paths (/uploads/files/...)
+      const urlPath = file.url.replace(/^https?:\/\/[^\/]+/, '').replace(/^\/uploads\//, 'uploads/');
+      const uploadDir = process.env.LOCAL_UPLOAD_DIR || path.join(__dirname, '../../uploads');
+      filePath = path.join(uploadDir, urlPath.replace(/^uploads\//, ''));
+    } else {
+      await logger.error('File has neither path nor url', {
+        operation: 'file_download_missing_path',
+        fileId: id,
+        fileName: file.name
+      });
+      return res.status(500).json({ message: 'File path not found' });
+    }
+    
+    await logger.info('Serving local file for download', {
+      operation: 'file_download_local',
+      fileId: id,
+      filePath,
+      fileName: file.name,
+      fileUrl: file.url,
+      filePathFromDb: file.path
+    });
+    
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        await logger.error('Local file not found', {
+          operation: 'file_download_file_not_found',
+          fileId: id,
+          filePath,
+          fileName: file.name,
+          fileUrl: file.url,
+          filePathFromDb: file.path,
+          isGCSFile,
+          storageProvider: storageService.getProvider(),
+          uploadDir: process.env.LOCAL_UPLOAD_DIR || path.join(__dirname, '../../uploads')
+        });
+        
+        // If file doesn't exist locally but has a URL, try using the URL directly
+        if (file.url && (file.url.startsWith('http://') || file.url.startsWith('https://'))) {
+          await logger.info('File not found locally, trying file URL directly', {
+            operation: 'file_download_fallback_url',
+            fileId: id,
+            fileUrl: file.url
+          });
+          res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+          return res.redirect(file.url);
+        }
+        
+        return res.status(404).json({ 
+          message: 'File not found on disk',
+          details: {
+            filePath,
+            fileUrl: file.url,
+            filePathFromDb: file.path
+          }
+        });
+      }
+    
+    return res.download(filePath, file.name);
   } catch (err) {
+    await logger.error('Failed to download file', {
+      operation: 'file_download',
+      error: {
+        message: err instanceof Error ? err.message : 'Unknown error',
+        stack: err instanceof Error ? err.stack : undefined
+      }
+    });
     res.status(500).json({ message: 'Failed to download file' });
   }
 }
@@ -818,16 +999,22 @@ export async function getSharedItems(req: Request, res: Response) {
     });
 
     // Get folders that have been shared with this user
-    // Note: Currently folders don't have permissions, so this will be empty
-    // until we implement folder sharing
     const sharedFolders = await prisma.folder.findMany({
       where: {
-        // TODO: Add folder permissions when implemented
-        id: 'none' // This ensures no results for now
+        permissions: {
+          some: {
+            userId: userId,
+            canRead: true
+          }
+        }
       },
       include: {
         user: {
           select: { id: true, name: true, email: true }
+        },
+        permissions: {
+          where: { userId: userId },
+          select: { canRead: true, canWrite: true }
         }
       },
       orderBy: { updatedAt: 'desc' }
@@ -841,7 +1028,7 @@ export async function getSharedItems(req: Request, res: Response) {
 
     const transformedFolders = sharedFolders.map(folder => ({
       ...folder,
-      permission: 'view' // Default for folders until permissions are implemented
+      permission: folder.permissions[0]?.canWrite ? 'edit' : 'view'
     }));
 
     res.json({

@@ -3,8 +3,19 @@
 import React from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 
+/**
+ * ErrorFallback component - MUST NOT use any Next.js hooks (usePathname, useRouter, etc.)
+ * This is because it may be rendered when React context is not available
+ */
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
   const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  // Use window.location instead of useRouter to avoid context issues
+  const handleGoHome = () => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/';
+    }
+  };
   
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -49,7 +60,7 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
           </button>
           
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={handleGoHome}
             className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
           >
             Go Home

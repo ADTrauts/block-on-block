@@ -51,6 +51,7 @@ model User {
   userPrivacySettings UserPrivacySettings?
   folders         Folder[]
   filePermissions FilePermission[]
+  folderPermissions FolderPermission[]
   activities      Activity[]
   refreshTokens   RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -111,6 +112,13 @@ model User {
   
   // Business Front Page Customization
   frontPageCustomizations UserFrontPageCustomization[]
+
+  // Scheduling Module relations
+  schedulesPublished Schedule[] @relation("SchedulePublishedBy")
+  schedulesCreated Schedule[] @relation("ScheduleCreatedBy")
+  shiftSwapRequestsFrom ShiftSwapRequest[] @relation("SwapRequestedBy")
+  shiftSwapRequestsTo ShiftSwapRequest[] @relation("SwapRequestedTo")
+  shiftSwapApprovalsGiven ShiftSwapRequest[] @relation("SwapApprovedBy")
 
   @@map("users")
   @@index([userNumber])

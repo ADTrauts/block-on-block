@@ -1,21 +1,43 @@
-export const dynamic = "force-dynamic";
+'use client';
 
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import DashboardClient from "../DashboardClient";
 
-interface DashboardPageProps {
-  params: {
-    id: string;
-  };
-}
+export default function DashboardPage() {
+  const params = useParams();
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const id = params?.id as string;
 
-export default async function DashboardPage({ params }: DashboardPageProps) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    redirect("/auth/login");
+  useEffect(() => {
+    if (status === 'unauthenticated' || (!session && status !== 'loading')) {
+      router.push('/auth/login');
+    }
+  }, [session, status, router]);
+
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
-  return <DashboardClient dashboardId={params.id} />;
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <DashboardClient dashboardId={id} />;
 } 

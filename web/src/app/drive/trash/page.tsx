@@ -2,23 +2,29 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useDashboard } from '@/contexts/DashboardContext';
 import { listTrashedFiles, restoreFile, hardDeleteFile, listTrashedFolders, restoreFolder, hardDeleteFolder } from "../../../api/drive";
 import { TrashIcon, ArrowUturnLeftIcon, ArchiveBoxXMarkIcon } from '@heroicons/react/24/outline';
 import { Squares2X2Icon, Bars3Icon } from '@heroicons/react/24/solid';
 import { LoadingOverlay } from 'shared/components/LoadingOverlay';
 import { Alert } from 'shared/components/Alert';
+import DriveSidebar from '../DriveSidebar';
 
 type ViewMode = 'list' | 'grid';
 
 export default function TrashPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const { currentDashboard, navigateToDashboard } = useDashboard();
   const [files, setFiles] = useState<any[]>([]);
   const [folders, setFolders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     // Initialize from localStorage, default to 'list' if not set
     if (typeof window !== 'undefined') {
@@ -36,7 +42,68 @@ export default function TrashPage() {
     }
   };
 
-  const fetchTrash = async () => {
+  // Sidebar handlers
+  const handleCreateFolder = useCallback(async () => {
+    if (!session?.accessToken) return;
+    const name = prompt('Enter folder name:');
+    if (!name) return;
+    try {
+      const response = await fetch('/api/drive/folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({ 
+          name,
+          dashboardId: currentDashboard?.id || null,
+          parentId: null
+        }),
+      });
+      if (!response.ok) console.error('Failed to create folder');
+    } catch (error) {
+      console.error('Error creating folder:', error);
+    }
+  }, [session, currentDashboard]);
+
+  const handleFileUpload = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files || !session?.accessToken) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('file', file);
+          if (currentDashboard?.id) formData.append('dashboardId', currentDashboard.id);
+          const response = await fetch('/api/drive/files', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session.accessToken}` },
+            body: formData,
+          });
+          if (!response.ok) console.error('Upload failed:', response.status);
+        }
+      } catch (error) {
+        console.error('Upload failed:', error);
+      }
+    };
+    input.click();
+  }, [session, currentDashboard]);
+
+  const handleContextSwitch = useCallback(async (dashboardId: string) => {
+    await navigateToDashboard(dashboardId);
+    router.push(`/drive?dashboard=${dashboardId}`);
+  }, [navigateToDashboard, router]);
+
+  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
+    setSelectedFolder(folder);
+  }, []);
+
+  const fetchTrash = useCallback(async () => {
     if (!session?.accessToken) return;
     setLoading(true);
     setError(null);
@@ -52,13 +119,13 @@ export default function TrashPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session?.accessToken]);
 
   useEffect(() => {
     if (status === 'authenticated') {
       fetchTrash();
     }
-  }, [status, session?.accessToken]);
+  }, [status, session?.accessToken, fetchTrash]);
 
   const handleRestore = async (item: any, type: 'file' | 'folder') => {
     if (!session?.accessToken) return;
@@ -88,44 +155,54 @@ export default function TrashPage() {
     }
   };
 
-  if (status === 'loading') {
-    return <LoadingOverlay message="Loading trash..." />;
-  }
-
-  if (status === 'unauthenticated') {
-    return (
-      <div className="p-6">
-        <Alert type="error" title="Authentication Error">
-          Please log in to view trash.
-        </Alert>
-      </div>
-    );
-  }
-
   const isEmpty = files.length === 0 && folders.length === 0;
 
   return (
-    <main className="p-6 max-w-6xl mx-auto">
-      <div className="mb-8 flex items-center gap-4">
-        <TrashIcon className="w-8 h-8 text-gray-700" />
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Trash</h1>
-          <p className="text-gray-600">Items in trash will be permanently deleted after 30 days.</p>
-        </div>
-      </div>
-
-      {error && <Alert type="error" title="Error">{error}</Alert>}
+    <div className="flex h-screen bg-gray-50">
+      {/* Drive Sidebar */}
+      <DriveSidebar 
+        onNewFolder={handleCreateFolder} 
+        onFileUpload={handleFileUpload} 
+        onFolderUpload={handleFileUpload}
+        onContextSwitch={handleContextSwitch}
+        onFolderSelect={handleFolderSelect}
+        selectedFolderId={selectedFolder?.id}
+      />
       
-      {loading ? (
-        <LoadingOverlay message="Loading trash..." />
-      ) : isEmpty ? (
-        <div className="text-center py-16">
-          <TrashIcon className="w-20 h-20 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-xl font-medium text-gray-900 mb-2">Trash is empty</h3>
-          <p className="text-gray-500">Items you move to the trash will appear here.</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Main Content */}
+      <main className="flex-1 overflow-auto">
+        {loading || status === 'loading' ? (
+          <div className="flex items-center justify-center h-full">
+            <LoadingOverlay message="Loading trash..." />
+          </div>
+        ) : status === 'unauthenticated' ? (
+          <div className="p-6">
+            <Alert type="error" title="Authentication Error">
+              Please log in to view trash.
+            </Alert>
+          </div>
+        ) : error ? (
+          <div className="p-6">
+            <Alert type="error" title="Error">{error}</Alert>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="mb-8 flex items-center gap-4">
+              <TrashIcon className="w-8 h-8 text-gray-700" />
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Trash</h1>
+                <p className="text-gray-600">Items in trash will be permanently deleted after 30 days.</p>
+              </div>
+            </div>
+
+            {isEmpty ? (
+              <div className="text-center py-16">
+                <TrashIcon className="w-20 h-20 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-xl font-medium text-gray-900 mb-2">Trash is empty</h3>
+                <p className="text-gray-500">Items you move to the trash will appear here.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           {/* View Toggle */}
           <div className="p-4 border-b border-gray-200 flex justify-end">
             <div className="flex gap-2">
@@ -240,8 +317,11 @@ export default function TrashPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
-    </main>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
   );
 } 

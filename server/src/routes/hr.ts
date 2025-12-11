@@ -83,6 +83,7 @@ router.get('/admin/employees/export', checkHRAdmin, hrController.exportEmployees
 // HR Settings (Available on Business Advanced+)
 router.get('/admin/settings', checkHRAdmin, hrController.getHRSettings);
 router.put('/admin/settings', checkHRAdmin, hrController.updateHRSettings);
+router.get('/admin/features', checkHRAdmin, hrController.getHRFeatureAvailability);
 
 // Onboarding (Business Advanced+ pilot)
 router.get(
@@ -108,6 +109,12 @@ router.delete(
   checkHRFeature('onboarding'),
   checkHRAdmin,
   hrController.deleteOnboardingTemplate
+);
+router.get(
+  '/admin/onboarding/documents/library',
+  checkHRFeature('onboarding'),
+  checkHRAdmin,
+  hrController.getOnboardingDocumentLibrary
 );
 router.get(
   '/admin/onboarding/journeys',

@@ -2,28 +2,34 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useDashboard } from '@/contexts/DashboardContext';
 import { listFiles, listFolders, File, Folder } from '@/api/drive';
 import { LoadingOverlay } from 'shared/components/LoadingOverlay';
 import { Alert } from 'shared/components/Alert';
 import { FileGrid, FileGridItem } from 'shared/components/FileGrid';
 import { FolderCard } from 'shared/components/FolderCard';
 import { Squares2X2Icon, Bars3Icon } from '@heroicons/react/24/solid';
-import { StarIcon } from '@heroicons/react/24/outline';
+import { Pin } from 'lucide-react';
+import DriveSidebar from '../DriveSidebar';
 
 type ViewMode = 'list' | 'grid';
 
-const StarredPage = () => {
+const PinnedPage = () => {
   const { data: session, status } = useSession();
-  const [starredFiles, setStarredFiles] = useState<File[]>([]);
-  const [starredFolders, setStarredFolders] = useState<Folder[]>([]);
+  const router = useRouter();
+  const { currentDashboard, navigateToDashboard } = useDashboard();
+  const [pinnedFiles, setPinnedFiles] = useState<File[]>([]);
+  const [pinnedFolders, setPinnedFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     // Initialize from localStorage, default to 'grid' if not set
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('starred-view-mode');
+      const saved = localStorage.getItem('pinned-view-mode');
       return (saved === 'grid' || saved === 'list') ? saved : 'grid';
     }
     return 'grid';
@@ -33,71 +39,151 @@ const StarredPage = () => {
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('starred-view-mode', mode);
+      localStorage.setItem('pinned-view-mode', mode);
     }
   };
 
+  // Sidebar handlers
+  const handleCreateFolder = useCallback(async () => {
+    if (!session?.accessToken) return;
+    const name = prompt('Enter folder name:');
+    if (!name) return;
+    try {
+      const response = await fetch('/api/drive/folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({ 
+          name,
+          dashboardId: currentDashboard?.id || null,
+          parentId: null
+        }),
+      });
+      if (!response.ok) console.error('Failed to create folder');
+    } catch (error) {
+      console.error('Error creating folder:', error);
+    }
+  }, [session, currentDashboard]);
+
+  const handleFileUpload = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files || !session?.accessToken) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('file', file);
+          if (currentDashboard?.id) formData.append('dashboardId', currentDashboard.id);
+          const response = await fetch('/api/drive/files', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session.accessToken}` },
+            body: formData,
+          });
+          if (!response.ok) console.error('Upload failed:', response.status);
+        }
+      } catch (error) {
+        console.error('Upload failed:', error);
+      }
+    };
+    input.click();
+  }, [session, currentDashboard]);
+
+  const handleContextSwitch = useCallback(async (dashboardId: string) => {
+    await navigateToDashboard(dashboardId);
+    router.push(`/drive?dashboard=${dashboardId}`);
+  }, [navigateToDashboard, router]);
+
+  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
+    setSelectedFolder(folder);
+  }, []);
+
   useEffect(() => {
     if (status === 'authenticated' && session) {
-      const fetchStarredItems = async () => {
+      const fetchPinnedItems = async () => {
         try {
           setLoading(true);
-          // Use the new starred filtering parameter
+          // Use the starred filtering parameter (backend still uses 'starred' field)
           const [files, folders] = await Promise.all([
             listFiles(session.accessToken as string, undefined, true),
             listFolders(session.accessToken as string, undefined, true)
           ]);
           
-          setStarredFiles(files);
-          setStarredFolders(folders);
+          // Ensure arrays are never undefined
+          setPinnedFiles(Array.isArray(files) ? files : []);
+          setPinnedFolders(Array.isArray(folders) ? folders : []);
         } catch (err) {
-          setError('Failed to load starred items.');
+          setError('Failed to load pinned items.');
         } finally {
           setLoading(false);
         }
       };
-      fetchStarredItems();
+      fetchPinnedItems();
     } else if (status === 'unauthenticated') {
-      setError('You must be logged in to view starred items.');
+      setError('You must be logged in to view pinned items.');
       setLoading(false);
     }
   }, [session, status]);
 
-  if (status === 'loading' || loading) {
-    return <LoadingOverlay message="Loading starred items..." />;
-  }
-
-  if (error) {
-    return <Alert type="error" title="Error">{error}</Alert>;
-  }
-
-  const totalItems = starredFiles.length + starredFolders.length;
+  const totalItems = (pinnedFiles?.length || 0) + (pinnedFolders?.length || 0);
 
   // Convert files and folders to FileGridItem format
-  const starredItems: FileGridItem[] = [
-    ...starredFolders.map(folder => ({
-      id: folder.id,
-      name: folder.name,
-      type: 'folder' as const,
-      createdAt: folder.createdAt,
-      updatedAt: folder.updatedAt,
-    })),
-    ...starredFiles.map(file => ({
-      id: file.id,
-      name: file.name,
-      type: 'file' as const,
-      size: file.size,
-      createdAt: file.createdAt,
-      updatedAt: file.updatedAt,
-    }))
-  ];
+  const folderItems: FileGridItem[] = pinnedFolders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+    type: 'folder' as const,
+    createdAt: folder.createdAt,
+    updatedAt: folder.updatedAt,
+  }));
+
+  const fileItems: FileGridItem[] = pinnedFiles.map((file) => ({
+    id: file.id,
+    name: file.name,
+    type: 'file' as const,
+    size: file.size,
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+  }));
+
+  const pinnedItems: FileGridItem[] = [...folderItems, ...fileItems];
 
   return (
-    <div className="p-6">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="flex h-screen bg-gray-50">
+      {/* Drive Sidebar */}
+      <DriveSidebar 
+        onNewFolder={handleCreateFolder} 
+        onFileUpload={handleFileUpload} 
+        onFolderUpload={handleFileUpload}
+        onContextSwitch={handleContextSwitch}
+        onFolderSelect={handleFolderSelect}
+        selectedFolderId={selectedFolder?.id}
+      />
+      
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+        {status === 'loading' || loading ? (
+          <div className="flex items-center justify-center h-full">
+            <LoadingOverlay message="Loading pinned items..." />
+          </div>
+        ) : error ? (
+          <div className="p-6">
+            <Alert type="error" title="Error">{error}</Alert>
+          </div>
+        ) : (
+          <div className="p-6">
+          <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Starred Items</h1>
-          <p className="text-gray-600">Your starred files and folders</p>
+          <div className="flex items-center gap-2 mb-2">
+            <Pin className="w-8 h-8 text-yellow-500 fill-current" />
+            <h1 className="text-3xl font-bold text-gray-900">Pinned Items</h1>
+          </div>
+          <p className="text-gray-600">Your pinned files and folders</p>
         </div>
         
         {/* View Toggle */}
@@ -131,9 +217,9 @@ const StarredPage = () => {
       
       {totalItems === 0 ? (
         <div className="text-center py-12">
-          <StarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No starred items</h3>
-          <p className="text-gray-600">Star files and folders to see them here.</p>
+          <Pin className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No pinned items</h3>
+          <p className="text-gray-600">Pin files and folders to see them here.</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -149,10 +235,10 @@ const StarredPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {starredItems.map((item) => (
+                  {pinnedItems.map((item) => (
                     <tr key={item.id} className="border-b border-gray-200 last:border-b-0 hover:bg-gray-50">
                       <td className="p-4 font-medium text-gray-800 flex items-center gap-2">
-                        <StarIcon className="w-4 h-4 text-yellow-500" />
+                        <Pin className="w-4 h-4 text-yellow-500 fill-current" />
                         {item.name}
                       </td>
                       <td className="p-4 text-gray-600 capitalize">{item.type}</td>
@@ -169,11 +255,14 @@ const StarredPage = () => {
             </div>
           ) : (
             <>
-              {starredFolders.length > 0 && (
+              {pinnedFolders.length > 0 && (
                 <div>
-                  <h2 className="text-xl font-semibold mb-4">Starred Folders</h2>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <Pin className="w-5 h-5 text-yellow-500 fill-current" />
+                    Pinned Folders
+                  </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {starredFolders.map((folder) => (
+                    {pinnedFolders.map((folder) => (
                       <FolderCard
                         key={folder.id}
                         name={folder.name}
@@ -188,11 +277,14 @@ const StarredPage = () => {
                 </div>
               )}
               
-              {starredFiles.length > 0 && (
+              {pinnedFiles.length > 0 && (
                 <div>
-                  <h2 className="text-xl font-semibold mb-4">Starred Files</h2>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <Pin className="w-5 h-5 text-yellow-500 fill-current" />
+                    Pinned Files
+                  </h2>
                   <FileGrid
-                    items={starredItems.filter(item => item.type === 'file')}
+                    items={pinnedItems.filter(item => item.type === 'file')}
                     viewMode="grid"
                     onItemClick={(item) => {}}
                     onContextMenu={(e, item) => {
@@ -206,8 +298,11 @@ const StarredPage = () => {
           )}
         </div>
       )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
-export default StarredPage; 
+export default PinnedPage; 

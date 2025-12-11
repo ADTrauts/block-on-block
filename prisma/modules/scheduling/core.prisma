@@ -1,0 +1,361 @@
+// ============================================================================
+// SCHEDULING MODULE - CORE MODELS
+// ============================================================================
+// Purpose: Employee shift scheduling and workforce planning
+// Separation: This handles PLANNING (future), HR handles TRACKING (past)
+// ============================================================================
+
+// ============================================================================
+// SCHEDULES
+// ============================================================================
+
+model Schedule {
+  id                String   @id @default(uuid())
+  businessId        String
+  business          Business @relation("BusinessSchedules", fields: [businessId], references: [id], onDelete: Cascade)
+
+  name              String
+  description       String?
+  locationId        String?  // Job location (physical work site)
+  location          JobLocation? @relation("ScheduleJobLocations", fields: [locationId], references: [id], onDelete: SetNull)
+  
+  startDate         DateTime
+  endDate           DateTime
+  timezone          String   @default("America/New_York")
+  
+  status            ScheduleStatus @default(DRAFT)
+  publishedAt       DateTime?
+  publishedById     String?
+  publishedBy       User?    @relation("SchedulePublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+  
+  templateId        String?  // Reference if created from template
+  
+  // Visual Builder Configuration
+  layoutMode        String?  // 'employee' | 'role' | 'station'
+  viewMode          String?  // 'week' | 'day' | 'month' | 'coverage'
+  
+  metadata          Json?    // Additional schedule-level data
+                      // { 
+                      //   specialNotes: string,        // Week-level notes (holidays, events, etc.)
+                      //   holidays: string[],          // Holiday dates in ISO format
+                      //   events: Array<{ date: string, name: string, description?: string }>
+                      // }
+  
+  createdById       String
+  createdBy         User     @relation("ScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  shifts            ScheduleShift[]
+  
+  @@index([businessId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@index([layoutMode])
+  @@map("schedules")
+}
+
+enum ScheduleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// ============================================================================
+// SCHEDULE SHIFTS
+// ============================================================================
+
+model ScheduleShift {
+  id                  String   @id @default(uuid())
+  scheduleId          String
+  schedule            Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  businessId          String
+  business            Business @relation("BusinessScheduleShifts", fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Assignment
+  employeePositionId  String?  // null = open shift
+  employeePosition    EmployeePosition? @relation("EmployeeScheduleShifts", fields: [employeePositionId], references: [id], onDelete: Cascade)
+  
+  // Shift Details
+  title               String
+  startTime           DateTime
+  endTime             DateTime
+  breakMinutes        Int?
+  
+  // Organization
+  locationId          String?  // Job location (physical work site)
+  location            JobLocation? @relation("ShiftJobLocations", fields: [locationId], references: [id], onDelete: SetNull)
+  departmentId        String?
+  positionId          String?  // Required position for this shift
+  position            Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  
+  // Station/Job Function Assignment
+  stationName         String?  // Specific station assignment ("Grill 1", "Server 1-10")
+  jobFunction         String?  // Job function for this shift (from JobFunction enum)
+  
+  // Shift Properties
+  notes               String?
+  color               String?  // Hex color for visual display
+  isOpenShift         Boolean  @default(false)
+  requiresApproval    Boolean  @default(false)
+  minStaffing         Int?     // Minimum required staff
+  maxStaffing         Int?     // Maximum allowed staff
+  priority            Int?     // Scheduling priority (1-10, higher = fill first)
+  
+  // Template Reference
+  shiftTemplateId     String?
+  shiftTemplate       ShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  
+  status              ShiftStatus @default(SCHEDULED)
+  metadata            Json?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  swapRequests        ShiftSwapRequest[] @relation("OriginalShift")
+  
+  @@index([scheduleId])
+  @@index([businessId])
+  @@index([employeePositionId])
+  @@index([positionId])
+  @@index([locationId])
+  @@index([startTime, endTime])
+  @@index([isOpenShift])
+  @@index([stationName])
+  @@index([jobFunction])
+  @@index([priority])
+  @@map("schedule_shifts")
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  OPEN
+  FILLED
+  CANCELLED
+  COMPLETED
+}
+
+// ============================================================================
+// SHIFT TEMPLATES
+// ============================================================================
+
+model ShiftTemplate {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation("BusinessShiftTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+
+  name                String
+  description         String?
+  
+  // Default times (time-only, no date)
+  defaultStartTime    String   // "08:00"
+  defaultEndTime      String   // "16:00"
+  defaultBreakMinutes Int?
+  
+  // Recurrence
+  daysOfWeek          String[] @default([]) // ["MON", "TUE", "WED"]
+  
+  // Organization
+  departmentId        String?
+  positionId          String?
+  position            Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  
+  // Display
+  color               String?
+  
+  metadata            Json?
+  isActive            Boolean  @default(true)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  scheduleShifts      ScheduleShift[]
+  
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([isActive])
+  @@map("shift_templates")
+}
+
+// ============================================================================
+// EMPLOYEE AVAILABILITY
+// ============================================================================
+
+model EmployeeAvailability {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation("BusinessEmployeeAvailability", fields: [businessId], references: [id], onDelete: Cascade)
+  
+  employeePositionId  String
+  employeePosition    EmployeePosition @relation("EmployeeAvailability", fields: [employeePositionId], references: [id], onDelete: Cascade)
+  
+  // Availability Details
+  dayOfWeek           String   // "MONDAY", "TUESDAY", etc.
+  startTime           String   // "08:00"
+  endTime             String   // "17:00"
+  availabilityType    AvailabilityType @default(AVAILABLE)
+  
+  // Effective Dates
+  effectiveFrom       DateTime
+  effectiveTo         DateTime?
+  recurring           Boolean  @default(true)
+  
+  notes               String?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([businessId])
+  @@index([employeePositionId])
+  @@index([dayOfWeek])
+  @@map("employee_availability")
+}
+
+enum AvailabilityType {
+  AVAILABLE
+  UNAVAILABLE
+  PREFERRED
+}
+
+// ============================================================================
+// SHIFT SWAP REQUESTS
+// ============================================================================
+
+model ShiftSwapRequest {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation("BusinessShiftSwapRequests", fields: [businessId], references: [id], onDelete: Cascade)
+  
+  originalShiftId     String
+  originalShift       ScheduleShift @relation("OriginalShift", fields: [originalShiftId], references: [id], onDelete: Cascade)
+  
+  requestedById       String
+  requestedBy         User     @relation("SwapRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  
+  requestedToId       String?  // Specific employee (optional)
+  requestedTo         User?    @relation("SwapRequestedTo", fields: [requestedToId], references: [id], onDelete: SetNull)
+  
+  reason              String?
+  
+  status              SwapStatus @default(PENDING)
+  approvedById        String?
+  approvedBy          User?    @relation("SwapApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt          DateTime?
+  
+  expiresAt           DateTime?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([businessId])
+  @@index([originalShiftId])
+  @@index([requestedById])
+  @@index([status])
+  @@map("shift_swap_requests")
+}
+
+enum SwapStatus {
+  PENDING
+  APPROVED
+  DENIED
+  CANCELLED
+  EXPIRED
+}
+
+// ============================================================================
+// SCHEDULE TEMPLATES
+// ============================================================================
+
+model ScheduleTemplate {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation("BusinessScheduleTemplates", fields: [businessId], references: [id], onDelete: Cascade)
+  
+  name                String
+  description         String?
+  
+  scheduleType        String   // "WEEKLY", "BIWEEKLY", "MONTHLY"
+  templateData        Json     // Serialized schedule structure
+  
+  isActive            Boolean  @default(true)
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([isActive])
+  @@map("schedule_templates")
+}
+
+// ============================================================================
+// BUSINESS STATIONS
+// ============================================================================
+// Business-level stations shared across all positions
+// Used for station-based scheduling (e.g., "Grill 1", "Server 1-10", "ICU Nurse")
+
+model BusinessStation {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation("BusinessStations", fields: [businessId], references: [id], onDelete: Cascade)
+  
+  name        String   // "Grill 1", "Server 1-10", "ICU Nurse", "Fry Station"
+  stationType StationType // BOH, FOH, MANAGEMENT, HEALTHCARE, MANUFACTURING, OTHER
+  jobFunction JobFunction? // Optional job function assignment (from Position model enum)
+  description String?
+  color       String?  // Hex color for visual display
+  
+  isRequired  Boolean  @default(false) // Must this station be covered daily?
+  priority    Int?     // Scheduling priority (1-10, higher = fill first)
+  isActive    Boolean  @default(true)
+  defaultStartTime String? // Default HH:mm start time when scheduling this station
+  defaultEndTime   String? // Default HH:mm end time when scheduling this station
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([stationType])
+  @@index([jobFunction])
+  @@index([isActive])
+  @@map("business_stations")
+}
+
+// StationType enum is defined in org-chart.prisma (BOH, FOH, MANAGEMENT, HEALTHCARE, MANUFACTURING, OTHER)
+// JobFunction enum is defined in org-chart.prisma (GRILL, FRY, SERVER, etc.)
+
+// ============================================================================
+// JOB LOCATIONS
+// ============================================================================
+// Physical work locations/sites where employees work
+// Used for businesses that send employees to different sites (e.g., construction, service businesses)
+// Separate from Stations (which are work roles/positions)
+
+model JobLocation {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation("BusinessJobLocations", fields: [businessId], references: [id], onDelete: Cascade)
+  
+  name        String   // "Downtown Office", "Construction Site A", "Warehouse 1", "Client Site - 123 Main St"
+  address     Json?    // Structured address data { street, city, state, zip, country }
+  description String?
+  phone       String?  // Location-specific phone number
+  email       String?  // Location-specific email
+  notes       String?  // Additional location notes
+  
+  isActive    Boolean  @default(true)
+  
+  // Relations
+  schedules   Schedule[] @relation("ScheduleJobLocations")
+  scheduleShifts ScheduleShift[] @relation("ShiftJobLocations")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([isActive])
+  @@map("job_locations")
+}
+

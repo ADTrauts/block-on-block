@@ -224,10 +224,21 @@ export const uninstallModule = async (moduleId: string, opts?: { scope?: 'person
 
 // Configure a module
 export const configureModule = async (
-  moduleId: string, 
-  configuration: ModuleConfiguration
+  moduleId: string,
+  configuration: ModuleConfiguration,
+  opts?: { scope?: 'personal' | 'business'; businessId?: string }
 ): Promise<{ message: string; installation: ModuleInstallation }> => {
-  const response = await authenticatedApiCall<{ success: boolean; data: { message: string; installation: ModuleInstallation } }>(`/api/modules/${moduleId}/configure`, {
+  const params = new URLSearchParams();
+  if (opts?.scope) {
+    params.append('scope', opts.scope);
+  }
+  if (opts?.businessId) {
+    params.append('businessId', opts.businessId);
+  }
+
+  const url = `/api/modules/${moduleId}/configure${params.toString() ? `?${params.toString()}` : ''}`;
+
+  const response = await authenticatedApiCall<{ success: boolean; data: { message: string; installation: ModuleInstallation } }>(url, {
     method: 'PUT',
     body: JSON.stringify({ configuration }),
   });

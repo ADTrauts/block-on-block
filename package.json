@@ -13,9 +13,9 @@
     "prebuild": "pnpm prisma:generate",
     "build": "pnpm run build:shared && pnpm --filter web... build && pnpm --filter server build",
     "prisma:build": "node scripts/build-prisma-schema.js",
-    "prisma:generate": "npm run prisma:build && prisma generate",
-    "prisma:migrate": "npm run prisma:build && prisma migrate dev",
-    "prisma:studio": "npm run prisma:build && prisma studio",
+    "prisma:generate": "pnpm run prisma:build && prisma generate",
+    "prisma:migrate": "pnpm run prisma:build && prisma migrate dev",
+    "prisma:studio": "pnpm run prisma:build && prisma studio",
     "clear-cache": "./scripts/clear-cache.sh",
     "reset": "pnpm clear-cache && pnpm install && pnpm dev"
   },

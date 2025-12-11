@@ -80,11 +80,52 @@ export default function GlobalHeaderTabs() {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [aiDropdownPosition, setAIDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const tabsRef = useRef<HTMLDivElement>(null);
+  const [isInScheduling, setIsInScheduling] = useState(false);
+  const [schedulingContext, setSchedulingContext] = useState<{ businessId?: string; scheduleId?: string } | null>(null);
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 700);
     setHydrated(true);
   }, []);
+
+  // Detect if we're in scheduling module and listen for schedule selection
+  useEffect(() => {
+    if (pathname) {
+      // Check for scheduling module in URL (workspace, admin, or direct scheduling paths)
+      const isScheduling = pathname.includes('/workspace/scheduling') || 
+                          pathname.includes('/admin/scheduling') ||
+                          pathname.includes('/scheduling');
+      setIsInScheduling(isScheduling);
+      
+      if (isScheduling) {
+        // Extract businessId from URL
+        const segments = pathname.split('/').filter(Boolean);
+        const businessIndex = segments.indexOf('business');
+        const businessId = businessIndex >= 0 && segments[businessIndex + 1] ? segments[businessIndex + 1] : undefined;
+        
+        setSchedulingContext(businessId ? { businessId } : null);
+      } else {
+        setSchedulingContext(null);
+      }
+    }
+  }, [pathname]);
+
+  // Listen for schedule selection events from scheduling components
+  useEffect(() => {
+    const handleScheduleSelected = (e: CustomEvent<{ scheduleId: string }>) => {
+      if (isInScheduling && schedulingContext) {
+        setSchedulingContext({
+          ...schedulingContext,
+          scheduleId: e.detail.scheduleId
+        });
+      }
+    };
+
+    window.addEventListener('scheduleSelected', handleScheduleSelected as EventListener);
+    return () => {
+      window.removeEventListener('scheduleSelected', handleScheduleSelected as EventListener);
+    };
+  }, [isInScheduling, schedulingContext]);
 
   // Personal dashboards ordering
   const personalDashboards = allDashboards.filter(
@@ -298,7 +339,7 @@ export default function GlobalHeaderTabs() {
         {/* AI Button */}
         <button
           onClick={handleAIClick}
-          className="flex items-center justify-center w-10 h-10 rounded-lg transition-colors hover:bg-purple-100"
+          className="flex items-center justify-center transition-all hover:bg-purple-100 relative"
           style={{
             background: isAIOpen ? '#8b5cf6' : 'transparent',
             color: isAIOpen ? '#fff' : '#8b5cf6',
@@ -308,14 +349,51 @@ export default function GlobalHeaderTabs() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: 40,
-            height: 40,
-            borderRadius: 8,
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
             transition: 'all 0.2s ease',
+            position: 'relative',
           }}
           title="AI Assistant"
         >
-          <Brain size={20} />
+          {/* Pulsing circle animation when in scheduling context */}
+          {isInScheduling && !isAIOpen && (
+            <>
+              {/* Outer pulsing ring with expanding glow */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: 'radial-gradient(circle, rgba(139, 92, 246, 0.6) 0%, rgba(139, 92, 246, 0.3) 50%, transparent 70%)',
+                  animation: 'pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                  zIndex: 0,
+                  borderRadius: '50%',
+                }}
+              />
+              {/* Rotating color wave */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: 'conic-gradient(from 0deg, rgba(139, 92, 246, 0.4), rgba(168, 85, 247, 0.6), rgba(139, 92, 246, 0.4))',
+                  backgroundSize: '200% 200%',
+                  animation: 'color-wave 4s linear infinite',
+                  zIndex: 0,
+                  borderRadius: '50%',
+                  opacity: 0.8,
+                }}
+              />
+              {/* Glow effect on the button itself */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  animation: 'glow-pulse 2s ease-in-out infinite',
+                  zIndex: 0,
+                  borderRadius: '50%',
+                }}
+              />
+            </>
+          )}
+          <Brain size={26} style={{ position: 'relative', zIndex: 1 }} />
         </button>
         
         {/* Avatar */}
@@ -332,6 +410,11 @@ export default function GlobalHeaderTabs() {
         dashboardId={currentDashboardId || undefined}
         dashboardType={currentDashboard ? getDashboardType(currentDashboard) : 'personal'}
         dashboardName={currentDashboard ? getDashboardDisplayName(currentDashboard) : 'Dashboard'}
+        moduleContext={isInScheduling ? {
+          module: 'scheduling',
+          businessId: schedulingContext?.businessId,
+          scheduleId: schedulingContext?.scheduleId,
+        } : undefined}
       />
     </header>
   );

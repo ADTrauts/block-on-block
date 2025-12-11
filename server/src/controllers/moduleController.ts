@@ -579,6 +579,49 @@ export const configureModule = async (req: Request, res: Response) => {
 
     const { moduleId } = req.params;
     const { configuration } = req.body;
+    const scope = (req.query.scope as 'personal' | 'business') || 'personal';
+    const businessId = req.query.businessId as string | undefined;
+
+    if (scope === 'business') {
+      if (!businessId) {
+        return res.status(400).json({ success: false, error: 'businessId is required for business scope' });
+      }
+
+      const membership = await prisma.businessMember.findFirst({
+        where: { businessId, userId: user.id, isActive: true }
+      });
+
+      if (!membership) {
+        return res.status(403).json({ success: false, error: 'Access denied for this business' });
+      }
+
+      if (!(membership.role === 'ADMIN' || membership.role === 'MANAGER' || membership.canManage)) {
+        return res.status(403).json({ success: false, error: 'Insufficient permissions to configure this business module' });
+      }
+
+      const installation = await (prisma as any).businessModuleInstallation.findUnique({
+        where: { moduleId_businessId: { moduleId, businessId } }
+      });
+
+      if (!installation) {
+        return res.status(404).json({ success: false, error: 'Module is not installed for this business' });
+      }
+
+      const updatedInstallation = await (prisma as any).businessModuleInstallation.update({
+        where: { moduleId_businessId: { moduleId, businessId } },
+        data: {
+          configured: configuration
+        }
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          message: 'Business module configured successfully',
+          installation: updatedInstallation
+        }
+      });
+    }
 
     const installation = await prisma.moduleInstallation.findUnique({
       where: {

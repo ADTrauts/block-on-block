@@ -149,7 +149,7 @@ export default function EnhancedDriveModule({ businessId, dashboardId, className
         size: file.size,
         modifiedAt: file.updatedAt || file.createdAt,
         createdBy: file.createdBy || 'Unknown',
-        permissions: ['view', 'edit'], // TODO: Get from API
+        permissions: ['view', 'edit'], // Default permissions - fetch from /api/drive/files/:id/permissions when viewing file details
         mimeType: file.type,
         starred: false,
         shared: false,
@@ -167,7 +167,7 @@ export default function EnhancedDriveModule({ businessId, dashboardId, className
         type: 'folder' as const,
         modifiedAt: folder.updatedAt || folder.createdAt,
         createdBy: folder.createdBy || 'Unknown',
-        permissions: ['view', 'edit'], // TODO: Get from API
+        permissions: ['view', 'edit'], // Default permissions - folder permissions not yet implemented (see fileController.ts line 825)
         starred: false,
         shared: false,
         // Enterprise metadata

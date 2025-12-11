@@ -9,6 +9,26 @@ export interface ApiError extends Error {
   isAuthError?: boolean;
 }
 
+// Global auth error dispatcher - set by AuthErrorContext
+let authErrorDispatcher: ((message?: string) => void) | null = null;
+
+export function setAuthErrorDispatcher(dispatcher: (message?: string) => void) {
+  authErrorDispatcher = dispatcher;
+}
+
+export function clearAuthErrorDispatcher() {
+  authErrorDispatcher = null;
+}
+
+// Helper function to check if an error is an auth error
+export function isAuthError(error: unknown): error is ApiError {
+  return (
+    error instanceof Error &&
+    'isAuthError' in error &&
+    (error as ApiError).isAuthError === true
+  );
+}
+
 // Helper function to make authenticated API calls with automatic token refresh
 export async function authenticatedApiCall<T>(
   endpoint: string, 
@@ -19,6 +39,10 @@ export async function authenticatedApiCall<T>(
   let accessToken = token || session?.accessToken;
   
   if (!accessToken) {
+    // Dispatch to global error handler if available
+    if (authErrorDispatcher) {
+      authErrorDispatcher('Please log in to continue');
+    }
     const error = new Error('No authentication token available') as ApiError;
     error.isAuthError = true;
     throw error;
@@ -26,16 +50,18 @@ export async function authenticatedApiCall<T>(
 
   const url = `${API_BASE_URL}${endpoint}`;
   
-  // Debug logging to help troubleshoot API routing
-  console.log('API Call Debug:', {
-    endpoint,
-    API_BASE_URL: 'relative (using Next.js proxy)',
-    NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-    finalUrl: url,
-    isRelative: !url.startsWith('http'),
-    note: 'Using Next.js API proxy for authentication'
-  });
+  // Debug logging only in debug mode to reduce console noise
+  if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_API === 'true') {
+    console.log('API Call Debug:', {
+      endpoint,
+      API_BASE_URL: 'relative (using Next.js proxy)',
+      NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+      NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+      finalUrl: url,
+      isRelative: !url.startsWith('http'),
+      note: 'Using Next.js API proxy for authentication'
+    });
+  }
   
   const makeRequest = async (token: string): Promise<Response> => {
     const headers: Record<string, string> = {
@@ -100,6 +126,13 @@ export async function authenticatedApiCall<T>(
       });
       
       // If refresh failed, the session is completely expired
+      // Dispatch to global error handler if available
+      if (authErrorDispatcher) {
+        console.log('Dispatching auth error to modal...');
+        authErrorDispatcher('Your session has expired. Please log in to continue.');
+      } else {
+        console.warn('Auth error dispatcher not available - modal may not appear');
+      }
       const error = new Error('Session expired. Please refresh the page to log in again.') as ApiError;
       error.status = response.status;
       error.isAuthError = true;

@@ -139,6 +139,46 @@ export interface CompleteOnboardingTaskPayload {
   approvedByUserId?: string | null;
 }
 
+export interface HRFeatureAvailabilityResponse {
+  tier: 'business_advanced' | 'enterprise' | string;
+  features: {
+    employees: {
+      enabled: boolean;
+      limit: number | null;
+      customFields: boolean;
+    };
+    attendance: {
+      enabled: boolean;
+      clockInOut: boolean;
+      geolocation: boolean;
+    };
+    onboarding: {
+      enabled: boolean;
+      automation: boolean;
+    };
+    payroll: boolean;
+    recruitment: boolean;
+    performance: boolean;
+    benefits: boolean;
+  };
+}
+
+export interface OnboardingDocumentLibraryFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OnboardingDocumentLibraryResponse {
+  folderId: string;
+  dashboardId: string;
+  files: OnboardingDocumentLibraryFile[];
+}
+
 const buildQuery = (businessId: string) => {
   const params = new URLSearchParams();
   params.append('businessId', businessId);
@@ -247,5 +287,23 @@ export async function completeTeamOnboardingTask(
     }
   );
   return response.task;
+}
+
+export async function getHRFeatureAvailability(businessId: string): Promise<HRFeatureAvailabilityResponse> {
+  const query = buildQuery(businessId);
+  return authenticatedApiCall<HRFeatureAvailabilityResponse>(
+    `/api/hr/admin/features?${query}`,
+    { method: 'GET' }
+  );
+}
+
+export async function getOnboardingDocumentLibrary(
+  businessId: string
+): Promise<OnboardingDocumentLibraryResponse> {
+  const query = buildQuery(businessId);
+  return authenticatedApiCall<OnboardingDocumentLibraryResponse>(
+    `/api/hr/admin/onboarding/documents/library?${query}`,
+    { method: 'GET' }
+  );
 }
 

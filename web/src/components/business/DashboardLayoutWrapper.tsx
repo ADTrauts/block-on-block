@@ -46,7 +46,7 @@ interface Business {
 }
 
 interface DashboardLayoutWrapperProps {
-  business: Business;
+  business: Business | null;
   children: React.ReactNode;
 }
 
@@ -65,7 +65,7 @@ const MODULE_ICONS = {
 function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -85,6 +85,20 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
 
   const modules = getAvailableModules();
 
+  // Client-side auth check - redirect to login if not authenticated after session loads
+  useEffect(() => {
+    // Wait for session to finish loading before checking authentication
+    if (status === 'loading') {
+      return; // Still loading, don't redirect yet
+    }
+
+    // Only redirect if we're sure the user is unauthenticated
+    if (status === 'unauthenticated' || !session?.accessToken) {
+      console.warn('No session detected on client, redirecting to login');
+      router.push('/auth/login');
+    }
+  }, [status, session, router]);
+
   // CRITICAL: Ensure business dashboard exists for proper data isolation
   useEffect(() => {
     async function ensureBusinessDashboard() {
@@ -96,8 +110,6 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
       try {
         setDashboardLoading(true);
         setDashboardError(null);
-
-        console.log('🔄 DashboardLayoutWrapper: Fetching dashboards for business:', business.id);
 
         // Fetch all user's dashboards
         const dashboardsResponse = await fetch('/api/dashboard', {
@@ -111,7 +123,6 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
         }
 
         const dashboardsData = await dashboardsResponse.json();
-        console.log('📊 DashboardLayoutWrapper: Dashboards data:', dashboardsData);
         
         // Extract all dashboards from the nested structure
         const allDashboards = dashboardsData.dashboards ? [
@@ -120,16 +131,20 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
           ...(dashboardsData.dashboards.educational || []),
           ...(dashboardsData.dashboards.household || [])
         ] : [];
+
+        // Extract businessId from pathname if business is null
+        const businessId = business?.id || pathname?.split('/business/')[1]?.split('/')[0] || null;
         
-        console.log('📊 DashboardLayoutWrapper: Total dashboards:', allDashboards.length);
+        if (!businessId) {
+          setDashboardError('Business ID not found');
+          setDashboardLoading(false);
+          return;
+        }
 
         // Find existing business dashboard
-        let businessDashboard = allDashboards.find((d: Record<string, any>) => d.businessId === business.id);
+        let businessDashboard = allDashboards.find((d: Record<string, any>) => d.businessId === businessId);
 
-        if (businessDashboard) {
-          console.log('✅ DashboardLayoutWrapper: Found existing business dashboard:', businessDashboard.id);
-        } else {
-          console.log('🆕 DashboardLayoutWrapper: Creating new business dashboard...');
+        if (!businessDashboard) {
 
           // Create business dashboard
           const createResponse = await fetch('/api/dashboard', {
@@ -139,8 +154,8 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
               'Authorization': `Bearer ${session.accessToken}`,
             },
             body: JSON.stringify({
-              name: `${business.name} Workspace`,
-              businessId: business.id,
+              name: `${business?.name || 'Business'} Workspace`,
+              businessId: businessId,
               layout: {},
               preferences: {},
             }),
@@ -152,17 +167,10 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
           }
 
           businessDashboard = await createResponse.json();
-          console.log('✅ DashboardLayoutWrapper: Created new business dashboard:', businessDashboard.id);
         }
 
         // Set the dashboard ID
         setBusinessDashboardId(businessDashboard.id);
-        console.log('🎯 DashboardLayoutWrapper: Business Dashboard Ready:', {
-          dashboardId: businessDashboard.id,
-          businessId: business.id,
-          dashboardName: businessDashboard.name,
-          timestamp: new Date().toISOString()
-        });
 
       } catch (err) {
         console.error('❌ DashboardLayoutWrapper: Failed to ensure business dashboard:', err);
@@ -173,7 +181,7 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
     }
 
     ensureBusinessDashboard();
-  }, [session?.accessToken, business?.id, business?.name]);
+  }, [session?.accessToken, business?.id, business?.name, pathname]);
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 700);
@@ -192,7 +200,11 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
 
   const navigateToModule = (moduleId: string) => {
     // Update URL to show the module in the main content area
-    router.push(`/business/${business.id}/workspace?module=${moduleId}`);
+    // Extract businessId from pathname if business is null
+    const businessId = business?.id || pathname?.split('/business/')[1]?.split('/')[0] || '';
+    if (businessId) {
+      router.push(`/business/${businessId}/workspace?module=${moduleId}`);
+    }
   };
 
   const handleSwitchToPersonal = () => {
@@ -205,6 +217,16 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
   const hasNestedSegments = pathSegments.length > 1;
   const currentModule = pathModule || getCurrentModule();
   const shouldRenderNestedRoute = hasNestedSegments;
+
+  // Show loading state while session is being determined
+  if (status === 'loading') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column' }}>
+        <Spinner size={32} />
+        <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>Verifying session...</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
@@ -316,6 +338,11 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column' }}>
               <Spinner size={32} />
               <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>Initializing business workspace...</p>
+            </div>
+          ) : !business ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column' }}>
+              <Spinner size={32} />
+              <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: '#6b7280' }}>Loading business information...</p>
             </div>
           ) : shouldRenderNestedRoute ? (
             <>{children}</>

@@ -158,7 +158,10 @@ export async function listEventsInRange(req: Request, res: Response) {
   // Find calendars user can see, with optional context filters
   const contextFilters = Array.isArray(contexts) ? contexts : (contexts ? [contexts] : []);
   const requestedCalendarIds = Array.isArray(calendarIds) ? calendarIds : (calendarIds ? [calendarIds] : []);
-
+  
+  // Track dashboard contexts to determine if this is a personal context query
+  const dashboardContexts: Array<{ contextType: string; contextId: string }> = [];
+  
   let calendarIdList: string[];
   if (requestedCalendarIds.length > 0) {
     // Caller explicitly specified calendars; ensure user has access
@@ -173,8 +176,6 @@ export async function listEventsInRange(req: Request, res: Response) {
     
     if (contextFilters.length > 0) {
       // Handle dashboard IDs - look up the dashboard to determine context type
-      const dashboardContexts = [];
-      
       for (const contextId of contextFilters) {
         // Check if this is a dashboard ID by looking up the dashboard
         const dashboard = await prisma.dashboard.findUnique({
@@ -217,13 +218,60 @@ export async function listEventsInRange(req: Request, res: Response) {
     calendarIdList = calendars.map(c => c.id);
   }
 
+  // Determine if we should filter by attendee
+  // Only filter when viewing PERSONAL context and Schedule calendar is included
+  const hasBusinessContext = dashboardContexts.some(ctx => ctx.contextType === 'BUSINESS');
+  
+  // Get calendar types
+  const calendarsWithContext = await prisma.calendar.findMany({
+    where: { id: { in: calendarIdList } },
+    select: { id: true, contextType: true, contextId: true, name: true }
+  });
+  
+  const scheduleCalendarIds = calendarsWithContext
+    .filter(c => c.contextType === 'BUSINESS' && c.name === 'Schedule')
+    .map(c => c.id);
+  
+  // Build event query
+  const eventWhere: any = {
+    calendarId: { in: calendarIdList },
+    OR: [
+      { startAt: { lt: endAt }, endAt: { gt: startAt } }
+    ]
+  };
+  
+  // Only filter Schedule calendar events when in PERSONAL context (not BUSINESS)
+  if (!hasBusinessContext && scheduleCalendarIds.length > 0) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true }
+    });
+    const userEmail = user?.email;
+    
+    if (userEmail) {
+      const nonScheduleCalendarIds = calendarIdList.filter(id => !scheduleCalendarIds.includes(id));
+      
+      eventWhere.AND = [
+        {
+          OR: [
+            // Non-Schedule calendars - show all events
+            { calendarId: { in: nonScheduleCalendarIds } },
+            // Schedule calendar - only show events where user is attendee
+            {
+              AND: [
+                { calendarId: { in: scheduleCalendarIds } },
+                { attendees: { some: { email: userEmail } } }
+              ]
+            }
+          ]
+        }
+      ];
+    }
+  }
+  // If BUSINESS context, show ALL events (no filtering) - default behavior
+
   const events = await prisma.event.findMany({
-    where: {
-      calendarId: { in: calendarIdList },
-      OR: [
-        { startAt: { lt: endAt }, endAt: { gt: startAt } }
-      ]
-    },
+    where: eventWhere,
     include: { attendees: true, reminders: true, attachments: true }
   });
   // Handle recurrence expansion with basic exceptions via child events

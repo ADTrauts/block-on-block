@@ -53,7 +53,8 @@ const buildModuleConfig = (module: InstalledModule, fallbackConfig: ModuleConfig
     notifications: configuredSettings?.notifications,
     security: configuredSettings?.security,
     integrations: configuredSettings?.integrations,
-    onboarding: configuredSettings?.onboarding
+    onboarding: configuredSettings?.onboarding,
+    hrFeatures: configuredSettings?.hrFeatures
   };
 };
 
@@ -151,7 +152,8 @@ export default function ModuleSettingsPage() {
         notifications: config.notifications,
         security: config.security,
         integrations: config.integrations,
-        onboarding: config.onboarding
+        onboarding: config.onboarding,
+        hrFeatures: config.hrFeatures
       });
       setInitialConfig(config);
     } catch (err) {

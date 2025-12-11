@@ -38,8 +38,21 @@ model Position {
   assignedModules Json? // Modules assigned to this position
   maxOccupants Int @default(1) // How many people can have this position
   customPermissions Json? // Override default permissions
+  
+  // Scheduling & Station Configuration
+  jobFunction              JobFunction?
+  stationName              String?  // "Grill 1", "Server 1-10", "Fry Station", "ICU Nurse"
+  stationType              StationType?
+  canWorkMultipleStations  Boolean @default(false)
+  isStationRequired        Boolean @default(false)  // Must this station be covered daily?
+  schedulingPriority       Int?     // Higher priority = fill first (1-10)
+  defaultStartTime         String?  // Default HH:mm start time when scheduling
+  defaultEndTime           String?  // Default HH:mm end time when scheduling
+  
   employeePositions EmployeePosition[]
   permissionSets PermissionSet[]
+  scheduleShifts      ScheduleShift[]
+  shiftTemplates      ShiftTemplate[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -48,7 +61,54 @@ model Position {
   @@index([tierId])
   @@index([departmentId])
   @@index([reportsToId])
+  @@index([jobFunction])
+  @@index([stationType])
   @@map("positions")
+}
+
+// ============================================================================
+// SCHEDULING & STATION ENUMS
+// ============================================================================
+
+enum JobFunction {
+  // Back of House (BOH)
+  GRILL
+  FRY
+  PREP
+  PIZZA
+  PANTRY
+  DISH
+  LINE_COOK
+  EXPO
+  COOK
+  CHEF
+  // Front of House (FOH)
+  SERVER
+  HOST
+  RUNNER
+  BARTENDER
+  CASHIER
+  BARISTA
+  // Management
+  MANAGER_ON_DUTY
+  SHIFT_LEAD
+  SUPERVISOR
+  // Healthcare
+  NURSE
+  CNA
+  TECH
+  DOCTOR
+  // Other
+  CUSTOM
+}
+
+enum StationType {
+  BOH           // Back of House
+  FOH           // Front of House
+  MANAGEMENT
+  HEALTHCARE
+  MANUFACTURING
+  OTHER
 }
 
 model Permission {
@@ -116,6 +176,9 @@ model EmployeePosition {
   attendanceAssignments AttendanceShiftAssignment[] @relation("EmployeeAttendanceAssignments")
   attendanceRecords     AttendanceRecord[]          @relation("EmployeeAttendanceRecords")
   attendanceExceptions  AttendanceException[]       @relation("EmployeeAttendanceExceptions")
+  // Scheduling Module back-relations
+  scheduleShifts        ScheduleShift[]             @relation("EmployeeScheduleShifts")
+  availability          EmployeeAvailability[]      @relation("EmployeeAvailability")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

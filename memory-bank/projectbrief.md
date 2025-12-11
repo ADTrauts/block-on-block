@@ -38,10 +38,13 @@ Vssyl is a revolutionary digital workspace platform that combines:
 #### **3. Core Platform Features** ✅
 - **Authentication**: NextAuth.js with JWT tokens
 - **Module System**: Dynamic module loading with marketplace
+- **AI Context System**: Mandatory AI integration for all modules (natural language queries)
 - **File Management**: Complete Drive system with sharing
 - **Chat System**: Real-time messaging with WebSocket
 - **Business Workspace**: Multi-tenant business management
 - **Status**: All core features fully functional
+
+**AI Context Requirement**: Every module MUST implement AI context providers to enable natural language queries. This is a non-negotiable platform requirement that makes Vssyl intelligent and accessible.
 
 #### **4. Google Cloud Production Deployment** ✅
 - **Cloud Run Services**: Serverless container hosting for frontend and backend

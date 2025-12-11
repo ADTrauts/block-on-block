@@ -532,30 +532,118 @@ router.put('/:businessId/learning-events/:eventId/review', async (req: express.R
   }
 });
 
-// Helper function to determine employee AI capabilities
-async function getEmployeeAICapabilities(member: any, businessAI: any) {
-  const baseCapabilities = businessAI.capabilities;
-  const restrictions = businessAI.restrictions;
-  
-  // Apply role-based restrictions
-  const allowedCapabilities: any = {};
-  
-  // Basic capabilities for all employees
-  allowedCapabilities.employeeAssistance = baseCapabilities.employeeAssistance;
-  allowedCapabilities.documentAnalysis = baseCapabilities.documentAnalysis;
-  allowedCapabilities.emailDrafting = baseCapabilities.emailDrafting;
-  
-  // Role-based capabilities
-  if (member.role === 'ADMIN' || member.role === 'MANAGER') {
-    allowedCapabilities.workflowOptimization = baseCapabilities.workflowOptimization;
-    allowedCapabilities.dataAnalysis = baseCapabilities.dataAnalysis;
-    allowedCapabilities.projectManagement = baseCapabilities.projectManagement;
+// Capability definitions with metadata for UI
+interface CapabilityDefinition {
+  id: string;
+  name: string;
+  description: string;
+  iconName: string;
+  roles: ('EMPLOYEE' | 'MANAGER' | 'ADMIN')[];
+}
+
+const CAPABILITY_DEFINITIONS: Record<string, CapabilityDefinition> = {
+  employeeAssistance: {
+    id: 'employeeAssistance',
+    name: 'Employee Assistance',
+    description: 'General employee support and guidance',
+    iconName: 'brain',
+    roles: ['EMPLOYEE', 'MANAGER', 'ADMIN']
+  },
+  documentAnalysis: {
+    id: 'documentAnalysis',
+    name: 'Document Analysis',
+    description: 'Analyze and summarize documents',
+    iconName: 'file-text',
+    roles: ['EMPLOYEE', 'MANAGER', 'ADMIN']
+  },
+  emailDrafting: {
+    id: 'emailDrafting',
+    name: 'Email Drafting',
+    description: 'Help draft professional emails',
+    iconName: 'mail',
+    roles: ['EMPLOYEE', 'MANAGER', 'ADMIN']
+  },
+  workflowOptimization: {
+    id: 'workflowOptimization',
+    name: 'Workflow Optimization',
+    description: 'Suggest process improvements',
+    iconName: 'trending-up',
+    roles: ['MANAGER', 'ADMIN']
+  },
+  dataAnalysis: {
+    id: 'dataAnalysis',
+    name: 'Data Analysis',
+    description: 'Analyze business data and trends',
+    iconName: 'bar-chart-3',
+    roles: ['MANAGER', 'ADMIN']
+  },
+  projectManagement: {
+    id: 'projectManagement',
+    name: 'Project Management',
+    description: 'Assist with project planning and tracking',
+    iconName: 'calendar',
+    roles: ['MANAGER', 'ADMIN']
+  },
+  complianceMonitoring: {
+    id: 'complianceMonitoring',
+    name: 'Compliance Monitoring',
+    description: 'Monitor for compliance issues',
+    iconName: 'shield',
+    roles: ['ADMIN']
+  },
+  predictiveAnalytics: {
+    id: 'predictiveAnalytics',
+    name: 'Predictive Analytics',
+    description: 'Advanced analytics and predictions',
+    iconName: 'trending-up',
+    roles: ['ADMIN']
   }
+};
+
+// Helper function to determine employee AI capabilities
+// Returns array format for frontend consumption
+async function getEmployeeAICapabilities(member: any, businessAI: any): Promise<Array<{
+  id: string;
+  name: string;
+  description: string;
+  iconName: string;
+  enabled: boolean;
+}>> {
+  const baseCapabilities = businessAI.capabilities || {};
+  const memberRole = member.role || 'EMPLOYEE';
   
-  // Admin-only capabilities
-  if (member.role === 'ADMIN') {
-    allowedCapabilities.complianceMonitoring = baseCapabilities.complianceMonitoring;
-    allowedCapabilities.predictiveAnalytics = baseCapabilities.predictiveAnalytics;
+  // Map role string to enum
+  const roleEnum = memberRole === 'ADMIN' ? 'ADMIN' : 
+                   memberRole === 'MANAGER' ? 'MANAGER' : 
+                   'EMPLOYEE';
+  
+  // Build array of allowed capabilities
+  const allowedCapabilities: Array<{
+    id: string;
+    name: string;
+    description: string;
+    iconName: string;
+    enabled: boolean;
+  }> = [];
+  
+  // Iterate through all capability definitions
+  for (const [key, definition] of Object.entries(CAPABILITY_DEFINITIONS)) {
+    // Check if user's role has access to this capability
+    const hasRoleAccess = definition.roles.includes(roleEnum);
+    
+    // Check if capability is enabled in business AI config
+    const isEnabled = baseCapabilities[key] === true;
+    
+    // Only include if both role has access AND capability is enabled
+    if (hasRoleAccess && isEnabled) {
+      allowedCapabilities.push({
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        iconName: definition.iconName,
+        enabled: true
+      });
+    }
   }
   
   return allowedCapabilities;

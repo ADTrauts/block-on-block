@@ -115,12 +115,18 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      console.log('NextAuth JWT callback:', { hasUser: !!user, hasToken: !!token, tokenExp: token.exp });
+      // Only log in debug mode to reduce console noise
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+        console.log('NextAuth JWT callback:', { hasUser: !!user, hasToken: !!token, tokenExp: token.exp });
+      }
       
       if (user) {
         const u = user as any;
         // Use the backend's JWT token directly without decoding
-        console.log('NextAuth JWT - User login:', { userId: u.id, email: u.email, hasAccessToken: !!u.accessToken });
+        // Only log in debug mode to reduce console noise
+        if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+          console.log('NextAuth JWT - User login:', { userId: u.id, email: u.email, hasAccessToken: !!u.accessToken });
+        }
         return {
           ...token,
           id: u.id,
@@ -134,14 +140,20 @@ export const authOptions: NextAuthOptions = {
 
       // If the token expiration is unknown or it has expired, refresh it.
       if (typeof token.exp !== 'number' || Date.now() >= token.exp * 1000) {
-        console.log('NextAuth JWT - Token expired, refreshing...');
+        // Only log in debug mode to reduce console noise
+        if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+          console.log('NextAuth JWT - Token expired, refreshing...');
+        }
         return refreshAccessToken(token);
       }
       
       return token;
     },
     async session({ session, token }) {
-      console.log('NextAuth Session callback:', { hasSession: !!session, hasToken: !!token, tokenId: token.id });
+      // Only log in debug mode to reduce console noise
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+        console.log('NextAuth Session callback:', { hasSession: !!session, hasToken: !!token, tokenId: token.id });
+      }
       
       session.user.id = token.id as string;
       session.user.role = token.role as any;
@@ -149,20 +161,28 @@ export const authOptions: NextAuthOptions = {
       session.accessToken = token.accessToken as string;
       session.error = token.error as string | undefined;
       
-      console.log('NextAuth Session - Final session:', { 
-        userId: session.user.id, 
-        hasToken: !!session.accessToken,
-        tokenLength: session.accessToken?.length,
-        userRole: session.user.role
-      });
+      // Only log in debug mode to reduce console noise
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+        console.log('NextAuth Session - Final session:', { 
+          userId: session.user.id, 
+          hasToken: !!session.accessToken,
+          tokenLength: session.accessToken?.length,
+          userRole: session.user.role
+        });
+      }
       return session;
     },
     async redirect({ url, baseUrl }) {
-      console.log('NextAuth redirect callback:', { url, baseUrl });
+      // Only log in debug mode to reduce console noise
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+        console.log('NextAuth redirect callback:', { url, baseUrl });
+      }
       
       // Handle signout - redirect to home page (which will show landing page)
       if (url.includes('/api/auth/signout') || url.includes('signOut')) {
-        console.log('Logout detected, redirecting to home');
+        if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
+          console.log('Logout detected, redirecting to home');
+        }
         return baseUrl;
       }
       

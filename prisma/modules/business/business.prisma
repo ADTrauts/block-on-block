@@ -68,9 +68,52 @@ model Business {
   onboardingTaskTemplates OnboardingTaskTemplate[] @relation("BusinessOnboardingTaskTemplates")
   employeeOnboardingJourneys EmployeeOnboardingJourney[] @relation("BusinessEmployeeOnboardingJourneys")
   employeeOnboardingTasks EmployeeOnboardingTask[] @relation("BusinessEmployeeOnboardingTasks")
+  // Scheduling Module
+  schedules Schedule[] @relation("BusinessSchedules")
+  scheduleShifts ScheduleShift[] @relation("BusinessScheduleShifts")
+  shiftTemplates ShiftTemplate[] @relation("BusinessShiftTemplates")
+  employeeAvailability EmployeeAvailability[] @relation("BusinessEmployeeAvailability")
+  shiftSwapRequests ShiftSwapRequest[] @relation("BusinessShiftSwapRequests")
+  scheduleTemplates ScheduleTemplate[] @relation("BusinessScheduleTemplates")
+  businessStations BusinessStation[] @relation("BusinessStations")
+  jobLocations JobLocation[] @relation("BusinessJobLocations")
+  
+  // Scheduling Configuration
+  schedulingMode       SchedulingMode?
+  schedulingStrategy   SchedulingStrategy?
+  schedulingConfig     Json?    // { 
+                                  //   layout: 'employee' | 'role' | 'station',
+                                  //   viewPreference: 'weekly' | 'two_weeks' | 'monthly',
+                                  //   weekStartDay: 'monday' | 'sunday',
+                                  //   defaultScheduleDuration: number (days: 7, 14, 30),
+                                  //   defaultTimezone: string (e.g., 'America/New_York')
+                                  // }
 
   @@index([ein])
+  @@index([schedulingMode])
   @@map("businesses")
+}
+
+// ============================================================================
+// SCHEDULING ENUMS
+// ============================================================================
+
+enum SchedulingMode {
+  RESTAURANT
+  HEALTHCARE
+  RETAIL
+  MANUFACTURING
+  OFFICE
+  COFFEE_SHOP
+  OTHER
+}
+
+enum SchedulingStrategy {
+  AVAILABILITY_FIRST
+  BUDGET_FIRST
+  COMPLIANCE_FIRST
+  TEMPLATE_BASED
+  AUTO_GENERATE
 }
 
 model Department {

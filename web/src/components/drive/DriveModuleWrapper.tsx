@@ -73,7 +73,6 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   // Otherwise, use standard Drive module
   return (
     <DriveModule 
-      businessId={effectiveBusinessId || ''}
       dashboardId={effectiveDashboardId}
       className={className}
       refreshTrigger={refreshTrigger}

@@ -220,18 +220,19 @@ export const EmployeeAIAssistant: React.FC<EmployeeAIAssistantProps> = ({ busine
 
     const iconMap: Record<string, React.ComponentType<{ size?: string | number; className?: string }>> = {
       'brain': Brain,
-      'zap': Send, // Assuming Zap is Send
       'shield': Shield,
-      'users': User, // Assuming Users is User
-      'trending-up': Sparkles, // Assuming TrendingUp is Sparkles
+      'user': User,
+      'users': User,
+      'trending-up': Sparkles,
       'calendar': Calendar,
       'file-text': FileText,
       'bar-chart-3': BarChart,
-      'lightbulb': Brain, // Assuming Lightbulb is Brain
-      'target': Brain, // Assuming Target is Brain
-      'clock': Brain, // Assuming Clock is Brain
-      'check-circle': Brain, // Assuming CheckCircle is Brain
-      'alert-circle': AlertCircle // Assuming AlertCircle is AlertCircle
+      'mail': Mail,
+      'lightbulb': Brain,
+      'target': Brain,
+      'clock': Brain,
+      'check-circle': Brain,
+      'alert-circle': AlertCircle
     };
 
     return allowedCapabilities.map(cap => ({

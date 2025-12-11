@@ -7,6 +7,34 @@
 
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../middleware/auth';
+import { logger } from '../lib/logger';
+import { Prisma } from '@prisma/client';
+
+// Type definitions for AI context responses
+interface RecentFileData {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  createdAt: Date;
+  updatedAt: Date;
+  starred: boolean;
+  folderId: string | null;
+  folder: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+interface FileCountWhere {
+  userId: string;
+  trashedAt: null;
+  folderId?: string;
+  updatedAt?: {
+    gte: Date;
+  };
+}
 
 /**
  * GET /api/drive/ai/context/recent
@@ -16,7 +44,7 @@ import { prisma } from '../lib/prisma';
  */
 export async function getRecentFilesContext(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id || (req as any).user?.sub;
+    const userId = (req as AuthenticatedRequest).user?.id;
     
     if (!userId) {
       return res.status(401).json({ 
@@ -56,7 +84,7 @@ export async function getRecentFilesContext(req: Request, res: Response) {
     
     // Format for AI consumption
     const context = {
-      recentFiles: recentFiles.map((file: Record<string, any>) => ({
+      recentFiles: recentFiles.map((file: RecentFileData) => ({
         id: file.id,
         name: file.name,
         type: file.type,
@@ -67,7 +95,7 @@ export async function getRecentFilesContext(req: Request, res: Response) {
       })),
       summary: {
         totalRecentFiles: recentFiles.length,
-        hasStarredFiles: recentFiles.some((f: any) => f.starred),
+        hasStarredFiles: recentFiles.some((f: RecentFileData) => f.starred),
         mostRecentUpdate: recentFiles[0]?.updatedAt.toISOString()
       }
     };
@@ -82,12 +110,16 @@ export async function getRecentFilesContext(req: Request, res: Response) {
       }
     });
     
-  } catch (error) {
-    console.error('Error in getRecentFilesContext:', error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    logger.error('Error in getRecentFilesContext', {
+      operation: 'getRecentFilesContext',
+      error: { message: err.message, stack: err.stack }
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch recent files context',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: err.message || 'Unknown error'
     });
   }
 }
@@ -100,7 +132,7 @@ export async function getRecentFilesContext(req: Request, res: Response) {
  */
 export async function getStorageStatsContext(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id || (req as any).user?.sub;
+    const userId = (req as AuthenticatedRequest).user?.id;
     
     if (!userId) {
       return res.status(401).json({ 
@@ -190,12 +222,16 @@ export async function getStorageStatsContext(req: Request, res: Response) {
       }
     });
     
-  } catch (error) {
-    console.error('Error in getStorageStatsContext:', error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    logger.error('Error in getStorageStatsContext', {
+      operation: 'getStorageStatsContext',
+      error: { message: err.message, stack: err.stack }
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch storage stats context',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: err.message || 'Unknown error'
     });
   }
 }
@@ -208,7 +244,7 @@ export async function getStorageStatsContext(req: Request, res: Response) {
  */
 export async function getFileCount(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id || (req as any).user?.sub;
+    const userId = (req as AuthenticatedRequest).user?.id;
     const { type = 'all', folderId } = req.query;
     
     if (!userId) {
@@ -218,14 +254,14 @@ export async function getFileCount(req: Request, res: Response) {
       });
     }
     
-    const where: any = {
+    const where: FileCountWhere = {
       userId,
       trashedAt: null
     };
     
     // Apply type filter
-    if (type === 'folder' && folderId) {
-      where.folderId = folderId as string;
+    if (type === 'folder' && folderId && typeof folderId === 'string') {
+      where.folderId = folderId;
     } else if (type === 'recent') {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -234,7 +270,9 @@ export async function getFileCount(req: Request, res: Response) {
       };
     }
     
-    const count = await prisma.file.count({ where });
+    const count = await prisma.file.count({ 
+      where: where as Prisma.FileWhereInput 
+    });
     
     res.json({
       success: true,
@@ -250,12 +288,16 @@ export async function getFileCount(req: Request, res: Response) {
       }
     });
     
-  } catch (error) {
-    console.error('Error in getFileCount:', error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    logger.error('Error in getFileCount', {
+      operation: 'getFileCount',
+      error: { message: err.message, stack: err.stack }
+    });
     res.status(500).json({ 
       success: false, 
       message: 'Failed to get file count',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: err.message || 'Unknown error'
     });
   }
 }

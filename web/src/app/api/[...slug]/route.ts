@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
+// Force dynamic rendering to ensure route is always handled
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+// Ensure all HTTP methods are handled
+export const dynamicParams = true;
+
 const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
 
 async function handler(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const url = `${backendUrl}${pathname}${search}`;
   
+  // Always log requests, especially for debugging
   console.log('API Proxy - Request:', {
     method: req.method,
     pathname,
@@ -14,6 +22,29 @@ async function handler(req: NextRequest) {
     backendUrl,
     fullUrl: url
   });
+
+  // Special logging for file download requests
+  if (req.method === 'GET' && pathname.includes('/drive/files/') && (pathname.includes('/download') || pathname.match(/\/drive\/files\/[^/]+$/))) {
+    console.log('📥 [API PROXY] File download request detected:', {
+      method: req.method,
+      pathname,
+      fullUrl: url,
+      backendUrl,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Special logging for scheduling availability routes
+  if (req.method === 'POST' && pathname.includes('/scheduling/me/availability')) {
+    console.log('🚨 [API PROXY] POST /scheduling/me/availability detected at handler entry', {
+      method: req.method,
+      pathname,
+      search,
+      url,
+      backendUrl,
+      timestamp: new Date().toISOString()
+    });
+  }
   
 
 
@@ -56,31 +87,120 @@ async function handler(req: NextRequest) {
   }
 
   try {
-    // Build fetch options
-    let fetchOptions: RequestInit & { duplex?: string } = {
-      method: req.method,
-      headers: headers,
-      redirect: 'manual'
-    };
-
-    // Handle request body for non-GET/HEAD requests
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      const contentType = req.headers.get('content-type');
+    // Handle request body for non-GET/HEAD/DELETE requests BEFORE building fetch options
+    // DELETE requests should never have a body
+    let requestBody: BodyInit | undefined;
+    let contentType: string | null = null;
+    
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE') {
+      contentType = req.headers.get('content-type');
       
       if (contentType?.includes('multipart/form-data')) {
         // For file uploads with multipart/form-data:
         // We need to pass the stream directly and preserve the boundary
         // Don't modify the content-type header - it contains the boundary parameter
-        fetchOptions.body = req.body;
-        fetchOptions.duplex = 'half';
-      } else {
-        // For other POST/PUT/PATCH requests (JSON, form-urlencoded, etc.)
-        fetchOptions.body = req.body;
+        requestBody = req.body as BodyInit;
+      } else if (contentType?.includes('application/json') || contentType?.includes('application/x-www-form-urlencoded')) {
+        // For JSON and form-urlencoded, read the body as text and pass it
+        const bodyText = await req.text();
+        // Only set body if it's not empty
+        if (bodyText && bodyText.trim().length > 0) {
+          requestBody = bodyText;
+          // Ensure Content-Type is preserved
+          if (contentType) {
+            headers.set('content-type', contentType);
+          }
+          // Remove any existing content-length header - let fetch set it automatically
+          headers.delete('content-length');
+          console.log('API Proxy - Body:', { 
+            pathname, 
+            bodyLength: bodyText.length, 
+            bodyPreview: bodyText.substring(0, 200),
+            contentType,
+            hasBody: !!bodyText
+          });
+        }
+      } else if (req.body) {
+        // For other body types, try to pass the stream directly
+        requestBody = req.body as BodyInit;
+      }
+    }
+
+    // Build fetch options with all headers and body
+    // Use Headers object directly - fetch should handle it correctly in Node.js environment
+    const headersForFetch: HeadersInit = headers;
+
+    const fetchOptions: RequestInit & { duplex?: string } = {
+      method: req.method,
+      headers: headersForFetch,
+      redirect: 'manual'
+    };
+
+    // Set body if we have one
+    if (requestBody) {
+      fetchOptions.body = requestBody;
+      // Node.js 18+ requires duplex option for all POST requests with a body
+      // Set it for multipart/form-data (file uploads) and any other body types
+      if (contentType?.includes('multipart/form-data') || req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
         fetchOptions.duplex = 'half';
       }
     }
 
-    const response = await fetch(url, fetchOptions);
+    // Debug logging for POST requests that are failing
+    if (req.method === 'POST' && pathname.includes('/scheduling/me/availability')) {
+      const debugHeaders = headersForFetch instanceof Headers 
+        ? Object.fromEntries(headersForFetch.entries())
+        : headersForFetch;
+      console.log('API Proxy - DEBUG POST Request:', {
+        url,
+        method: fetchOptions.method,
+        headers: debugHeaders,
+        bodyType: typeof requestBody,
+        bodyLength: requestBody ? (typeof requestBody === 'string' ? requestBody.length : 'stream') : 0,
+        hasBody: !!requestBody,
+        contentType: headers.get('content-type'),
+        authorization: headers.get('authorization') ? 'present' : 'missing'
+      });
+    }
+
+    // Log 404 requests to help debug routing issues
+    if (req.method === 'POST' && pathname.includes('/scheduling/me/availability')) {
+      console.log('🚨 [API PROXY] About to fetch:', {
+        url,
+        method: fetchOptions.method,
+        headers: Object.fromEntries(headers.entries()),
+        bodyLength: requestBody ? (typeof requestBody === 'string' ? requestBody.length : 'stream') : 0,
+        hasBody: !!requestBody,
+        backendUrl
+      });
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(url, fetchOptions);
+    } catch (fetchError) {
+      console.error('🚨 [API PROXY] Fetch failed:', {
+        error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+        url,
+        backendUrl,
+        pathname
+      });
+      throw fetchError;
+    }
+
+    // Log 404 responses to help debug
+    if (response.status === 404) {
+      const responseText = await response.clone().text().catch(() => 'Unable to read response');
+      console.error('🚨 [API PROXY] 404 Response from backend:', {
+        url,
+        pathname,
+        status: response.status,
+        responseText: responseText.substring(0, 200),
+        backendUrl,
+        hasAuth: !!authToken,
+        isDownloadRequest: pathname.includes('/drive/files/') && (pathname.includes('/download') || pathname.match(/\/drive\/files\/[^/]+$/))
+      });
+    }
 
     console.log('API Proxy - Response:', {
       status: response.status,
@@ -112,7 +232,9 @@ async function handler(req: NextRequest) {
     }
 
     // For file downloads, we need to preserve the content properly
-    if (pathname.includes('/drive/files/') && req.method === 'GET') {
+    // Handle both /download and direct file access
+    if (pathname.includes('/drive/files/') && req.method === 'GET' && 
+        (pathname.includes('/download') || pathname.match(/\/drive\/files\/[^/]+$/))) {
       const buffer = await response.arrayBuffer();
       return new NextResponse(buffer, {
         status: response.status,

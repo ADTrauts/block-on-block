@@ -41,6 +41,9 @@ export interface Business {
   description?: string;
   branding?: BusinessBranding;
   ssoConfig?: SSOConfiguration;
+  schedulingMode?: 'RESTAURANT' | 'HEALTHCARE' | 'RETAIL' | 'MANUFACTURING' | 'OFFICE' | 'COFFEE_SHOP' | 'OTHER';
+  schedulingStrategy?: 'AVAILABILITY_FIRST' | 'BUDGET_FIRST' | 'COMPLIANCE_FIRST' | 'TEMPLATE_BASED' | 'AUTO_GENERATE';
+  schedulingConfig?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
   ownerId: string;
@@ -212,6 +215,9 @@ export const updateBusiness = async (
     description?: string;
     branding?: BusinessBranding;
     ssoConfig?: SSOConfiguration;
+    schedulingMode?: 'RESTAURANT' | 'HEALTHCARE' | 'RETAIL' | 'MANUFACTURING' | 'OFFICE' | 'COFFEE_SHOP' | 'OTHER';
+    schedulingStrategy?: 'AVAILABILITY_FIRST' | 'BUDGET_FIRST' | 'COMPLIANCE_FIRST' | 'TEMPLATE_BASED' | 'AUTO_GENERATE';
+    schedulingConfig?: Record<string, unknown>;
   },
   token: string
 ): Promise<{ success: boolean; data: Business }> => {

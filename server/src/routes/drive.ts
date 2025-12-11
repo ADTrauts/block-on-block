@@ -14,7 +14,7 @@ const driveRouter: Router = Router();
 driveRouter.use('/files', fileRouter);
 driveRouter.use('/folders', folderRouter);
 driveRouter.get('/items/:itemId/activity', getItemActivity);
-driveRouter.get('/shared', getSharedItems);
+driveRouter.get('/shared', authenticateJWT, getSharedItems);
 
 // AI Context Provider Endpoints
 driveRouter.get('/ai/context/recent', authenticateJWT, getRecentFilesContext);

@@ -184,7 +184,8 @@ function buildSchema() {
     'drive',
     'admin',
     'support',
-    'hr'
+    'hr',
+    'scheduling'
   ];
   
   for (const moduleName of moduleOrder) {

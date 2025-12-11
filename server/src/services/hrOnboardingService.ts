@@ -1,3 +1,4 @@
+import path from 'path';
 import {
   OnboardingJourneyStatus,
   OnboardingTaskOwnerType,
@@ -7,6 +8,9 @@ import {
 } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { ensureBusinessDashboardForUser } from './dashboardService';
+import { ensureEmployeeDocumentsFolder } from './driveService';
+import { storageService } from './storageService';
 
 type JsonInput = Prisma.InputJsonValue | null | undefined;
 
@@ -58,12 +62,54 @@ export interface CompleteOnboardingTaskInput {
   approvedByUserId?: string | null;
 }
 
+interface OnboardingDocumentChecklistItemConfig {
+  id: string;
+  title: string;
+  description?: string | null;
+  required: boolean;
+  driveFileId?: string;
+  driveFileName?: string;
+  driveFileType?: string;
+  driveFileUrl?: string;
+}
+
+interface OnboardingModuleSettingsConfig {
+  documentChecklist?: OnboardingDocumentChecklistItemConfig[];
+}
+
 const jsonOrNull = (value: JsonInput): Prisma.InputJsonValue => {
   if (value === undefined || value === null) {
     return Prisma.JsonNull as unknown as Prisma.InputJsonValue;
   }
   return value;
 };
+
+const sanitizeFileName = (name: string): string => {
+  const trimmed = name.trim();
+  const sanitized = trimmed.replace(/[<>:"/\\|?*\u0000-\u001F]+/g, '-');
+  return sanitized.length > 0 ? sanitized : 'Document';
+};
+
+async function getOnboardingModuleSettings(
+  businessId: string
+): Promise<OnboardingModuleSettingsConfig | null> {
+  const installation = await prisma.businessModuleInstallation.findUnique({
+    where: { moduleId_businessId: { moduleId: 'hr', businessId } },
+    select: { configured: true }
+  });
+
+  if (!installation?.configured) {
+    return null;
+  }
+
+  const configured = installation.configured as {
+    settings?: {
+      onboarding?: OnboardingModuleSettingsConfig;
+    };
+  } | null;
+
+  return configured?.settings?.onboarding ?? null;
+}
 
 export async function findEmployeeHrProfileByUser(
   businessId: string,
@@ -503,6 +549,110 @@ export async function getJourneySummary(businessId: string, journeyId: string) {
       }
     }
   });
+}
+
+export async function deliverOnboardingDocuments(params: {
+  businessId: string;
+  employeeUserId: string;
+  initiatedByUserId?: string | null;
+}) {
+  const { businessId, employeeUserId, initiatedByUserId } = params;
+
+  const settings = await getOnboardingModuleSettings(businessId);
+  const checklist = settings?.documentChecklist?.filter(
+    (item): item is OnboardingDocumentChecklistItemConfig & { driveFileId: string } =>
+      Boolean(item.driveFileId)
+  );
+
+  if (!checklist || checklist.length === 0) {
+    await logger.info('No onboarding documents configured for delivery', {
+      operation: 'onboarding_deliver_documents_skip',
+      businessId,
+      employeeUserId
+    });
+    return [];
+  }
+
+  const dashboard = await ensureBusinessDashboardForUser(employeeUserId, businessId);
+  if (!dashboard) {
+    console.error('Failed to create or retrieve dashboard for employee:', employeeUserId);
+    return [];
+  }
+  const folder = await ensureEmployeeDocumentsFolder(employeeUserId, dashboard.id);
+
+  const delivered: Array<{ checklistId: string; fileId: string }> = [];
+
+  for (const item of checklist) {
+    try {
+      const sourceFile = await prisma.file.findUnique({
+        where: { id: item.driveFileId }
+      });
+
+      if (!sourceFile || !sourceFile.path) {
+        await logger.warn('Source onboarding document not found or missing path', {
+          operation: 'onboarding_deliver_document_missing_source',
+          businessId,
+          employeeUserId,
+          sourceFileId: item.driveFileId
+        });
+        continue;
+      }
+
+      const originalName = sourceFile.name || item.driveFileName || item.title || 'Document';
+      const extension = path.extname(originalName);
+      const baseName =
+        item.driveFileName?.replace(extension, '') ||
+        item.title?.replace(extension, '') ||
+        originalName.replace(extension, '');
+      const safeBaseName = sanitizeFileName(baseName);
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const storageFileName = `${safeBaseName.toLowerCase().replace(/\s+/g, '-')}-${uniqueSuffix}${extension}`;
+      const destinationPath = `files/hr-onboarding/${employeeUserId}/${storageFileName}`;
+
+      const copyResult = await storageService.copyFile(sourceFile.path, destinationPath);
+
+      const finalDisplayName = extension
+        ? `${sanitizeFileName(item.driveFileName ?? item.title ?? baseName)}${extension}`
+        : sanitizeFileName(item.driveFileName ?? item.title ?? baseName);
+
+      const clonedFile = await prisma.file.create({
+        data: {
+          userId: employeeUserId,
+          name: finalDisplayName,
+          type: item.driveFileType ?? sourceFile.type,
+          size: sourceFile.size,
+          url: copyResult.url,
+          path: copyResult.path,
+          folderId: folder.id,
+          dashboardId: dashboard.id
+        }
+      });
+
+      delivered.push({ checklistId: item.id, fileId: clonedFile.id });
+
+      await logger.info('Delivered onboarding document to employee', {
+        operation: 'onboarding_deliver_document_success',
+        businessId,
+        employeeUserId,
+        checklistId: item.id,
+        clonedFileId: clonedFile.id,
+        initiatedByUserId: initiatedByUserId ?? null
+      });
+    } catch (error) {
+      await logger.error('Failed to deliver onboarding document', {
+        operation: 'onboarding_deliver_document_error',
+        businessId,
+        employeeUserId,
+        checklistId: item.id,
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        }
+      });
+    }
+  }
+
+  return delivered;
 }
 
 

@@ -276,6 +276,123 @@ const BUILT_IN_MODULES: Array<{ moduleId: string; moduleName: string; aiContext:
       ],
     },
   },
+  {
+    moduleId: 'scheduling',
+    moduleName: 'Employee Scheduling',
+    aiContext: {
+      purpose: 'Employee shift scheduling and workforce planning for businesses',
+      category: 'BUSINESS',
+      keywords: [
+        'schedule', 'shift', 'roster', 'staffing', 'coverage', 'rotation',
+        'work schedule', 'shift schedule', 'employee schedule', 'team schedule',
+        'swap shift', 'trade shift', 'open shift', 'availability',
+        'on shift', 'off shift', 'scheduled', 'rostered'
+      ],
+      patterns: [
+        'scheduling? (system|module|dashboard)',
+        'who (is|works) (scheduled|on shift) (today|tomorrow|this week)',
+        'my schedule',
+        'create (a )?schedule',
+        'publish schedule',
+        'shift (swap|trade|coverage)',
+        'open shifts?',
+        'set (my )?availability',
+        'schedule conflict',
+        'coverage report'
+      ],
+      concepts: [
+        'shift planning',
+        'workforce scheduling',
+        'labor management',
+        'shift optimization',
+        'coverage planning'
+      ],
+      entities: [
+        { 
+          name: 'Schedule', 
+          pluralName: 'Schedules', 
+          description: 'A work schedule containing employee shifts' 
+        },
+        { 
+          name: 'Shift', 
+          pluralName: 'Shifts', 
+          description: 'A scheduled work shift for an employee' 
+        },
+        { 
+          name: 'ShiftSwap', 
+          pluralName: 'ShiftSwaps', 
+          description: 'A request to swap shifts between employees' 
+        },
+      ],
+      actions: [
+        { 
+          name: 'view_schedules', 
+          description: 'View work schedules', 
+          permissions: ['scheduling:admin'] 
+        },
+        { 
+          name: 'create_schedule', 
+          description: 'Create a new work schedule', 
+          permissions: ['scheduling:schedules:write'] 
+        },
+        { 
+          name: 'publish_schedule', 
+          description: 'Publish a schedule to employees', 
+          permissions: ['scheduling:schedules:publish'] 
+        },
+        { 
+          name: 'assign_shift', 
+          description: 'Assign an employee to a shift', 
+          permissions: ['scheduling:schedules:write'] 
+        },
+        { 
+          name: 'swap_shift', 
+          description: 'Request or approve shift swaps', 
+          permissions: ['scheduling:swaps:request'] 
+        },
+        { 
+          name: 'set_availability', 
+          description: 'Set employee availability preferences', 
+          permissions: ['scheduling:availability:manage'] 
+        },
+        { 
+          name: 'claim_open_shift', 
+          description: 'Claim an available open shift', 
+          permissions: ['scheduling:shifts:claim'] 
+        },
+        { 
+          name: 'generate_schedule', 
+          description: 'AI-powered automatic schedule generation using philosophy engine', 
+          permissions: ['scheduling:schedules:write']
+        },
+        { 
+          name: 'suggest_assignments', 
+          description: 'Get AI suggestions for shift assignments based on availability and strategy', 
+          permissions: ['scheduling:schedules:write']
+        },
+      ],
+      contextProviders: [
+        {
+          name: 'scheduling_overview',
+          description: 'Get scheduling system overview and statistics',
+          endpoint: '/api/scheduling/ai/context/overview',
+          cacheDuration: 300000, // 5 minutes
+        },
+        {
+          name: 'coverage_status',
+          description: 'Get current and upcoming coverage status',
+          endpoint: '/api/scheduling/ai/context/coverage',
+          cacheDuration: 600000, // 10 minutes
+        },
+        {
+          name: 'scheduling_conflicts',
+          description: 'Get scheduling conflicts and gaps',
+          endpoint: '/api/scheduling/ai/context/conflicts',
+          cacheDuration: 300000, // 5 minutes
+        },
+      ],
+    },
+  },
 ];
 
 // ============================================================================

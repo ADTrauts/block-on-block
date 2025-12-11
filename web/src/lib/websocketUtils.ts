@@ -14,6 +14,7 @@ export interface WebSocketConfig {
     reconnectionDelay: number;
     timeout: number;
     forceNew?: boolean;
+    path?: string;
   };
 }
 
@@ -33,18 +34,37 @@ export interface WebSocketManager {
  * Future-proof pattern that works across all environments
  */
 export const getWebSocketConfig = (): WebSocketConfig => {
-  // Hierarchical environment variable resolution
-  const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 
-                  process.env.NEXT_PUBLIC_API_BASE_URL || 
-                  process.env.NEXT_PUBLIC_API_URL || 
-                  'https://vssyl-server-235369681725.us-central1.run.app';
-  
-  // Convert HTTP/HTTPS to WS/WSS
-  const wsUrl = baseUrl
-    .replace('https://', 'wss://')
-    .replace('http://', 'ws://')
-    .replace('/api', ''); // Remove /api suffix for WebSocket connections
-  
+  const rawBaseUrl = process.env.NEXT_PUBLIC_WS_URL ||
+                     process.env.NEXT_PUBLIC_API_BASE_URL ||
+                     process.env.NEXT_PUBLIC_API_URL ||
+                     'https://vssyl-server-235369681725.us-central1.run.app';
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawBaseUrl);
+  } catch {
+    parsedUrl = new URL('https://vssyl-server-235369681725.us-central1.run.app');
+  }
+
+  // Determine proper WS/WSS protocol
+  let wsProtocol: 'ws:' | 'wss:' = 'wss:';
+  if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'ws:') {
+    wsProtocol = 'ws:';
+  } else if (parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'wss:') {
+    wsProtocol = 'wss:';
+  }
+
+  const wsUrl = `${wsProtocol}//${parsedUrl.host}`;
+
+  // Sanitize path to avoid treating it as a namespace
+  let socketPath = (parsedUrl.pathname || '').replace(/\/+$/, '');
+  if (!socketPath || socketPath === '/' || socketPath === '/api') {
+    socketPath = '/socket.io';
+  }
+  if (!socketPath.startsWith('/')) {
+    socketPath = `/${socketPath}`;
+  }
+
   return {
     url: wsUrl,
     options: {
@@ -53,7 +73,8 @@ export const getWebSocketConfig = (): WebSocketConfig => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 20000,
-      forceNew: true
+      forceNew: true,
+      path: socketPath
     }
   };
 };

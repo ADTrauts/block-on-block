@@ -93,6 +93,7 @@ import moduleAIContextRouter from './routes/moduleAIContext';
 import businessFrontPageRouter from './routes/businessFrontPage';
 import { adminLogsRouter } from './routes/admin-logs';
 import hrRouter from './routes/hr';
+import schedulingRouter from './routes/scheduling';
 import debugModulesRouter from './routes/debug-modules';
 import debugDatabaseRouter from './routes/debug-database';
 import debugBusinessTierRouter from './routes/debug-business-tier';
@@ -130,8 +131,58 @@ export function asyncHandler(fn: (...args: any[]) => Promise<any>): RequestHandl
 
 console.log('Starting server...');
 
+// CATCH-ALL logger - logs EVERY request before anything else
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'POST' && req.originalUrl.includes('/api/scheduling/me/availability')) {
+    console.log('🔥 [EXPRESS ENTRY] POST request reached Express:', {
+      method: req.method,
+      originalUrl: req.originalUrl,
+      path: req.path,
+      url: req.url,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'content-length': req.headers['content-length'],
+        'authorization': req.headers.authorization ? 'present' : 'missing'
+      }
+    });
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(passport.initialize() as express.RequestHandler);
+
+// Global request logger for debugging POST requests to scheduling
+// This MUST be after body parser but before routes
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Log ALL POST requests to /api/scheduling to help debug
+  if (req.method === 'POST' && req.originalUrl.includes('/api/scheduling')) {
+    console.log('🌐 [GLOBAL] POST request to /api/scheduling received:', {
+      method: req.method,
+      originalUrl: req.originalUrl,
+      path: req.path,
+      url: req.url,
+      baseUrl: req.baseUrl,
+      query: req.query,
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
+      bodyPreview: req.body ? JSON.stringify(req.body).substring(0, 200) : null,
+      contentType: req.headers['content-type'],
+      authorization: req.headers.authorization ? 'present' : 'missing',
+      contentLength: req.headers['content-length']
+    });
+  }
+  // Also log ALL requests that match /api/scheduling/me/availability regardless of method
+  if (req.originalUrl.includes('/api/scheduling/me/availability')) {
+    console.log('🚨 [GLOBAL] Request to /api/scheduling/me/availability:', {
+      method: req.method,
+      originalUrl: req.originalUrl,
+      path: req.path,
+      url: req.url
+    });
+  }
+  next();
+});
 const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'https://vssyl.com',
@@ -561,6 +612,54 @@ app.use('/api/admin/seed', authenticateJWT, adminSeedModulesRouter);
 app.use('/api', moduleAIContextRouter);
 app.use('/api/admin/logs', authenticateJWT, adminLogsRouter);
 app.use('/api/hr', hrRouter); // HR module routes (includes own auth checks)
+app.use('/api/scheduling', (req, res, next) => {
+  // Log ALL requests to scheduling routes for debugging
+  console.log('🔍 [INDEX] Request to /api/scheduling - Mount point reached', {
+    method: req.method,
+    path: req.path,
+    originalUrl: req.originalUrl,
+    url: req.url,
+    baseUrl: req.baseUrl,
+    query: req.query,
+    hasBody: !!req.body,
+    contentType: req.headers['content-type'],
+    authorization: req.headers.authorization ? 'present' : 'missing',
+    bodyKeys: req.body ? Object.keys(req.body) : []
+  });
+  next();
+}, schedulingRouter); // Scheduling module routes (includes own auth checks)
+
+// Log registered scheduling routes on startup
+if (process.env.NODE_ENV === 'development') {
+  console.log('✅ Scheduling router mounted at /api/scheduling');
+  
+  // Detailed route inspection
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const postAvailabilityRoute = schedulingRouter.stack.find((layer: any) => 
+    layer.route?.methods?.post && layer.route?.path === '/me/availability'
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getAvailabilityRoute = schedulingRouter.stack.find((layer: any) => 
+    layer.route?.methods?.get && layer.route?.path === '/me/availability'
+  );
+  
+  console.log('✅ Available routes:', {
+    postAvailability: !!postAvailabilityRoute,
+    postAvailabilityDetails: postAvailabilityRoute ? {
+      path: (postAvailabilityRoute.route as any)?.path,
+      methods: (postAvailabilityRoute.route as any)?.methods,
+      stackLength: (postAvailabilityRoute.route as any)?.stack?.length
+    } : null,
+    getAvailability: !!getAvailabilityRoute,
+    totalRoutes: schedulingRouter.stack?.length || 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    allRoutes: schedulingRouter.stack.map((layer: any) => ({
+      path: layer.route?.path,
+      methods: (layer.route as any)?.methods,
+      regex: layer.regexp?.toString()
+    })).filter((r: any) => r.path)
+  });
+}
 app.use('/api/debug', debugModulesRouter); // Debug endpoints (no auth for troubleshooting)
 app.use('/api/debug/database', debugDatabaseRouter); // Database debug endpoints
 app.use('/api/debug/business-tier', debugBusinessTierRouter); // Business tier debug
@@ -575,6 +674,21 @@ startCleanupJob();
 
 // Generic catch-all for unhandled routes
 app.use((req: Request, res: Response) => {
+  // Enhanced logging for scheduling availability routes
+  if (req.originalUrl.includes('/scheduling/me/availability') || req.path.includes('/me/availability')) {
+    console.log(`🚨 [404 HANDLER] Unhandled scheduling availability route: ${req.method} ${req.originalUrl}`, {
+      method: req.method,
+      path: req.path,
+      originalUrl: req.originalUrl,
+      baseUrl: req.baseUrl,
+      url: req.url,
+      route: req.route?.path,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'authorization': req.headers.authorization ? 'present' : 'missing'
+      }
+    });
+  }
   console.log(`[DEBUG] Unhandled route: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ message: 'Not Found' });
 });

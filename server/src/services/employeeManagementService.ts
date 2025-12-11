@@ -158,8 +158,10 @@ export class EmployeeManagementService {
 
   /**
    * Get all employees for a business
+   * Includes both users with EmployeePosition records AND business members without positions
    */
   async getBusinessEmployees(businessId: string): Promise<EmployeePositionData[]> {
+    // Get all users with active employee positions
     const employeePositions = await prisma.employeePosition.findMany({
       where: { businessId, active: true },
       include: {
@@ -184,7 +186,25 @@ export class EmployeeManagementService {
       ],
     });
 
-    return employeePositions.map(ep => ({
+    // Get all business members (including those without employee positions)
+    const businessMembers = await prisma.businessMember.findMany({
+      where: { businessId, isActive: true },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    // Create a map of users who already have employee positions
+    const usersWithPositions = new Set(employeePositions.map(ep => ep.userId));
+
+    // Convert employee positions to the return format
+    const employeesWithPositions = employeePositions.map(ep => ({
       id: ep.id,
       userId: ep.userId,
       positionId: ep.positionId,
@@ -199,6 +219,35 @@ export class EmployeeManagementService {
       position: ep.position,
       user: ep.user,
     })) as any;
+
+    // Add business members who don't have employee positions yet
+    // These will appear in the list so they can be scheduled even without a formal position
+    const membersWithoutPositions = businessMembers
+      .filter(member => !usersWithPositions.has(member.userId))
+      .map(member => ({
+        id: `member-${member.userId}`, // Temporary ID for members without positions
+        userId: member.userId,
+        positionId: null,
+        businessId: member.businessId,
+        assignedAt: member.joinedAt,
+        assignedBy: null,
+        startDate: member.joinedAt,
+        endDate: undefined,
+        active: true,
+        customPermissions: null,
+        position: null, // No position assigned yet
+        user: member.user,
+      })) as any;
+
+    // Combine and sort by user name
+    const allEmployees = [...employeesWithPositions, ...membersWithoutPositions];
+    allEmployees.sort((a, b) => {
+      const nameA = a.user?.name || '';
+      const nameB = b.user?.name || '';
+      return nameA.localeCompare(nameB);
+    });
+
+    return allEmployees;
   }
 
   /**

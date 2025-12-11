@@ -260,8 +260,16 @@ export default function EnhancedCalendarModule({ businessId, dashboardId, classN
     });
   };
 
-  const formatTime = (timeString: string) => {
-    return new Date(timeString).toLocaleTimeString('en-US', {
+  const formatTime = (timeString: string, timezone?: string) => {
+    const date = new Date(timeString);
+    if (timezone) {
+      return new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: timezone
+      }).format(date);
+    }
+    return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -646,7 +654,7 @@ export default function EnhancedCalendarModule({ businessId, dashboardId, classN
                               
                               {!event.allDay && (
                                 <span className="text-[10px] font-bold opacity-75">
-                                  {formatTime(event.occurrenceStartAt || event.startAt)}
+                                  {formatTime(event.occurrenceStartAt || event.startAt, event.timezone)}
                                 </span>
                               )}
                               <span className="truncate font-semibold">{event.title}</span>
@@ -822,7 +830,7 @@ export default function EnhancedCalendarModule({ businessId, dashboardId, classN
                     <p className="text-sm text-slate-800 font-medium">All day event</p>
                   ) : (
                     <p className="text-sm text-slate-800 font-medium">
-                      {formatTime(selectedEvent.occurrenceStartAt || selectedEvent.startAt)} - {formatTime(selectedEvent.occurrenceEndAt || selectedEvent.endAt)}
+                      {formatTime(selectedEvent.occurrenceStartAt || selectedEvent.startAt, selectedEvent.timezone)} - {formatTime(selectedEvent.occurrenceEndAt || selectedEvent.endAt, selectedEvent.timezone)}
                     </p>
                   )}
                 </div>
@@ -902,7 +910,11 @@ export default function EnhancedCalendarModule({ businessId, dashboardId, classN
                             attendee.response === 'TENTATIVE' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-gray-100 text-gray-700'
                           }`}>
-                            {attendee.response}
+                            {attendee.response === 'NEEDS_ACTION' ? 'Pending Response' :
+                             attendee.response === 'ACCEPTED' ? 'Accepted' :
+                             attendee.response === 'DECLINED' ? 'Declined' :
+                             attendee.response === 'TENTATIVE' ? 'Tentative' :
+                             attendee.response}
                           </span>
                         )}
                       </div>

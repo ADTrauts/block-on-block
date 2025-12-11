@@ -101,6 +101,18 @@ export default function GlobalTrashBin({ className = '', onItemTrashed }: Global
       const trashItemData = e.dataTransfer.getData('application/json');
       if (trashItemData) {
         const itemData = JSON.parse(trashItemData);
+        
+        // Check if this is a schedule (schedules don't use trash API, they're hard-deleted)
+        if (itemData.type === 'module' && itemData.moduleId === 'scheduling' && itemData.metadata?.scheduleId) {
+          // Dispatch event for schedule trashing (handled by scheduling component)
+          window.dispatchEvent(new CustomEvent('scheduleTrashed', { 
+            detail: { ...itemData, scheduleId: itemData.metadata.scheduleId }
+          }));
+          toast.success(`${itemData.name} will be deleted`);
+          return;
+        }
+        
+        // For other item types, use the trash API
         await trashItem(itemData);
         toast.success(`${itemData.name} moved to trash`);
         
@@ -109,7 +121,7 @@ export default function GlobalTrashBin({ className = '', onItemTrashed }: Global
           onItemTrashed(itemData);
         }
         
-        // Dispatch a custom event for message trashing
+        // Dispatch custom events for specific item types
         if (itemData.type === 'message') {
           window.dispatchEvent(new CustomEvent('messageTrashed', { 
             detail: { messageId: itemData.id, conversationId: itemData.metadata?.conversationId }

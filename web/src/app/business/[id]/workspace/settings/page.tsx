@@ -24,9 +24,11 @@ import {
   AlertCircle,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Calendar
 } from 'lucide-react';
 import { useBusinessBranding } from '../../../../../components/BusinessBranding';
+import SchedulingConfiguration from '../../../../../components/business/SchedulingConfiguration';
 
 interface Business {
   id: string;
@@ -48,6 +50,9 @@ interface Business {
     fontFamily?: string;
     customCSS?: string;
   };
+  schedulingMode?: string;
+  schedulingStrategy?: string;
+  schedulingConfig?: any;
   ssoConfig?: any;
   members?: Array<{
     userId: string;
@@ -88,7 +93,7 @@ export default function BusinessSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'profile' | 'branding' | 'security' | 'billing' | 'notifications'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'branding' | 'security' | 'billing' | 'notifications' | 'scheduling'>('profile');
   const [showLogoUpload, setShowLogoUpload] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -362,6 +367,7 @@ export default function BusinessSettingsPage() {
   const tabs = [
     { id: 'profile', name: 'Profile', icon: Building2 },
     { id: 'branding', name: 'Branding', icon: Palette },
+    { id: 'scheduling', name: 'Scheduling', icon: Calendar },
     { id: 'security', name: 'Security', icon: Shield },
     { id: 'billing', name: 'Billing', icon: CreditCard },
     { id: 'notifications', name: 'Notifications', icon: Bell },
@@ -1023,6 +1029,24 @@ export default function BusinessSettingsPage() {
               </div>
             )}
           </Card>
+        )}
+
+        {/* Scheduling Settings */}
+        {activeTab === 'scheduling' && session?.accessToken && (
+          <SchedulingConfiguration
+            businessId={businessId}
+            businessIndustry={business?.industry}
+            currentMode={business?.schedulingMode as string | undefined}
+            currentStrategy={business?.schedulingStrategy as string | undefined}
+            token={session.accessToken}
+            canManage={canManage}
+            onSave={() => {
+              showSuccessMessage('Scheduling configuration updated successfully!');
+              if (businessId && session?.accessToken) {
+                loadBusinessData(session.accessToken);
+              }
+            }}
+          />
         )}
         </div>
       </div>

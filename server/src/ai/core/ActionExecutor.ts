@@ -185,7 +185,8 @@ export class ActionExecutor {
       dashboard: this.executeDashboardAction.bind(this),
       calendar: this.executeCalendarAction.bind(this),
       tasks: this.executeTasksAction.bind(this),
-      notifications: this.executeNotificationsAction.bind(this)
+      notifications: this.executeNotificationsAction.bind(this),
+      scheduling: this.executeSchedulingAction.bind(this)
     };
 
     const executor = moduleExecutors[action.module as keyof typeof moduleExecutors];
@@ -722,5 +723,165 @@ export class ActionExecutor {
   private async scheduleReminder(parameters: Record<string, unknown>, userContext: UserContext): Promise<unknown> {
     // TODO: Implement reminder scheduling
     return { scheduled: true, reminderId: `reminder_${Date.now()}` };
+  }
+
+  /**
+   * Scheduling module action executor
+   */
+  private async executeSchedulingAction(action: AIAction, userContext: UserContext): Promise<ActionExecutionResult> {
+    try {
+      const { operation, parameters } = action;
+
+      switch (operation) {
+        case 'generate_schedule': {
+          // Call the AI schedule generation endpoint internally
+          const { businessId, scheduleId, strategy, constraints } = parameters || {};
+          
+          if (!businessId || !scheduleId) {
+            return {
+              actionId: action.id,
+              success: false,
+              error: 'businessId and scheduleId are required',
+              metadata: {
+                executionTime: 0,
+                module: 'scheduling',
+                operation: 'generate_schedule',
+                affectedUsers: [],
+                rollbackAvailable: false
+              }
+            };
+          }
+
+          // Import scheduling controller functions directly (internal call)
+          const { generateAISchedule } = await import('../../controllers/schedulingController');
+          // Create a mock request/response for internal execution
+          // In a real scenario, you'd call the service directly, not through HTTP
+          const mockReq = {
+            user: { id: userContext.userId },
+            body: { businessId, scheduleId, strategy, constraints }
+          } as any;
+          
+          let result: any = {};
+          const mockRes = {
+            json: (data: any) => { result = data; },
+            status: (code: number) => ({ json: (data: any) => { result = { ...data, statusCode: code }; } })
+          } as any;
+
+          await generateAISchedule(mockReq, mockRes);
+
+          return {
+            actionId: action.id,
+            success: result.success || false,
+            result: result,
+            metadata: {
+              executionTime: 0,
+              module: 'scheduling',
+              operation: 'generate_schedule',
+              affectedUsers: result.affectedUsers || [],
+              rollbackAvailable: false
+            }
+          };
+        }
+
+        case 'suggest_assignments': {
+          const { businessId, scheduleId, shiftId } = parameters || {};
+          
+          if (!businessId || !shiftId) {
+            return {
+              actionId: action.id,
+              success: false,
+              error: 'businessId and shiftId are required',
+              metadata: {
+                executionTime: 0,
+                module: 'scheduling',
+                operation: 'suggest_assignments',
+                affectedUsers: [],
+                rollbackAvailable: false
+              }
+            };
+          }
+
+          // Import scheduling controller function directly
+          const { suggestShiftAssignments } = await import('../../controllers/schedulingController');
+          
+          const mockReq = {
+            user: { id: userContext.userId },
+            body: { businessId, scheduleId, shiftId }
+          } as any;
+          
+          let result: any = {};
+          const mockRes = {
+            json: (data: any) => { result = data; },
+            status: (code: number) => ({ json: (data: any) => { result = { ...data, statusCode: code }; } })
+          } as any;
+
+          await suggestShiftAssignments(mockReq, mockRes);
+
+          return {
+            actionId: action.id,
+            success: result.success || false,
+            result: result,
+            metadata: {
+              executionTime: 0,
+              module: 'scheduling',
+              operation: 'suggest_assignments',
+              affectedUsers: [],
+              rollbackAvailable: false
+            }
+          };
+        }
+
+        case 'view_schedules':
+        case 'create_schedule':
+        case 'publish_schedule':
+        case 'assign_shift':
+        case 'swap_shift':
+        case 'set_availability':
+        case 'claim_open_shift': {
+          // These actions would be implemented similar to the above
+          // For now, return a placeholder
+          return {
+            actionId: action.id,
+            success: false,
+            error: `Action ${operation} is not yet implemented in AI executor`,
+            metadata: {
+              executionTime: 0,
+              module: 'scheduling',
+              operation,
+              affectedUsers: [],
+              rollbackAvailable: false
+            }
+          };
+        }
+
+        default:
+          return {
+            actionId: action.id,
+            success: false,
+            error: `Unknown scheduling action: ${operation}`,
+            metadata: {
+              executionTime: 0,
+              module: 'scheduling',
+              operation,
+              affectedUsers: [],
+              rollbackAvailable: false
+            }
+          };
+      }
+    } catch (error) {
+      const err = error as Error;
+      return {
+        actionId: action.id,
+        success: false,
+        error: err.message,
+        metadata: {
+          executionTime: 0,
+          module: 'scheduling',
+          operation: action.operation,
+          affectedUsers: [],
+          rollbackAvailable: false
+        }
+      };
+    }
   }
 }

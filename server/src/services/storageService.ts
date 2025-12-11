@@ -161,6 +161,69 @@ export class StorageService {
     }
   }
 
+  async copyFile(sourcePath: string, destinationPath: string): Promise<UploadResult> {
+    await logger.info('Copying file in storage', {
+      operation: 'storage_copy_file_start',
+      sourcePath,
+      destinationPath,
+      provider: this.config.provider
+    });
+
+    if (this.config.provider === 'gcs' && this.bucket) {
+      const sourceFile = this.bucket.file(sourcePath);
+      const [exists] = await sourceFile.exists();
+      if (!exists) {
+        throw new Error(`Source file not found: ${sourcePath}`);
+      }
+
+      const destinationFile = this.bucket.file(destinationPath);
+      await sourceFile.copy(destinationFile);
+
+      const publicUrl = this.getPublicUrl(destinationPath);
+
+      await logger.info('Copied file in GCS', {
+        operation: 'storage_copy_file_success',
+        destinationPath,
+        publicUrl
+      });
+
+      return {
+        path: destinationPath,
+        url: publicUrl,
+        publicUrl
+      };
+    }
+
+    const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+    const sourceFullPath = path.isAbsolute(sourcePath)
+      ? sourcePath
+      : path.join(uploadDir, path.basename(sourcePath));
+
+    if (!fs.existsSync(sourceFullPath)) {
+      throw new Error(`Source file not found: ${sourceFullPath}`);
+    }
+
+    const destinationFileName = path.basename(destinationPath);
+    const destinationFullPath = path.join(uploadDir, destinationFileName);
+    const destinationDir = path.dirname(destinationFullPath);
+
+    if (!fs.existsSync(destinationDir)) {
+      fs.mkdirSync(destinationDir, { recursive: true });
+    }
+
+    fs.copyFileSync(sourceFullPath, destinationFullPath);
+
+    await logger.info('Copied file in local storage', {
+      operation: 'storage_copy_file_success_local',
+      destinationFullPath
+    });
+
+    return {
+      path: destinationFullPath,
+      url: this.getPublicUrl(destinationFullPath)
+    };
+  }
+
   /**
    * Delete a file from storage
    */
@@ -317,8 +380,33 @@ export class StorageService {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Write file
-    fs.writeFileSync(fullPath, file.buffer);
+    // Handle both memory storage (file.buffer) and disk storage (file.path)
+    if (file.buffer) {
+      // File is in memory (from multer.memoryStorage())
+      fs.writeFileSync(fullPath, file.buffer);
+    } else if (file.path) {
+      // File is already on disk (from multer.diskStorage())
+      // Copy from temp location to final destination
+      if (file.path !== fullPath) {
+        fs.copyFileSync(file.path, fullPath);
+        // Clean up temp file
+        try {
+          fs.unlinkSync(file.path);
+        } catch (error) {
+          // Ignore cleanup errors
+          await logger.warn('Failed to cleanup temp file', {
+            operation: 'storage_local_cleanup_temp',
+            tempPath: file.path,
+            error: {
+              message: error instanceof Error ? error.message : 'Unknown error',
+              stack: error instanceof Error ? error.stack : undefined
+            }
+          });
+        }
+      }
+    } else {
+      throw new Error('File buffer or path not available');
+    }
 
     return {
       url: this.getPublicUrl(destinationPath),

@@ -6,6 +6,108 @@ This document defines the mandatory requirements and best practices for developi
 
 ---
 
+## 🚨 MANDATORY: Business Module Hub Pattern
+
+### **Rule: Every Business Module MUST Have a Workspace Landing Page**
+
+**Critical Bug**: Building deep pages (admin/manager/employee) without a landing page causes the module to fall back to dashboard when clicked, even though it's installed and appears in the sidebar.
+
+#### **The Three Required Components**
+
+1. **Workspace Landing Component**
+   - File: `web/src/components/[module]/[Module]WorkspaceLanding.tsx`
+   - Purpose: Acts as the "front door" when module is clicked
+   - Contains: Role-based navigation cards, stats, quick actions
+
+2. **Switch Statement Registration**
+   - File: `web/src/components/business/BusinessWorkspaceContent.tsx`
+   - Add: `case '[module]': return <[Module]WorkspaceLanding businessId={business.id} />;`
+   - Why: Business workspace uses component routing, not Next.js file routing
+
+3. **Icon and Name Mappings**
+   - File: `web/src/components/BrandedWorkDashboard.tsx`
+   - Add icon: `case '[module]': return IconComponent;` in `getModuleIcon()`
+   - Add name: `case '[module]': return 'Module Name';` in `getModuleName()`
+
+#### **Why This Matters**
+
+URL pattern `/business/[id]/workspace?module=scheduling` requires explicit switch statement entry:
+- ✅ With landing page: Module opens correctly
+- ❌ Without landing page: Falls back to dashboard (confusing bug)
+- ℹ️ Direct URLs to deep pages still work regardless
+
+#### **Common Mistake: Wrong Build Order**
+
+❌ **WRONG** (causes dashboard fallback):
+```
+1. Build /admin/[module]/page.tsx           ← Deep pages work via direct URL
+2. Build /workspace/[module]/me/page.tsx    ← But clicking module fails!
+3. Build /workspace/[module]/team/page.tsx
+4. Click module → Dashboard fallback ❌
+```
+
+✅ **CORRECT** (prevents issues):
+```
+1. Build [Module]WorkspaceLanding.tsx       ← Hub page first!
+2. Register in BusinessWorkspaceContent.tsx
+3. Add icon/name to BrandedWorkDashboard.tsx
+4. Test module click works ✅
+5. Build deep pages (they all link from hub)
+```
+
+#### **Landing Page Template**
+
+```typescript
+// web/src/components/[module]/[Module]WorkspaceLanding.tsx
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { Card, Button, Badge, Spinner, Alert } from 'shared/components';
+import { businessAPI } from '@/api/business';
+
+export default function [Module]WorkspaceLanding({ businessId }: { businessId: string }) {
+  const [userRole, setUserRole] = useState<'ADMIN' | 'MANAGER' | 'EMPLOYEE' | null>(null);
+  
+  // Determine role, show role-based cards
+  // Admin cards → /business/{id}/admin/{module}
+  // Manager cards → /business/{id}/workspace/{module}/team
+  // Employee cards → /business/{id}/workspace/{module}/me
+}
+```
+
+#### **Registration Example**
+
+```typescript
+// BusinessWorkspaceContent.tsx
+import SchedulingWorkspaceLanding from '../scheduling/SchedulingWorkspaceLanding';
+
+switch (currentModule) {
+  case 'scheduling':
+    return <SchedulingWorkspaceLanding businessId={business.id} />;
+}
+```
+
+```typescript
+// BrandedWorkDashboard.tsx
+import { CalendarClock } from 'lucide-react';
+
+const getModuleIcon = (module: string) => {
+  switch (module) {
+    case 'scheduling': return CalendarClock;
+  }
+};
+
+const getModuleName = (module: string) => {
+  switch (module) {
+    case 'scheduling': return 'Scheduling';
+  }
+};
+```
+
+---
+
 ## 🚨 MANDATORY: AI Context Integration
 
 ### **Rule: Every Module MUST Have AI Context Integration**
@@ -252,6 +354,18 @@ Use this checklist for every new module:
 - [ ] **Implement context providers** - AI data endpoints
 - [ ] **Add permission checks** - Role-based access
 - [ ] **Write error handling** - Graceful failures
+
+### Phase 4: Frontend Hub (CRITICAL - Do BEFORE Deep Pages)
+- [ ] **Create workspace landing component** - `[Module]WorkspaceLanding.tsx`
+- [ ] **Register in switch statement** - `BusinessWorkspaceContent.tsx`
+- [ ] **Add module icon** - `BrandedWorkDashboard.tsx` getModuleIcon()
+- [ ] **Add module name** - `BrandedWorkDashboard.tsx` getModuleName()
+- [ ] **Test module click** - Verify it doesn't fall back to dashboard
+
+### Phase 5: Frontend Deep Pages
+- [ ] **Create admin page** - `/business/[id]/admin/[module]/page.tsx`
+- [ ] **Create employee page** - `/business/[id]/workspace/[module]/me/page.tsx`
+- [ ] **Create manager page** - `/business/[id]/workspace/[module]/team/page.tsx`
 - [ ] **Add logging** - Use `logger.info/error` from `logger.ts`
 
 ### Phase 4: Frontend Development

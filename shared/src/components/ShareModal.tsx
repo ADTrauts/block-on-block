@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { XMarkIcon, UserPlusIcon, LinkIcon, TrashIcon, PencilIcon, MagnifyingGlassIcon, BuildingOfficeIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Avatar } from './Avatar';
 
@@ -50,7 +50,7 @@ type ShareModalProps = {
     type: 'file' | 'folder';
   };
   onClose: () => void;
-  onShare: (email: string, permission: 'view' | 'edit') => Promise<void>;
+  onShare: (email: string, permission: 'view' | 'edit') => Promise<{ success: boolean; shareLink?: string; message: string } | void>;
   onShareWithUser: (userId: string, permission: 'view' | 'edit') => Promise<void>;
   onCopyLink: () => Promise<void>;
   onListPermissions: (fileId: string) => Promise<Permission[]>;
@@ -63,6 +63,7 @@ type ShareModalProps = {
     type: 'personal' | 'business' | 'educational';
     businessId?: string;
   } | null;
+  shareLink?: string; // Optional pre-generated share link to display
 };
 
 type ShareTab = 'people' | 'business' | 'link';
@@ -78,7 +79,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   onRevokePermission,
   onSearchUsers,
   onGetBusinessMembers,
-  currentDashboard
+  currentDashboard,
+  shareLink
 }) => {
   const [activeTab, setActiveTab] = useState<ShareTab>('people');
   const [email, setEmail] = useState('');
@@ -99,6 +101,26 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [businessMembers, setBusinessMembers] = useState<BusinessMember[]>([]);
   const [loadingBusinessMembers, setLoadingBusinessMembers] = useState(false);
   const [selectedBusinessMembers, setSelectedBusinessMembers] = useState<string[]>([]);
+  
+  // Share link state (can be from prop or generated dynamically)
+  // Always generate a link - use window.location for current origin
+  const generateShareLink = useCallback(() => {
+    if (shareLink) return shareLink;
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}/drive/shared?${item.type === 'file' ? 'file' : 'folder'}=${item.id}`;
+    }
+    return shareLink || '';
+  }, [shareLink, item.id, item.type]);
+  
+  const [currentShareLink, setCurrentShareLink] = useState<string>(generateShareLink());
+  
+  // Update share link when prop or item changes
+  useEffect(() => {
+    const newLink = generateShareLink();
+    if (newLink) {
+      setCurrentShareLink(newLink);
+    }
+  }, [generateShareLink]);
 
   // Fetch current permissions on mount
   useEffect(() => {
@@ -162,8 +184,20 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     setSuccess(null);
 
     try {
-      await onShare(email, permission);
-      setSuccess('Shared successfully');
+      const result = await onShare(email, permission);
+      if (result && typeof result === 'object' && 'shareLink' in result) {
+        // User doesn't exist - show the share link
+        if (result.shareLink) {
+          setCurrentShareLink(result.shareLink);
+          setSuccess(result.message);
+          // Switch to link tab to show the generated link
+          setActiveTab('link');
+        } else {
+          setSuccess(result.message);
+        }
+      } else {
+        setSuccess('Shared successfully');
+      }
       setEmail('');
       // Refresh permissions list
       const perms = await onListPermissions(item.id);
@@ -229,8 +263,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     setSuccess(null);
 
     try {
-      await onCopyLink();
-      setSuccess('Link copied to clipboard');
+      // If we have a current share link, copy it directly
+      if (currentShareLink) {
+        await navigator.clipboard.writeText(currentShareLink);
+        setSuccess('Link copied to clipboard');
+      } else {
+        // Otherwise, call the onCopyLink callback
+        await onCopyLink();
+        setSuccess('Link copied to clipboard');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to copy link');
     } finally {
@@ -516,19 +557,50 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
           {/* Link Tab */}
           {activeTab === 'link' && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Get shareable link</h3>
-              <button
-                onClick={handleCopyLink}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 border rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                <LinkIcon className="w-5 h-5" />
-                Copy link
-              </button>
-              <p className="text-xs text-gray-500 mt-2">
-                Anyone with the link can view this {item.type}
-              </p>
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Get shareable link</h3>
+                {currentShareLink ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                        <LinkIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                        <input
+                          type="text"
+                          value={currentShareLink}
+                          readOnly
+                          className="flex-1 bg-transparent text-sm text-gray-700 focus:outline-none cursor-text"
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                        />
+                      </div>
+                      <button
+                        onClick={handleCopyLink}
+                        disabled={loading}
+                        className="px-4 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        Copy link
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Anyone with the link can view this {item.type}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button
+                      onClick={handleCopyLink}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 border rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    >
+                      <LinkIcon className="w-5 h-5" />
+                      Generate and copy link
+                    </button>
+                    <p className="text-xs text-gray-500">
+                      Generate a shareable link for this {item.type}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

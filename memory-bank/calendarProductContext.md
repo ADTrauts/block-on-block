@@ -41,6 +41,11 @@ Advanced, tab-bound calendar system that unifies personal, work, and household s
   - **ICS Import/Export**: Enhanced export with VTIMEZONE, import functionality, recurrence support
   - **Real-Time Collaboration**: Socket.io integration, live updates, collaborative editing
   - **RSVP Token System**: Secure public RSVP, email integration, response tracking
+  - **RSVP UI Improvements (December 2025)**: ✅ Personal calendar modal now includes Accept/Maybe/Decline buttons in Attendees section
+    - Buttons only appear when current user is an attendee
+    - Visual feedback with color-coded highlighting (green=accepted, red=declined, yellow=tentative)
+    - User-friendly status labels ("Pending Response" instead of "NEEDS_ACTION")
+    - Auto-refresh of event list after RSVP response
   - **Module-Driven Architecture**: Tab-bound calendars with auto-provisioning
 - Phase 3 (Availability + Assistant): 🎯 **NEXT PRIORITY**
   - Free-busy, multi-user availability, suggestions; working hours/focus/OOO; travel time

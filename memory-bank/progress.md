@@ -1,11 +1,234 @@
 # Block-on-Block Platform - Progress
 
 ## 🎯 Current Project Focus
+**Goal**: Folder Permissions & Sharing Implementation — COMPLETE ✅
+
+### **Success Metrics (100% Complete - December 2025)**:
+- ✅ **Folder Permissions System** — Complete CRUD operations for folder-level permissions
+- ✅ **Permission Integration** — All folder operations respect permissions (create, update, delete, move)
+- ✅ **Shared Folders** — Folders shared with users appear in "Shared" section
+- ✅ **Share Link Generation** — Automatic link creation for non-user email sharing
+- ✅ **ShareLinkModal Component** — User-friendly modal for displaying and copying share links
+- ✅ **Direct Link Access** — Share links (`/drive/shared?file=xxx`) display specific item details
+- ✅ **Smart File Download** — Automatic detection of file location (GCS vs local) from URL
+- ✅ **Database Schema** — `FolderPermission` model with proper relations and indexes
+
+**Module Details**:
+```
+Drive Module
+- Category: PRODUCTIVITY
+- Status: APPROVED
+- Folder Permissions: ✅ Complete (matches file permissions system)
+- Share Links: ✅ Auto-generated for non-users with ShareLinkModal
+- Shared Items: ✅ Files and folders with permissions
+- File Downloads: ✅ Smart location detection (GCS/local)
+- Error Handling: ✅ Enhanced logging and user feedback
+```
+
+**What This Enables**:
+- Users can share folders with granular permissions (view/edit)
+- Non-registered users receive shareable links automatically
+- Shared folders appear in "Shared" section with permission levels
+- Direct access to shared items via share links
+- Seamless file downloads regardless of storage provider
+- Consistent permission model across files and folders
+
+---
+
+## Previous Project Focus
+**Goal**: Calendar RSVP UI Improvements — COMPLETE ✅
+
+### **Success Metrics (100% Complete - December 2025)**:
+- ✅ **RSVP Buttons in Personal Calendar** — Accept/Maybe/Decline buttons added to personal calendar modal
+- ✅ **Conditional Display** — RSVP buttons only appear when current user is an attendee
+- ✅ **Visual Feedback** — Color-coded button highlighting (green=accepted, red=declined, yellow=tentative)
+- ✅ **User-Friendly Status Labels** — "Pending Response" instead of "NEEDS_ACTION", etc.
+- ✅ **Auto-Refresh** — Event list refreshes after RSVP to show updated status
+- ✅ **API Method Fix** — Fixed incorrect `listEventsInRange` calls to use `listEvents` with proper parameters
+
+**Module Details**:
+```
+Calendar Module
+- Category: PRODUCTIVITY
+- Status: APPROVED
+- RSVP Functionality: ✅ Complete (personal calendar modal, EventDrawer, enterprise calendar)
+- Status Display: ✅ User-friendly labels with color-coded badges
+- API Integration: ✅ calendarAPI.rsvp() with proper event refresh
+```
+
+**What This Enables**:
+- Users can accept/decline event invitations directly from personal calendar modal
+- Clear visual feedback shows current RSVP status
+- Consistent RSVP experience across all calendar views (personal, business workspace, enterprise)
+- Automatic calendar refresh after RSVP response
+
+---
+
+## Previous Project Focus
+**Goal**: Schedule Builder Advanced Features & UI Polish — COMPLETE ✅
+
+### **Success Metrics (100% Complete - November 25, 2025)**:
+- ✅ **Auto-Save Functionality** — Layout changes auto-save with 1-second debounce + 5-minute interval backup
+- ✅ **Build Tools Integration** — Employees, Positions, and Stations unified in expandable "BUILD TOOLS" sidebar
+- ✅ **Default Timeframes** — Positions and Stations can pre-populate shift start/end times
+- ✅ **Shift Modal Improvements** — Station dropdown, functional color picker, dynamic CREATE/SAVE button
+- ✅ **When I Work Visualization** — Professional shift block styling with warnings, time format, and summary rows
+- ✅ **Combined Layout Modes** — Position/Station view combined into single layout mode
+- ✅ **Day View Navigation** — Previous/Next day buttons for day-by-day navigation
+- ✅ **Availability Conflicts** — Detected and displayed in all layout modes (not just employee view)
+- ✅ **Authentication Fixes** — Resolved login redirect loops and session cookie issues
+
+### **Previous Enhancements (Nov 19-20, 2025)**:
+- ✅ **Member Employee Support** — Dragging shifts onto users without formal positions works, persists via localStorage
+- ✅ **Reliable Drag-and-Drop** — All drag operations send explicit `employeePositionId` values, preventing ghost shifts
+- ✅ **Backend Validation** — `updateShift` rejects malformed IDs, disconnects relations safely
+- ✅ **Calendar Accuracy** — Open shifts stay attached to member rows, keeping totals correct
+- ✅ **Error Surfacing** — API layer propagates backend errors properly
+
+### **Prior Enhancements (Nov 15-16, 2025)**:
+- ✅ **Settings Integration** — Week start day + view preference drive the calendar grid and schedule duration
+- ✅ **Schedule Delete Functionality** — Drag-to-trash hooks and inline delete buttons for schedules
+- ✅ **Collapsible Sidebar** — Builder sidebar can collapse/expand to reclaim canvas space
+- ✅ **Employee List Sidebar** — Drag employees to create shifts with live overlays
+- ✅ **Shift Edit Modal & Quick Add** — WhenIWork-style editing plus manual add button
+
+**Module Details**:
+```
+Employee Scheduling (scheduling)
+- Category: PRODUCTIVITY
+- Pricing Tier: business-basic (requires Business Basic subscription)
+- Status: APPROVED
+- AI Context: ✅ Registered (3 context providers)
+- Backend: ✅ Complete (40+ endpoints, permissions, feature gating, shift swaps)
+- Frontend: ✅ Complete (admin/manager/employee UIs with sidebar navigation)
+- Shift Swaps: ✅ Fully functional (request, approve, deny workflow)
+- Schedule Builder: ✅ Visual drag-and-drop interface with member employee support + collapsible sidebar + auto-save
+- Build Tools: ✅ Unified sidebar with draggable Employees, Positions, and Stations with default timeframes
+- Shift Modal: ✅ Station dropdown, color picker, dynamic CREATE/SAVE button, contextual labels
+- Visualization: ✅ When I Work-style shift blocks with warnings, time format, and summary rows
+- Layout Modes: ✅ Combined Position/Station view, day view navigation, availability conflicts in all views
+- Settings Integration: ✅ Week start day, view preference, timezone settings functional
+- Delete Functionality: ✅ Drag-to-trash and delete buttons for schedule management
+- Reliability: ✅ Member assignments persist via localStorage; backend validation prevents bad IDs
+- Auto-Save: ✅ Debounced (1s) + interval (5min) auto-save for layout changes
+```
+
+**What This Enables**:
+- Businesses with Business Basic tier or higher can now install Scheduling module
+- Module appears in business admin dashboard module management
+- AI can answer scheduling questions ("Who's working tomorrow?", "Show me coverage")
+- Full shift planning, availability, and swap request functionality available
+- Employees can request shift swaps and view their requests
+- Managers/Admins can approve or deny swap requests
+- Modern sidebar navigation for easy module access
+- Visual schedule builder with drag-and-drop employee/position/station assignment
+- Member employees (no position) can be scheduled and stay assigned after reloads
+- Shift editing modal with station dropdown, color picker, and dynamic CREATE/SAVE button
+- Calendar grid view with week/day options, day navigation, and accurate daily totals
+- When I Work-style visualization with warnings, time format, and summary rows
+- Build tools sidebar with expandable Employees, Positions, and Stations categories
+- Default timeframes for positions/stations pre-populate shift times
+- Auto-save functionality (debounced + interval) for seamless workflow
+- Settings control calendar behavior (week start day, view preference, timezone)
+- Collapsible sidebar saves screen space when needed
+- Multiple ways to delete schedules (drag-to-trash, delete button)
+- View preference automatically sets schedule duration (weekly/two_weeks/monthly)
+- Combined Position/Station layout mode for unified resource view
+- Availability conflict detection works in all layout modes
+
+---
+
+## Previous Project Focus
+**Goal**: Scheduling Module Marketplace Registration — COMPLETE ✅
+
+### **Success Metrics (100% Complete - Evening Session, Nov 13)**:
+- ✅ **Module Seed Script Updated** — Added HR and Scheduling definitions to `ensure-builtin-modules.ts`
+- ✅ **Category Fixed** — Changed from invalid "BUSINESS" to valid "PRODUCTIVITY" enum
+- ✅ **Script Executed Successfully** — Scheduling module created in Module table
+- ✅ **Database Verified** — 5 modules confirmed: Drive, Chat, Calendar, HR, Scheduling
+- ✅ **Marketplace Ready** — Scheduling module now appears in module marketplace for businesses
+
+---
+
+## Previous Project Focus
+**Goal**: AI Context Implementation for HR & Scheduling Modules — COMPLETE ✅
+
+**Success Metrics (100% Complete)**:
+- ✅ **HR AI Context Controller** — Created `hrAIContextController.ts` with 3 comprehensive context providers.
+- ✅ **HR Context Endpoints** — Implemented `hr_overview`, `employee_count`, and `time_off_summary` endpoints.
+- ✅ **Scheduling AI Context** — Replaced stub implementations with full logic for 3 context providers.
+- ✅ **Scheduling Context Endpoints** — Implemented `scheduling_overview`, `coverage_status`, and `scheduling_conflicts`.
+- ✅ **Controller Integration** — Updated `hrController.ts` to export functions from `hrAIContextController.ts`.
+- ✅ **Type Safety** — All implementations follow coding standards (no `any` types, proper error logging).
+- ✅ **Error Handling** — Consistent error format with `catch (error: unknown)` pattern.
+- ✅ **AI System Ready** — Both modules can now answer natural language questions about HR and scheduling data.
+
+**What the AI Can Now Answer**:
+
+**HR Questions**:
+- "How many employees do we have?" → Returns total, active, by employment type
+- "Who's off today?" → Lists all employees on time-off with details
+- "Show me the attendance summary" → Returns staffing levels and pending requests
+- "What's our headcount by department?" → Breaks down employees by department and position
+
+**Scheduling Questions**:
+- "Who's working tomorrow?" → Shows all scheduled shifts with employee details
+- "Are there any open shifts this week?" → Lists unfilled shifts that need coverage
+- "Show me the coverage status" → Returns coverage rates by day with gaps identified
+- "What scheduling conflicts do we have?" → Identifies overlapping shifts and swap requests
+
+**Module Status Summary**:
+- ✅ **Drive**: AI context implemented (recent files, storage stats, file queries)
+- ✅ **Chat**: AI context implemented (conversations, unread messages, history)
+- ✅ **Calendar**: AI context implemented (upcoming events, today's schedule, availability)
+- ✅ **HR**: AI context implemented (overview, headcount, time-off)
+- ✅ **Scheduling**: AI context implemented (overview, coverage, conflicts)
+
+---
+
+## Previous Project Focus
+**Goal**: Scheduling Module — COMPLETE ✅
+
+**Success Metrics (100% Complete)**:
+- ✅ **Scheduling Product Context** — Comprehensive documentation for separate scheduling module created.
+- ✅ **Database Schema** — 6 Prisma models created (Schedule, ScheduleShift, ShiftTemplate, EmployeeAvailability, ShiftSwapRequest, ScheduleTemplate).
+- ✅ **Database Relations** — Added back-relations to Business, User, and EmployeePosition models.
+- ✅ **API Routes** — 40+ REST API endpoints structured (admin/manager/employee tiers).
+- ✅ **Permission Middleware** — Three-tier access control implemented with businessId extraction.
+- ✅ **Feature Gating** — Module subscription validation middleware.
+- ✅ **Controller Logic** — Core CRUD operations + full shift swap implementation.
+- ✅ **Server Integration** — Routes registered in main server, module added to built-in registry.
+- ✅ **AI Context Registration** — Full AI integration with keywords, patterns, and context provider definitions.
+- ✅ **Prisma Generation** — Schema built and Prisma client generated successfully.
+- ✅ **Frontend API Client** — Complete API client with type-safe functions for all endpoints.
+- ✅ **React Hooks** — Comprehensive `useScheduling` hook with all CRUD operations.
+- ✅ **Layout System** — Modern sidebar navigation with unified layout architecture.
+- ✅ **Schedule Builder** — Full CRUD operations with modals and detail views.
+- ✅ **Shift Swaps** — Complete request, approve, deny workflow.
+- ✅ **Templates & Analytics** — Functional views implemented.
+- ✅ **UI/UX** — Sleek design with readable text and modern layout.
+
+**Module Architecture**:
+- **Scheduling Module** (Planning - Future): Creates shift schedules, manages availability, handles swaps
+- **HR Module** (Tracking - Past): Clock in/out, attendance records, time-off management
+- **Integration**: Time-off blocks availability, schedules inform expected attendance
+
+**Outstanding Follow-up / Next Steps**:
+- Visual calendar/week view for schedule builder (drag-and-drop)
+- Availability management UI (backend ready)
+- Open shift claiming UI (backend ready)
+- HR module integration (time-off → availability blocking, schedules → expected attendance)
+- Real-time updates via WebSockets for schedule changes
+
+---
+
+## Previous Project Focus
 **Goal**: Employee Onboarding Module — COMPLETE ✅
 
-**Success Metrics (Current Progress)**:
+**Success Metrics (Completed)**:
 - ✅ **Prisma Onboarding Schema** — Added onboarding templates, task templates, employee journeys, and task records with business/employee back-relations.
 - ✅ **Backend Implementation** — `hrOnboardingService` + `hrController` deliver template CRUD, journey creation, employee self-service, and manager approvals secured behind onboarding feature gating.
+- ✅ **Onboarding Asset Delivery** — Document requirements now clone files into each hire’s drive folder, while equipment/uniform checklist items can reference reusable catalog entries with SKU, sizing, and instruction metadata.
 - ✅ **Frontend Delivery** — Admin module settings expose onboarding configuration, employee HR workspace renders journeys/tasks, and manager HR workspace lists direct-report onboarding actions.
 - ✅ **Feature Flag Integration** — `useHRFeatures` recognizes onboarding availability; module settings context merges onboarding config safely for both dialog and full-page editors.
 - ✅ **Tooling & Verification** — Ran `pnpm prisma:generate`, executed the new migration, and verified `pnpm type-check` for server/web packages with clean output.
@@ -16,6 +239,7 @@
 **Outstanding Follow-up / Next Steps**:
 - Capture onboarding metrics and surface them in admin reporting.
 - Wire notification hooks (email/Slack) for pending approvals and overdue tasks.
+- Tie equipment/uniform catalogs into inventory assignment workflows (receipt confirmation, lifecycle tracking).
 - Seed starter onboarding blueprints and document best practices.
 - Kick off Training & Learning module discovery.
 

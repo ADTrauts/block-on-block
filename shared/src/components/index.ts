@@ -44,5 +44,7 @@ export * from './Toast';
 export * from './ToastProvider';
 export * from './ClassificationBadge';
 export * from './BrandButton';
+export * from './ShareModal';
+export { ShareLinkModal } from './ShareLinkModal';
 import ErrorBoundary2 from './ErrorBoundary2';
 export { ErrorBoundary2 as ErrorBoundary }; 

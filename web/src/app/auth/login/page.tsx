@@ -3,19 +3,23 @@
 export const dynamic = "force-dynamic";
 
 import React, { useState } from "react";
-import { signIn, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { signIn, useSession, getSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { COLORS } from "shared/styles/theme";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
+  
+  // Get return URL from query params, fallback to dashboard
+  const returnUrl = searchParams ? searchParams.get('returnUrl') || '/dashboard' : '/dashboard';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,8 +48,8 @@ export default function LoginPage() {
         // This prevents 403 errors on initial dashboard load
         await waitForSession();
         
-        console.log('Session established, redirecting to dashboard');
-        router.push('/dashboard');
+        console.log('Session established, redirecting to', returnUrl);
+        router.push(returnUrl);
         return;
       }
     } catch (err: any) {
@@ -58,28 +62,31 @@ export default function LoginPage() {
 
   // Helper function to wait for session to be available
   async function waitForSession() {
-    return new Promise<void>((resolve) => {
-      // Wait minimum 300ms for session cookie to propagate
-      const minDelay = 300;
-      const startTime = Date.now();
+    const maxWait = 5000; // 5 seconds max
+    const checkInterval = 100; // Check every 100ms
+    const minDelay = 300; // Minimum 300ms for cookie propagation
+    const startTime = Date.now();
+    
+    // First, wait minimum delay for cookie propagation
+    await new Promise(resolve => setTimeout(resolve, minDelay));
+    
+    // Then poll for actual session availability
+    while (Date.now() - startTime < maxWait) {
+      try {
+        const session = await getSession();
+        if (session?.accessToken) {
+          console.log('Session confirmed with access token, redirecting...');
+          return; // Session is ready
+        }
+      } catch (error) {
+        console.warn('Error checking session:', error);
+      }
       
-      const checkSession = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        
-        // After minimum delay, check if we have enough time or just proceed
-        if (elapsed >= minDelay) {
-          clearInterval(checkSession);
-          resolve();
-        }
-        
-        // Safety timeout at 2 seconds
-        if (elapsed >= 2000) {
-          clearInterval(checkSession);
-          console.warn('Session wait timeout reached, proceeding anyway');
-          resolve();
-        }
-      }, 50);
-    });
+      // Wait before next check
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    console.warn('Session wait timeout reached, proceeding anyway');
   }
 
   return (

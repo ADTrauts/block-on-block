@@ -1,48 +1,57 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
+import { canReadFolder, canWriteFolder } from './folderPermissionController';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 // List folders with dashboard context support
 export async function listFolders(req: Request, res: Response) {
   try {
-    const userId = (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
     const parentId = req.query.parentId as string;
     const starred = req.query.starred as string;
     const dashboardId = req.query.dashboardId as string; // NEW: Dashboard context filtering
     
-    const where: any = { userId };
-    
-    if (parentId) {
-      where.parentId = parentId;
-    } else {
-      where.parentId = null;
-    }
-    
-    // Add starred filtering
-    if (starred === 'true') {
-      where.starred = true;
-    } else if (starred === 'false') {
-      where.starred = false;
-    }
-    
     // Use raw SQL to include order field in sorting and hasChildren count
+    // Include both owned folders and folders shared with the user
     let query = `
-      SELECT f.*, 
+      SELECT DISTINCT f.*, 
              (SELECT COUNT(*) FROM "folders" f2 
               WHERE f2."parentId" = f.id 
-              AND f2."userId" = f."userId" 
+              AND (f2."userId" = f."userId" OR EXISTS (
+                SELECT 1 FROM "folder_permissions" fp2 
+                WHERE fp2."folderId" = f2.id 
+                AND fp2."userId" = $1 
+                AND fp2."canRead" = true
+              ))
               AND f2."trashedAt" IS NULL) as "hasChildren"
       FROM "folders" f 
-      WHERE f."userId" = $1
+      WHERE (f."userId" = $1 
+             OR EXISTS (
+               SELECT 1 FROM "folder_permissions" fp 
+               WHERE fp."folderId" = f.id 
+               AND fp."userId" = $1 
+               AND fp."canRead" = true
+             ))
     `;
     const params = [userId];
     let paramIndex = 2;
     
     // Dashboard context filtering
-    if (dashboardId) {
+    // When fetching starred items, show across all dashboards (don't filter by dashboardId)
+    if (starred === 'true') {
+      // Show starred items from all dashboards
+      await logger.debug('Starred folders requested - showing across all dashboards', {
+        operation: 'folder_list_starred_all_dashboards'
+      });
+    } else if (dashboardId) {
       query += ` AND f."dashboardId" = $${paramIndex}`;
       params.push(dashboardId);
       paramIndex++;
-      console.log('Dashboard context requested for folders:', dashboardId);
+      await logger.debug('Dashboard context requested for folders', {
+        operation: 'folder_list_dashboard_context',
+        dashboardId
+      });
     } else {
       query += ` AND f."dashboardId" IS NULL`;
     }
@@ -75,17 +84,30 @@ export async function listFolders(req: Request, res: Response) {
     }));
     
     res.json(serializedFolders);
-  } catch (err) {
-    console.error('Error in listFolders:', err);
+    } catch (err: unknown) {
+    const error = err as Error;
+    await logger.error('Error in listFolders', {
+      operation: 'listFolders',
+      error: { message: error.message, stack: error.stack }
+    });
     res.status(500).json({ message: 'Failed to fetch folders' });
   }
 }
 
 export async function createFolder(req: Request, res: Response) {
   try {
-    const userId = (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
     const { name, parentId, dashboardId } = req.body;
     if (!name) return res.status(400).json({ message: 'Name is required' });
+    
+    // If creating in a parent folder, check write permissions
+    if (parentId) {
+      const canWrite = await canWriteFolder(userId, parentId);
+      if (!canWrite) {
+        return res.status(403).json({ message: 'You do not have permission to create folders here' });
+      }
+    }
+    
     const folder = await prisma.folder.create({
       data: { userId, name, parentId: parentId || null, dashboardId: dashboardId || null },
     });
@@ -96,41 +118,77 @@ export async function createFolder(req: Request, res: Response) {
     // For now, we'll skip folder activities until the schema is updated
 
     res.status(201).json({ folder });
-  } catch (err) {
-    console.error('Error in createFolder:', err);
-    console.error('req.user in createFolder:', req.user);
+  } catch (err: unknown) {
+    const error = err as Error;
+    await logger.error('Error in createFolder', {
+      operation: 'createFolder',
+      error: { message: error.message, stack: error.stack },
+      context: { userId: (req as AuthenticatedRequest).user?.id || (req.user as { id?: string })?.id }
+    });
     res.status(500).json({ message: 'Failed to create folder' });
   }
 }
 
 export async function updateFolder(req: Request, res: Response) {
   try {
-    const userId = (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
     const { id } = req.params;
     const { name, parentId } = req.body;
+    
+    // Check write permissions
+    const canWrite = await canWriteFolder(userId, id);
+    if (!canWrite) {
+      return res.status(403).json({ message: 'You do not have permission to modify this folder' });
+    }
+    
+    // If moving to a parent folder, check write permissions on target
+    if (parentId) {
+      const canWriteParent = await canWriteFolder(userId, parentId);
+      if (!canWriteParent) {
+        return res.status(403).json({ message: 'You do not have permission to move folders here' });
+      }
+    }
+    
     const folder = await prisma.folder.updateMany({
-      where: { id, userId },
+      where: { id },
       data: { name, parentId },
     });
     if (folder.count === 0) return res.status(404).json({ message: 'Folder not found' });
     const updated = await prisma.folder.findUnique({ where: { id } });
     res.json({ folder: updated });
-  } catch (err) {
+  } catch (err: unknown) {
+    const error = err as Error;
+    await logger.error('Error in updateFolder', {
+      operation: 'updateFolder',
+      error: { message: error.message, stack: error.stack }
+    });
     res.status(500).json({ message: 'Failed to update folder' });
   }
 }
 
 export async function deleteFolder(req: Request, res: Response) {
   try {
-    const userId = (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
     const { id } = req.params;
+    
+    // Check write permissions
+    const canWrite = await canWriteFolder(userId, id);
+    if (!canWrite) {
+      return res.status(403).json({ message: 'You do not have permission to delete this folder' });
+    }
+    
     const folder = await prisma.folder.updateMany({
-      where: { id, userId, trashedAt: null },
+      where: { id, trashedAt: null },
       data: { trashedAt: new Date() },
     });
     if (folder.count === 0) return res.status(404).json({ message: 'Folder not found' });
     res.json({ trashed: true });
-  } catch (err) {
+  } catch (err: unknown) {
+    const error = err as Error;
+    await logger.error('Error in deleteFolder', {
+      operation: 'deleteFolder',
+      error: { message: error.message, stack: error.stack }
+    });
     res.status(500).json({ message: 'Failed to move folder to trash' });
   }
 }
@@ -249,8 +307,12 @@ export async function reorderFolders(req: Request, res: Response) {
     }
 
     res.json({ success: true, message: 'Folders reordered successfully' });
-  } catch (err) {
-    console.error('Error in reorderFolders:', err);
+  } catch (err: unknown) {
+    const error = err as Error;
+    logger.error('Error in reorderFolders', {
+      operation: 'reorderFolders',
+      error: { message: error.message, stack: error.stack }
+    });
     res.status(500).json({ message: 'Failed to reorder folders' });
   }
 }
@@ -258,21 +320,27 @@ export async function reorderFolders(req: Request, res: Response) {
 // Move a folder to a different parent folder
 export async function moveFolder(req: Request, res: Response) {
   try {
-    const userId = (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
     const { id } = req.params;
     const { targetParentId } = req.body;
 
-    // Verify the folder belongs to the user
-    const folder = await prisma.folder.findUnique({ where: { id } });
-    if (!folder || folder.userId !== userId) {
-      return res.status(404).json({ message: 'Folder not found or access denied' });
+    // Check write permissions on the folder being moved
+    const canWrite = await canWriteFolder(userId, id);
+    if (!canWrite) {
+      return res.status(403).json({ message: 'You do not have permission to move this folder' });
     }
 
-    // Verify the target parent folder exists and belongs to the user (if specified)
+    // Verify the folder exists
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder) {
+      return res.status(404).json({ message: 'Folder not found' });
+    }
+
+    // Verify the target parent folder exists and user has write permissions (if specified)
     if (targetParentId) {
-      const targetParent = await prisma.folder.findUnique({ where: { id: targetParentId } });
-      if (!targetParent || targetParent.userId !== userId) {
-        return res.status(400).json({ message: 'Target parent folder not found or access denied' });
+      const canWriteParent = await canWriteFolder(userId, targetParentId);
+      if (!canWriteParent) {
+        return res.status(403).json({ message: 'You do not have permission to move folders here' });
       }
       
       // Prevent moving a folder into itself or its descendants
@@ -281,7 +349,7 @@ export async function moveFolder(req: Request, res: Response) {
       }
       
       // Check if target is a descendant of the folder being moved
-      let currentParent: any = targetParent;
+      let currentParent: any = await prisma.folder.findUnique({ where: { id: targetParentId } });
       while (currentParent && currentParent.parentId) {
         if (currentParent.parentId === id) {
           return res.status(400).json({ message: 'Cannot move folder into its descendant' });
@@ -304,8 +372,12 @@ export async function moveFolder(req: Request, res: Response) {
     // For now, we'll skip folder activity tracking
 
     res.json({ folder: updatedFolder, message: 'Folder moved successfully' });
-  } catch (err) {
-    console.error('Error in moveFolder:', err);
+  } catch (err: unknown) {
+    const error = err as Error;
+    await logger.error('Error in moveFolder', {
+      operation: 'moveFolder',
+      error: { message: error.message, stack: error.stack }
+    });
     res.status(500).json({ message: 'Failed to move folder' });
   }
 } 

@@ -48,6 +48,22 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
   const [showEventModal, setShowEventModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Debug: Log when modal state changes
+  useEffect(() => {
+    if (showEventModal && selectedEvent) {
+      console.log('📅 CalendarModule: Modal should be visible', { 
+        showEventModal, 
+        selectedEventId: selectedEvent.id,
+        title: selectedEvent.title 
+      });
+      // Also check if modal element exists in DOM
+      setTimeout(() => {
+        const modal = document.querySelector('[data-calendar-modal="true"]');
+        console.log('📅 CalendarModule: Modal in DOM?', { exists: !!modal, zIndex: modal ? window.getComputedStyle(modal as Element).zIndex : null });
+      }, 100);
+    }
+  }, [showEventModal, selectedEvent]);
+
   // Get context information for filtering
   // Priority: explicit dashboardId > businessId > currentDashboard context
   const derivedContextType = currentDashboard ? getDashboardType(currentDashboard).toUpperCase() as 'PERSONAL' | 'BUSINESS' | 'HOUSEHOLD' : 'PERSONAL';
@@ -244,8 +260,16 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     });
   };
 
-  const formatTime = (timeString: string) => {
-    return new Date(timeString).toLocaleTimeString('en-US', {
+  const formatTime = (timeString: string, timezone?: string) => {
+    const date = new Date(timeString);
+    if (timezone) {
+      return new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: timezone
+      }).format(date);
+    }
+    return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -305,9 +329,26 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     router.push(`/calendar/day?date=${date.toISOString().split('T')[0]}`);
   };
 
-  const handleEventClick = (event: EventItem) => {
+  const handleEventClick = (event: EventItem, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.nativeEvent.stopImmediatePropagation();
+    }
+    console.log('📅 CalendarModule: Event clicked, opening modal', { 
+      eventId: event.id, 
+      title: event.title,
+      currentPath: window.location.pathname,
+      component: 'CalendarModule'
+    });
+    // Double-check we're not on a calendar page that has EventDrawer
+    if (window.location.pathname.startsWith('/calendar/')) {
+      console.warn('⚠️ CalendarModule: On calendar page - EventDrawer might interfere');
+    }
     setSelectedEvent(event);
     setShowEventModal(true);
+    // Prevent any navigation or other handlers
+    return false;
   };
 
   const handleCreateEvent = () => {
@@ -508,13 +549,15 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                                 borderLeft: `3px solid ${eventColor}`,
                               }}
                               onClick={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
-                                handleEventClick(event);
+                                e.nativeEvent.stopImmediatePropagation();
+                                handleEventClick(event, e);
                               }}
                             >
                               {!event.allDay && (
                                 <span className="text-[10px] font-bold opacity-75">
-                                  {formatTime(event.occurrenceStartAt || event.startAt)}
+                                  {formatTime(event.occurrenceStartAt || event.startAt, event.timezone)}
                                 </span>
                               )}
                               <span className="truncate font-medium">{event.title}</span>
@@ -562,7 +605,12 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                 <div
                   key={event.id}
                   className="group relative flex items-center space-x-4 p-4 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 rounded-xl cursor-pointer transition-all border border-transparent hover:border-blue-200 hover:shadow-md"
-                  onClick={() => handleEventClick(event)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.nativeEvent.stopImmediatePropagation();
+                    handleEventClick(event, e);
+                  }}
                 >
                   <div 
                     className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center shadow-sm"
@@ -577,7 +625,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                     <div className="flex items-center space-x-3 text-sm text-gray-600 mt-1.5">
                       <span className="flex items-center space-x-1 font-medium">
                         <Clock className="w-4 h-4" />
-                        <span>{formatTime(event.occurrenceStartAt || event.startAt)}</span>
+                        <span>{formatTime(event.occurrenceStartAt || event.startAt, event.timezone)}</span>
                       </span>
                       {event.location && (
                         <span className="flex items-center space-x-1">
@@ -616,7 +664,17 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
 
       {/* Modern Event Modal */}
       {showEventModal && selectedEvent && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+        <div 
+          data-calendar-modal="true"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          style={{ zIndex: 99999, position: 'fixed' }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setShowEventModal(false);
+            setSelectedEvent(null);
+          }}
+        >
           <div 
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300"
             onClick={(e) => e.stopPropagation()}
@@ -656,7 +714,10 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                   </div>
                 </div>
                 <button
-                  onClick={() => setShowEventModal(false)}
+                  onClick={() => {
+                    setShowEventModal(false);
+                    setSelectedEvent(null);
+                  }}
                   className="p-2 hover:bg-white/50 rounded-xl transition-all"
                 >
                   <span className="sr-only">Close</span>
@@ -686,7 +747,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                     <p className="text-sm text-blue-800 font-medium">All day event</p>
                   ) : (
                     <p className="text-sm text-blue-800 font-medium">
-                      {formatTime(selectedEvent.occurrenceStartAt || selectedEvent.startAt)} - {formatTime(selectedEvent.occurrenceEndAt || selectedEvent.endAt)}
+                      {formatTime(selectedEvent.occurrenceStartAt || selectedEvent.startAt, selectedEvent.timezone)} - {formatTime(selectedEvent.occurrenceEndAt || selectedEvent.endAt, selectedEvent.timezone)}
                     </p>
                   )}
                 </div>
@@ -771,7 +832,10 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
             {/* Modern Footer */}
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
               <button
-                onClick={() => setShowEventModal(false)}
+                onClick={() => {
+                  setShowEventModal(false);
+                  setSelectedEvent(null);
+                }}
                 className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
               >
                 Close
@@ -780,6 +844,7 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
                 onClick={() => {
                   router.push(`/calendar/month`);
                   setShowEventModal(false);
+                  setSelectedEvent(null);
                 }}
                 className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
               >

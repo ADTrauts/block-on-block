@@ -10,6 +10,9 @@ import {
   ModuleSecurityConfig,
   ModuleStorageConfig,
   OnboardingModuleConfig,
+  HRFeatureToggleSettings,
+  PartialHRFeatureToggleSettings,
+  createDefaultHRFeatureToggleSettings,
 } from '@/components/module-settings/types';
 
 export interface ModuleSettings {
@@ -26,7 +29,11 @@ export interface ModuleSettingsUpdate {
     documentChecklist?: OnboardingModuleConfig['documentChecklist'];
     equipmentList?: OnboardingModuleConfig['equipmentList'];
     uniformOptions?: OnboardingModuleConfig['uniformOptions'];
+    equipmentLibrary?: OnboardingModuleConfig['equipmentLibrary'];
+    uniformLibrary?: OnboardingModuleConfig['uniformLibrary'];
+    customActions?: OnboardingModuleConfig['customActions'];
   };
+  hrFeatures?: PartialHRFeatureToggleSettings;
   [key: string]: unknown;
 }
 
@@ -70,7 +77,8 @@ export function ModuleSettingsProvider({ children, businessId }: ModuleSettingsP
           notifications: undefined,
           security: undefined,
           integrations: undefined,
-          onboarding: undefined
+          onboarding: undefined,
+          hrFeatures: undefined
         };
 
         const mergeOnboardingConfig = (
@@ -81,18 +89,21 @@ export function ModuleSettingsProvider({ children, businessId }: ModuleSettingsP
             return existing;
           }
 
-          const base: OnboardingModuleConfig = existing ?? {
-            ownerUserId: null,
-            ownerRole: 'HR_ADMIN',
-            ownerNotes: null,
-            defaultTemplateId: null,
-            buddyProgramEnabled: false,
-            buddySelectionStrategy: 'manager_recommended',
-            timeOffPresetDays: null,
-            documentChecklist: [],
-            equipmentList: [],
-            uniformOptions: [],
-            metadata: {}
+          const base: OnboardingModuleConfig = {
+            ownerUserId: existing?.ownerUserId ?? null,
+            ownerRole: existing?.ownerRole ?? 'HR_ADMIN',
+            ownerNotes: existing?.ownerNotes ?? null,
+            defaultTemplateId: existing?.defaultTemplateId ?? null,
+            buddyProgramEnabled: existing?.buddyProgramEnabled ?? false,
+            buddySelectionStrategy: existing?.buddySelectionStrategy ?? 'manager_recommended',
+            timeOffPresetDays: existing?.timeOffPresetDays ?? null,
+            documentChecklist: existing?.documentChecklist ?? [],
+            equipmentList: existing?.equipmentList ?? [],
+            uniformOptions: existing?.uniformOptions ?? [],
+            equipmentLibrary: existing?.equipmentLibrary ?? [],
+            uniformLibrary: existing?.uniformLibrary ?? [],
+            customActions: existing?.customActions ?? [],
+            metadata: existing?.metadata ?? {}
           };
 
           return {
@@ -100,8 +111,53 @@ export function ModuleSettingsProvider({ children, businessId }: ModuleSettingsP
             ...updates,
             documentChecklist: updates.documentChecklist ?? base.documentChecklist,
             equipmentList: updates.equipmentList ?? base.equipmentList,
-            uniformOptions: updates.uniformOptions ?? base.uniformOptions
+            uniformOptions: updates.uniformOptions ?? base.uniformOptions,
+            equipmentLibrary: updates.equipmentLibrary ?? base.equipmentLibrary,
+            uniformLibrary: updates.uniformLibrary ?? base.uniformLibrary,
+            customActions: updates.customActions ?? base.customActions
           };
+        };
+
+        const mergeHRFeatures = (
+          existing: HRFeatureToggleSettings | undefined,
+          updates: PartialHRFeatureToggleSettings | undefined
+        ): HRFeatureToggleSettings | undefined => {
+          if (!updates) {
+            return existing;
+          }
+
+          const base = existing
+            ? {
+                employees: { ...existing.employees },
+                attendance: { ...existing.attendance },
+                onboarding: { ...existing.onboarding },
+                payroll: existing.payroll,
+                recruitment: existing.recruitment,
+                performance: existing.performance,
+                benefits: existing.benefits
+              }
+            : createDefaultHRFeatureToggleSettings();
+
+          const next: HRFeatureToggleSettings = {
+            employees: {
+              ...base.employees,
+              ...(updates.employees ?? {})
+            },
+            attendance: {
+              ...base.attendance,
+              ...(updates.attendance ?? {})
+            },
+            onboarding: {
+              ...base.onboarding,
+              ...(updates.onboarding ?? {})
+            },
+            payroll: typeof updates.payroll === 'boolean' ? updates.payroll : base.payroll,
+            recruitment: typeof updates.recruitment === 'boolean' ? updates.recruitment : base.recruitment,
+            performance: typeof updates.performance === 'boolean' ? updates.performance : base.performance,
+            benefits: typeof updates.benefits === 'boolean' ? updates.benefits : base.benefits
+          };
+
+          return next;
         };
 
         return {
@@ -139,17 +195,27 @@ export function ModuleSettingsProvider({ children, businessId }: ModuleSettingsP
                   apiAccess: newSettings.integrations.apiAccess ?? currentModule.integrations?.apiAccess ?? false
                 }
               : currentModule.integrations,
-            onboarding: mergeOnboardingConfig(currentModule.onboarding, newSettings.onboarding)
+            onboarding: mergeOnboardingConfig(currentModule.onboarding, newSettings.onboarding),
+            hrFeatures: mergeHRFeatures(currentModule.hrFeatures, newSettings.hrFeatures)
           }
         };
       });
 
       // Save to backend
-      await configureModule(moduleId, {
-        enabled: true,
-        settings: newSettings as Record<string, unknown>,
-        permissions: newSettings.permissions || []
-      });
+      await configureModule(
+        moduleId,
+        {
+          enabled: true,
+          settings: newSettings as Record<string, unknown>,
+          permissions: newSettings.permissions || []
+        },
+        businessId
+          ? {
+              scope: 'business',
+              businessId
+            }
+          : undefined
+      );
 
       toast.success('Module settings updated successfully');
     } catch (err) {

@@ -2,11 +2,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, Send, X, Sparkles, Bot, User, Search, Plus, Settings, History, ExternalLink } from 'lucide-react';
+import { Brain, Send, X, Sparkles, Bot, User, Search, Plus, Settings, History, ExternalLink, Zap, Lightbulb, TrendingUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { authenticatedApiCall } from '../../lib/apiUtils';
 import { Button, Spinner } from 'shared/components';
+import { generateAISchedule } from '../../api/scheduling';
 import { 
   getConversations, 
   getConversation,
@@ -16,6 +17,12 @@ import {
   type AIMessage as AIMessageType 
 } from '../../api/aiConversations';
 
+interface ModuleContext {
+  module: string;
+  businessId?: string;
+  scheduleId?: string;
+}
+
 interface AIChatDropdownProps {
   className?: string;
   dashboardId?: string;
@@ -24,6 +31,7 @@ interface AIChatDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   position: { top: number; left: number; width: number };
+  moduleContext?: ModuleContext;
 }
 
 interface AIResponse {
@@ -49,6 +57,14 @@ interface ConversationItem {
   confidence?: number;
 }
 
+// Scheduling-specific prompts
+const SCHEDULING_PROMPTS = [
+  { icon: Zap, text: 'Generate schedule for this week', action: 'generate' },
+  { icon: Lightbulb, text: 'Suggest employees for open shifts', action: 'suggest' },
+  { icon: TrendingUp, text: 'Optimize schedule for availability', action: 'optimize' },
+  { icon: Sparkles, text: 'Find scheduling conflicts', action: 'conflicts' },
+];
+
 export default function AIChatDropdown({ 
   className = '', 
   dashboardId, 
@@ -56,7 +72,8 @@ export default function AIChatDropdown({
   dashboardName = 'Dashboard',
   isOpen, 
   onClose, 
-  position 
+  position,
+  moduleContext
 }: AIChatDropdownProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -169,8 +186,9 @@ export default function AIChatDropdown({
   };
 
   // Handle AI query submission
-  const handleAIQuery = async () => {
-    if (!inputValue.trim() || isAILoading) return;
+  const handleAIQuery = async (queryText?: string) => {
+    const query = queryText || inputValue.trim();
+    if (!query || isAILoading) return;
 
     // Validate session and token
     if (!session) {
@@ -183,7 +201,7 @@ export default function AIChatDropdown({
       return;
     }
 
-    const userQuery = inputValue.trim();
+    const userQuery = query;
     
     // Clear previous errors
     setAuthError(null);
@@ -197,7 +215,9 @@ export default function AIChatDropdown({
     };
     
     setConversation(prev => [...prev, userItem]);
-    setInputValue('');
+    if (!queryText) {
+      setInputValue('');
+    }
     setIsAILoading(true);
 
     try {
@@ -247,9 +267,14 @@ export default function AIChatDropdown({
           body: JSON.stringify({
             query: userQuery,
             context: {
-              currentModule: 'search',
+              currentModule: moduleContext?.module || 'search',
               dashboardType,
               dashboardName,
+              moduleContext: moduleContext ? {
+                module: moduleContext.module,
+                businessId: moduleContext.businessId,
+                scheduleId: moduleContext.scheduleId,
+              } : undefined,
               urgency: userQuery.toLowerCase().includes('urgent') || userQuery.toLowerCase().includes('asap') ? 'high' : 'medium'
             }
           })
@@ -331,6 +356,55 @@ export default function AIChatDropdown({
   const generateTitle = (content: string): string => {
     const title = content.substring(0, 50).trim();
     return title.length < content.length ? `${title}...` : title;
+  };
+
+  // Handle scheduling prompt click
+  const handleSchedulingPrompt = async (prompt: typeof SCHEDULING_PROMPTS[0]) => {
+    if (!session?.accessToken || !moduleContext?.businessId) return;
+    
+    // Handle generate schedule action (requires scheduleId)
+    if (prompt.action === 'generate' && moduleContext.scheduleId) {
+      try {
+        setIsAILoading(true);
+        
+        // Add user message
+        const userItem: ConversationItem = {
+          id: `user_${Date.now()}`,
+          type: 'user',
+          content: prompt.text,
+          timestamp: new Date()
+        };
+        setConversation([userItem]);
+        
+        const response = await generateAISchedule({
+          businessId: moduleContext.businessId,
+          scheduleId: moduleContext.scheduleId,
+        }, session.accessToken);
+        
+        if (response.success) {
+          const aiItem: ConversationItem = {
+            id: `ai_${Date.now()}`,
+            type: 'ai',
+            content: `✅ ${response.message}\n\nI've generated ${response.created} shifts based on employee availability and your business's scheduling strategy. The schedule has been updated and you can see the changes in the calendar view.`,
+            timestamp: new Date(),
+          };
+          setConversation(prev => [...prev, aiItem]);
+        }
+      } catch (error) {
+        const errorItem: ConversationItem = {
+          id: `error_${Date.now()}`,
+          type: 'ai',
+          content: `I'm sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          timestamp: new Date(),
+        };
+        setConversation(prev => [...prev, errorItem]);
+      } finally {
+        setIsAILoading(false);
+      }
+    } else {
+      // For other prompts, use regular AI query with prompt text
+      handleAIQuery(prompt.text);
+    }
   };
 
   // Handle key press
@@ -498,6 +572,27 @@ export default function AIChatDropdown({
                 <p className="text-gray-400 text-xs mt-1">
                   I can help schedule meetings, organize files, analyze data, and more
                 </p>
+                
+                {/* Scheduling-specific prompts */}
+                {moduleContext?.module === 'scheduling' && (
+                  <div className="mt-6 space-y-2">
+                    <p className="text-xs text-gray-500 mb-3">Quick actions for scheduling:</p>
+                    {SCHEDULING_PROMPTS.map((prompt, idx) => {
+                      const Icon = prompt.icon;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => handleSchedulingPrompt(prompt)}
+                          disabled={isAILoading}
+                          className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-sm text-gray-900 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Icon className="w-4 h-4 text-purple-500" />
+                          <span className="text-gray-900">{prompt.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -580,7 +675,7 @@ export default function AIChatDropdown({
                 disabled={isAILoading}
               />
               <Button
-                onClick={handleAIQuery}
+                onClick={() => handleAIQuery()}
                 disabled={!inputValue.trim() || isAILoading}
                 size="sm"
                 variant="primary"

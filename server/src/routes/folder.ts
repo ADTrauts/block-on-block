@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth';
 import { listFolders, createFolder, updateFolder, deleteFolder, listTrashedFolders, restoreFolder, hardDeleteFolder, getRecentActivity, toggleFolderStarred, reorderFolders, moveFolder } from '../controllers/folderController';
+import { listFolderPermissions, grantFolderPermission, updateFolderPermission, revokeFolderPermission } from '../controllers/folderPermissionController';
 
 const router: express.Router = express.Router();
 
@@ -36,5 +37,18 @@ router.post('/reorder/:parentId', authenticateJWT, reorderFolders);
 
 // Move a folder to a different parent folder
 router.post('/:id/move', authenticateJWT, moveFolder);
+
+// Folder permission routes (must come before generic :id routes)
+// List all permissions for a folder
+router.get('/:id/permissions', authenticateJWT, listFolderPermissions);
+
+// Grant or update a user's permission for a folder
+router.post('/:id/permissions', authenticateJWT, grantFolderPermission);
+
+// Update a user's permission for a folder
+router.put('/:id/permissions/:userId', authenticateJWT, updateFolderPermission);
+
+// Revoke a user's permission for a folder
+router.delete('/:id/permissions/:userId', authenticateJWT, revokeFolderPermission);
 
 export default router; 

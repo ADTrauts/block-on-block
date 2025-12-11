@@ -61,7 +61,8 @@ export async function listFiles(token: string, folderId?: string, starred?: bool
   const res = await fetch(url, { headers: authHeaders(token) });
   if (!res.ok) throw new Error('Failed to fetch files');
   const data = await res.json();
-  return data.files;
+  // API returns array directly, not wrapped in object
+  return Array.isArray(data) ? data : (data.files || []);
 }
 
 export async function listFolders(token: string, parentId?: string, starred?: boolean) {
@@ -73,14 +74,22 @@ export async function listFolders(token: string, parentId?: string, starred?: bo
   const res = await fetch(url, { headers: authHeaders(token) });
   if (!res.ok) throw new Error('Failed to fetch folders');
   const data = await res.json();
-  return data.folders;
+  // API returns array directly, not wrapped in object
+  return Array.isArray(data) ? data : (data.folders || []);
 }
 
-export async function uploadFile(token: string, file: globalThis.File, folderId?: string, isChatFile?: boolean): Promise<File> {
+export async function uploadFile(
+  token: string,
+  file: globalThis.File,
+  folderId?: string,
+  isChatFile?: boolean,
+  dashboardId?: string
+): Promise<File> {
   const formData = new FormData();
   formData.append('file', file);
   if (folderId) formData.append('folderId', folderId);
   if (isChatFile) formData.append('chat', 'true');
+  if (dashboardId) formData.append('dashboardId', dashboardId);
   
   console.log('📤 Uploading file:', {
     fileName: file.name,
@@ -88,6 +97,7 @@ export async function uploadFile(token: string, file: globalThis.File, folderId?
     fileType: file.type,
     folderId,
     isChatFile,
+    dashboardId,
     hasToken: !!token
   });
   
@@ -145,20 +155,63 @@ export async function createFolder(token: string, name: string, parentId?: strin
 
 export const downloadFile = async (token: string, fileId: string): Promise<void> => {
   try {
-    const response = await fetch(`/api/drive/files/${fileId}/download`, {
+    // Try /download route first, fallback to direct route if needed
+    let response = await fetch(`/api/drive/files/${fileId}/download`, {
       method: 'GET',
-      headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+      headers: authHeaders(token),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to download file');
+    // If /download route returns 404, try the direct route (for backward compatibility)
+    if (!response.ok && response.status === 404) {
+      console.log('📥 Download route returned 404, trying direct route...');
+      response = await fetch(`/api/drive/files/${fileId}`, {
+        method: 'GET',
+        headers: authHeaders(token),
+      });
     }
 
-    // Get the filename from the Content-Disposition header
+    if (!response.ok) {
+      // Get error message from response if available
+      let errorMessage = `Failed to download file (${response.status})`;
+      try {
+        const errorText = await response.clone().text();
+        if (errorText) {
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.message || errorJson.error || errorMessage;
+          } catch {
+            errorMessage = errorText.substring(0, 100) || errorMessage;
+          }
+        }
+      } catch {
+        // Ignore errors reading response
+      }
+      console.error('❌ Download failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        fileId,
+        errorMessage
+      });
+      throw new Error(errorMessage);
+    }
+
+    // For GCS, the response might be a redirect, so we need to handle that
+    // For local files, we get the blob directly
+    if (response.redirected) {
+      // If redirected (GCS), open in new window
+      window.open(response.url, '_blank');
+      return;
+    }
+
+    // Get the filename from the Content-Disposition header or use fileId
     const contentDisposition = response.headers.get('Content-Disposition');
-    const filename = contentDisposition
-      ? contentDisposition.split('filename=')[1].replace(/"/g, '')
-      : 'download';
+    let filename = 'download';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (filenameMatch && filenameMatch[1]) {
+        filename = filenameMatch[1].replace(/['"]/g, '');
+      }
+    }
 
     // Create a blob from the response
     const blob = await response.blob();
@@ -184,16 +237,40 @@ export const downloadFile = async (token: string, fileId: string): Promise<void>
   }
 };
 
-export const shareItem = async (token: string, itemId: string, email: string, permission: 'view' | 'edit'): Promise<void> => {
-  const response = await fetch(`/api/drive/items/${itemId}/share`, {
-    method: 'POST',
-    body: JSON.stringify({ email, permission }),
-    headers: authHeaders(token, { 'Content-Type': 'application/json' }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to share item');
+// Share file by email (finds user by email and grants permission, or returns share link)
+export const shareItemByEmail = async (token: string, fileId: string, email: string, permission: 'view' | 'edit'): Promise<{ success: boolean; shareLink?: string; message: string }> => {
+  // First, try to find the user by email
+  try {
+    const userSearchResponse = await fetch(`/api/member/users/search?query=${encodeURIComponent(email)}&limit=1`, {
+      headers: authHeaders(token),
+    });
+    
+    if (userSearchResponse.ok) {
+      const userSearchData = await userSearchResponse.json();
+      const users = userSearchData.users || userSearchData.data || [];
+      
+      if (users.length > 0) {
+        // User exists - grant permission directly
+        const userId = users[0].id;
+        const canRead = true;
+        const canWrite = permission === 'edit';
+        await grantFilePermission(token, fileId, userId, canRead, canWrite);
+        return { success: true, message: `File shared with ${email}` };
+      }
+    }
+    // If response is not ok (404, etc.) or no users found, continue to generate share link
+  } catch (error) {
+    // Search failed, continue to handle as non-user
+    console.error('User search failed:', error);
   }
+  
+  // User doesn't exist - generate and return share link
+  const shareLink = `${window.location.origin}/drive/shared?file=${fileId}`;
+  return {
+    success: true,
+    shareLink,
+    message: `User with email ${email} is not registered. Share link generated - you can send this link to them.`
+  };
 };
 
 export const getShareLink = async (token: string, itemId: string): Promise<string> => {
@@ -408,6 +485,84 @@ export async function revokeFilePermission(token: string, fileId: string, userId
   return await res.json();
 }
 
+// List all permissions for a folder
+export async function listFolderPermissions(token: string, folderId: string) {
+  const res = await fetch(`/api/drive/folders/${folderId}/permissions`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to list folder permissions');
+  const data = await res.json();
+  return data.permissions;
+}
+
+// Grant permission to a user for a folder
+export async function grantFolderPermission(token: string, folderId: string, userId: string, canRead: boolean, canWrite: boolean) {
+  const res = await fetch(`/api/drive/folders/${folderId}/permissions`, {
+    method: 'POST',
+    body: JSON.stringify({ userId, canRead, canWrite }),
+    headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+  });
+  if (!res.ok) throw new Error('Failed to grant folder permission');
+  return await res.json();
+}
+
+// Update a user's permission for a folder
+export async function updateFolderPermission(token: string, folderId: string, userId: string, canRead: boolean, canWrite: boolean) {
+  const res = await fetch(`/api/drive/folders/${folderId}/permissions/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ canRead, canWrite }),
+    headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+  });
+  if (!res.ok) throw new Error('Failed to update folder permission');
+  return await res.json();
+}
+
+// Revoke a user's permission for a folder
+export async function revokeFolderPermission(token: string, folderId: string, userId: string) {
+  const res = await fetch(`/api/drive/folders/${folderId}/permissions/${userId}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to revoke folder permission');
+  return await res.json();
+}
+
+// Share folder by email (finds user by email and grants permission, or returns share link)
+export const shareFolderByEmail = async (token: string, folderId: string, email: string, permission: 'view' | 'edit'): Promise<{ success: boolean; shareLink?: string; message: string }> => {
+  // First, try to find the user by email
+  try {
+    const userSearchResponse = await fetch(`/api/member/users/search?query=${encodeURIComponent(email)}&limit=1`, {
+      headers: authHeaders(token),
+    });
+    
+    if (userSearchResponse.ok) {
+      const userSearchData = await userSearchResponse.json();
+      const users = userSearchData.users || userSearchData.data || [];
+      
+      if (users.length > 0) {
+        // User exists - grant permission directly
+        const userId = users[0].id;
+        const canRead = true;
+        const canWrite = permission === 'edit';
+        await grantFolderPermission(token, folderId, userId, canRead, canWrite);
+        return { success: true, message: `Folder shared with ${email}` };
+      }
+    }
+    // If response is not ok (404, etc.) or no users found, continue to generate share link
+  } catch (error) {
+    // Search failed, continue to handle as non-user
+    console.error('User search failed:', error);
+  }
+  
+  // User doesn't exist - generate and return share link
+  const shareLink = `${window.location.origin}/drive/shared?folder=${folderId}`;
+  return {
+    success: true,
+    shareLink,
+    message: `User with email ${email} is not registered. Share link generated - you can send this link to them.`
+  };
+};
+
 export async function deleteFolder(token: string, id: string) {
   const res = await fetch(`/api/drive/folders/${id}`, {
     method: 'DELETE',
@@ -470,4 +625,55 @@ export async function reorderFolders(token: string, parentId: string, folderIds:
 
   const data = await response.json();
   return data;
+}
+
+// Search users for sharing
+export async function searchUsers(token: string, query: string): Promise<Array<{
+  id: string;
+  name: string | null;
+  email: string;
+  connectionStatus: 'none' | 'pending' | 'accepted' | 'declined' | 'blocked';
+  relationshipId: string | null;
+  organization?: {
+    id: string;
+    name: string;
+    type: 'business' | 'institution';
+    role: string;
+  } | null;
+}>> {
+  const response = await fetch(`/api/members/search?query=${encodeURIComponent(query)}&limit=20`, {
+    headers: authHeaders(token),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to search users');
+  }
+  
+  const data = await response.json();
+  return data.users || data.data || [];
+}
+
+// Get business members for sharing
+export async function getBusinessMembers(token: string, businessId: string): Promise<Array<{
+  id: string;
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+  role: 'EMPLOYEE' | 'MANAGER' | 'ADMIN';
+  title: string | null;
+  department: string | null;
+  isActive: boolean;
+}>> {
+  const response = await fetch(`/api/business/${businessId}/members`, {
+    headers: authHeaders(token),
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to get business members');
+  }
+  
+  const data = await response.json();
+  return data.members || data.data || [];
 }

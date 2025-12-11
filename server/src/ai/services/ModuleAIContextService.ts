@@ -120,13 +120,61 @@ export class ModuleAIContextService {
   }
 
   /**
+   * Extract @mentions from query (e.g., @drive, @hr, @calendar)
+   * Returns array of module IDs that were mentioned
+   * Also removes @mentions from query string for cleaner AI processing
+   */
+  private extractMentions(query: string): { moduleIds: string[]; cleanedQuery: string } {
+    const mentionRegex = /@(\w+)/g;
+    const mentions: string[] = [];
+    let match;
+
+    // Module ID to alias mapping (supports multiple aliases per module)
+    const moduleAliases: Record<string, string[]> = {
+      drive: ['drive', 'files', 'documents', 'file', 'storage', 'upload', 'download'],
+      chat: ['chat', 'messages', 'conversations', 'message', 'conversation'],
+      calendar: ['calendar', 'events', 'event', 'schedule', 'meeting', 'appointment'],
+      hr: ['hr', 'employees', 'employee', 'team', 'staff', 'workforce', 'people'],
+      scheduling: ['scheduling', 'shifts', 'shift', 'coverage', 'schedule', 'roster'],
+    };
+
+    let cleanedQuery = query;
+    
+    while ((match = mentionRegex.exec(query)) !== null) {
+      const mention = match[1].toLowerCase();
+      
+      // Find which module this mention maps to
+      for (const [moduleId, aliases] of Object.entries(moduleAliases)) {
+        if (aliases.includes(mention)) {
+          mentions.push(moduleId);
+          // Remove @mention from query for cleaner AI processing
+          cleanedQuery = cleanedQuery.replace(match[0], '').trim();
+          break;
+        }
+      }
+    }
+
+    return {
+      moduleIds: [...new Set(mentions)], // Remove duplicates
+      cleanedQuery: cleanedQuery.replace(/\s+/g, ' ').trim(), // Normalize whitespace
+    };
+  }
+
+  /**
    * Analyze a user query and find relevant modules
    * This is the FAST LAYER 1 lookup
+   * 
+   * NEW: Supports @mentions (e.g., @drive, @hr) to skip keyword matching
+   * When @mentions are present, directly targets those modules for maximum efficiency
    */
   async analyzeQuery(query: string, userId: string): Promise<AIQueryAnalysis> {
     try {
       const queryLower = query.toLowerCase();
       const words = queryLower.split(/\s+/);
+
+      // 🚀 NEW: Check for @mentions first (fastest path)
+      const { moduleIds: mentionedModules, cleanedQuery } = this.extractMentions(query);
+      const hasMentions = mentionedModules.length > 0;
 
       // Get user's installed modules
       const userModules = await prisma.moduleInstallation.findMany({
@@ -143,6 +191,64 @@ export class ModuleAIContextService {
         },
       });
 
+      // 🚀 OPTIMIZATION: If @mentions found, skip keyword matching and directly target those modules
+      if (hasMentions) {
+        // Filter to only mentioned modules that are installed
+        const mentionedAndInstalled = mentionedModules.filter((id) =>
+          installedModuleIds.includes(id)
+        );
+
+        if (mentionedAndInstalled.length > 0) {
+          const mentionedEntries = registryEntries.filter((entry) =>
+            mentionedAndInstalled.includes(entry.moduleId)
+          );
+
+          // Create high-relevance matches for mentioned modules
+          const matchedModules = mentionedEntries.map((entry: Record<string, any>) => ({
+            moduleId: entry.moduleId,
+            moduleName: entry.moduleName,
+            confidence: 1.0, // Maximum confidence for explicit mentions
+            matchedKeywords: [],
+            matchedPatterns: [],
+            relevance: 'high' as const,
+            score: 100, // Maximum score
+            contextProviders: entry.contextProviders as any,
+          }));
+
+          // Get suggested context providers for mentioned modules
+          const suggestedContextProviders = matchedModules
+            .flatMap((m: Record<string, any>) =>
+              ((m.contextProviders as any[]) || []).map((provider: Record<string, any>) => ({
+                moduleId: m.moduleId,
+                providerName: provider.name,
+                endpoint: provider.endpoint.replace(':id', m.moduleId),
+              }))
+            );
+
+          console.log(
+            `⚡ @Mention Optimization: Query "${query}" directly targets ${mentionedAndInstalled.length} module(s): ${mentionedAndInstalled.join(', ')} (cleaned: "${cleanedQuery}")`
+          );
+
+          return {
+            query: cleanedQuery, // Return cleaned query without @mentions
+            matchedModules: matchedModules.map(({ contextProviders, score, ...rest }: Record<string, any>) => rest) as Array<{
+              moduleId: string;
+              moduleName: string;
+              confidence: number;
+              matchedKeywords: string[];
+              matchedPatterns: string[];
+              relevance: 'high' | 'medium' | 'low';
+            }>,
+            suggestedContextProviders: suggestedContextProviders as Array<{
+              moduleId: string;
+              providerName: string;
+              endpoint: string;
+            }>,
+          };
+        }
+      }
+
+      // Fallback to keyword/pattern matching (original behavior when no @mentions)
       // Score each module based on keyword/pattern matching
       const matchedModules = registryEntries
         .map((entry: Record<string, any>) => {

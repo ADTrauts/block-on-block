@@ -1,12 +1,433 @@
 # Active Context - Vssyl Business Admin & AI Integration
 
-## Current Focus: Employee Onboarding Module — COMPLETE ✅
+## Recent Enhancement: Folder Permissions & Sharing Implementation — COMPLETE ✅
+
+### **Folder Permissions & Sharing System (December 2025)**
+**Goal**: Implement comprehensive folder-level permissions and sharing functionality to match file sharing capabilities
+
+**What Was Accomplished**:
+- ✅ **Database Schema**: Added `FolderPermission` model with `canRead` and `canWrite` permissions, linked to `Folder` and `User` models
+- ✅ **Backend Controller**: Created `folderPermissionController.ts` with full CRUD operations (list, grant, update, revoke permissions)
+- ✅ **Backend Routes**: Added permission endpoints to `/api/drive/folders/:id/permissions`
+- ✅ **Permission Checks**: Integrated permission validation into all folder operations (create, update, delete, move, reorder)
+- ✅ **Shared Items API**: Updated `getSharedItems` to include folders with permissions in shared items list
+- ✅ **Frontend API Client**: Added folder permission functions to `drive.ts` API client
+- ✅ **UI Integration**: Enabled folder sharing in `DriveModule.tsx` via `ShareModal` component
+- ✅ **Share Link System**: Implemented automatic share link generation for non-user emails with `ShareLinkModal` component
+- ✅ **Shared Page Enhancement**: Updated `/drive/shared` page to handle query parameters (`?file=xxx` or `?folder=xxx`) for direct access
+- ✅ **Download Improvements**: Enhanced file download logic to detect file location from URL (GCS vs local) automatically
+
+**Technical Implementation**:
+- **Database**: `FolderPermission` model with unique constraint on `[folderId, userId]` and proper indexes
+- **Backend**: Permission checks use helper functions `canReadFolder()` and `canWriteFolder()` for consistency
+- **Frontend**: `ShareModal` component supports both files and folders with conditional API calls
+- **Share Links**: Auto-generated links format: `/drive/shared?file=xxx` or `/drive/shared?folder=xxx`
+- **Non-User Sharing**: When sharing with non-registered email, system generates share link and displays `ShareLinkModal` with copy functionality
+- **File Download**: Smart detection of file location (GCS URLs vs local paths) with fallback logic
+
+**Files Created**:
+- `server/src/controllers/folderPermissionController.ts` — Complete folder permission management (260 lines)
+- `shared/src/components/ShareLinkModal.tsx` — Modal for displaying share links to non-users (126 lines)
+
+**Files Modified**:
+- `prisma/modules/drive/files.prisma` — Added `FolderPermission` model and `permissions` relation
+- `prisma/modules/auth/user.prisma` — Added `folderPermissions` relation
+- `server/src/routes/folder.ts` — Added permission endpoints
+- `server/src/controllers/folderController.ts` — Added permission checks to all operations
+- `server/src/controllers/fileController.ts` — Updated `getSharedItems` to include folders, improved download logic
+- `web/src/api/drive.ts` — Added folder permission functions and improved share-by-email logic
+- `web/src/components/modules/DriveModule.tsx` — Enabled folder sharing, integrated ShareLinkModal
+- `web/src/app/drive/shared/page.tsx` — Added query parameter handling and specific item display
+- `shared/src/components/ShareModal.tsx` — Enhanced to always display shareable links
+
+**Key Features**:
+1. **Folder Permissions**: Granular `canRead` and `canWrite` permissions per user per folder
+2. **Permission Inheritance**: Creating folders in shared folders requires write permission
+3. **Shared Folders View**: Folders shared with user appear in "Shared" section
+4. **Share Link Generation**: Automatic link creation for non-user email sharing
+5. **ShareLinkModal**: User-friendly modal showing share link with copy functionality
+6. **Direct Link Access**: Share links (`/drive/shared?file=xxx`) display specific item details
+7. **Smart Download**: File download automatically detects GCS vs local storage from URL
+
+**Result**: ✅ Complete folder permissions system matching file permissions, seamless sharing experience for both registered and non-registered users
+
+---
+
+## Recent Fix: Dashboard Page Errors & Drive Download Functionality — COMPLETE ✅
+
+### **Dashboard Page & Drive Download Fixes (December 2025)**
+**Issue**: Multiple errors preventing dashboard access and file downloads
+- Dashboard page returning 500 errors with "Cannot read properties of null (reading 'useContext')"
+- Parallel route warnings in Next.js
+- File downloads failing with 404 errors and ENOENT errors
+- File paths in database containing full URLs instead of relative paths
+
+**Solution**: Comprehensive fixes for dashboard rendering and file download system
+
+**What Was Accomplished**:
+- ✅ **Dashboard Page Converted to Client Component**: Changed from server component to client component to avoid SSR context issues
+- ✅ **Authentication Flow Fixed**: Moved authentication checks to `useEffect` to prevent SSR errors
+- ✅ **File Download Path Handling**: Fixed download function to use `file.path` from database instead of parsing URLs
+- ✅ **File Existence Checks**: Added proper file existence validation before attempting downloads
+- ✅ **Error Logging Enhanced**: Improved error logging for download operations with detailed context
+- ✅ **Path Extraction Logic**: Added fallback logic to extract paths from URLs when `file.path` is not available
+- ✅ **Storage Provider Handling**: Proper handling for both GCS and local storage providers
+
+**Technical Implementation**:
+- Dashboard page now uses `useSession` hook instead of `getServerSession`
+- Download function prioritizes `file.path` over `file.url` for local storage
+- Proper path construction using `LOCAL_UPLOAD_DIR` environment variable
+- File existence validation with `fs.existsSync()` before download
+- Enhanced error messages showing file path, URL, and database path for debugging
+
+**Files Modified**:
+- `web/src/app/dashboard/[id]/page.tsx` — Converted to client component, fixed authentication flow
+- `web/src/app/dashboard/[id]/error.tsx` — Enhanced error boundary with better error display
+- `server/src/controllers/fileController.ts` — Fixed download function path handling, added file existence checks
+- `server/src/controllers/fileController.ts` — Added `fs` import for file system operations
+
+**Result**: ✅ Dashboard pages load correctly without SSR errors, file downloads work for both local and GCS storage
+
+---
+
+## Recent Fix: Calendar RSVP UI Improvements — COMPLETE ✅
+
+### **Calendar RSVP Functionality (December 2025)**
+**Issue**: Personal calendar modal (`/calendar/month`) lacked RSVP buttons for accepting/declining event invitations  
+**Solution**: Added RSVP functionality to personal calendar event modal with user-friendly status display
+
+**What Was Accomplished**:
+- ✅ **RSVP Buttons in Personal Calendar Modal**: Added Accept, Maybe, and Decline buttons to the Attendees section
+- ✅ **Conditional Display**: RSVP buttons only appear when the current user is an attendee of the event
+- ✅ **Visual Feedback**: Selected button is highlighted (e.g., green for Accepted, red for Declined, yellow for Tentative)
+- ✅ **Auto-Refresh**: After RSVP, event data and calendar list automatically refresh to show updated status
+- ✅ **User-Friendly Status Display**: Changed raw status codes to readable labels:
+  - `NEEDS_ACTION` → "Pending Response"
+  - `ACCEPTED` → "Accepted"
+  - `DECLINED` → "Declined"
+  - `TENTATIVE` → "Tentative"
+- ✅ **API Method Fix**: Fixed incorrect `listEventsInRange` calls to use correct `listEvents` method with proper parameters
+
+**Technical Implementation**:
+- RSVP buttons appear in Attendees section header when `currentUserEmail` or `currentUserId` matches an attendee
+- Uses `calendarAPI.rsvp(eventId, response)` to update attendee status
+- Refreshes events list using `calendarAPI.listEvents()` with proper context and calendar filtering
+- Status badges use color-coded styling (green for accepted, red for declined, yellow for tentative, gray for pending)
+
+**Files Modified**:
+- `web/src/app/calendar/month/page.tsx` — Added RSVP buttons, user-friendly status display, fixed API method calls
+
+**Result**: ✅ Users can now easily accept/decline event invitations directly from the personal calendar modal with clear visual feedback
+
+---
+
+## Recent Fix: Session Timing & Authentication Race Condition — COMPLETE ✅
+
+### **Session Timing Fix (November 2025)**
+**Issue**: 403 errors on initial login due to API calls firing before session was ready  
+**Solution**: Implemented three-layer session readiness protection:
+1. **Login Page**: Polls for actual session availability before redirecting
+2. **SessionReadyGate Component**: Global gate preventing all authenticated providers from mounting until session token is confirmed
+3. **Context-Level Checks**: BusinessConfigurationContext and other contexts check for session before API calls
+- See `troubleshooting.md` for full technical details
+
+**Result**: ✅ No more 403 errors on initial login, smooth user experience, all contexts wait for session before mounting
+
+---
+
+## Current Focus: Schedule Builder Advanced Features & UI Polish — COMPLETE ✅
+
+### **Latest Session Highlights** 🎉
+**Date**: November 25, 2025  
+**Focus**: Auto-save functionality, station/position drag-and-drop, default timeframes, color picker, modal improvements, and When I Work visualization.
+
+#### **What Was Accomplished**
+
+**Auto-Save Functionality (November 25, 2025)**  
+- ✅ **Debounced Auto-Save**: Layout changes (layoutMode, viewMode) auto-save 1 second after last change
+- ✅ **Interval Auto-Save**: Additional 5-minute interval auto-save as backup
+- ✅ **Removed Manual Save Button**: Save Layout button removed from toolbar (auto-save handles it)
+- ✅ **Schedule Date Display**: Removed redundant date range from header (cleaner UI)
+
+**Build Tools Integration (November 20-25, 2025)**  
+- ✅ **Unified Sidebar**: Employees, Positions, and Stations integrated into single "BUILD TOOLS" section
+- ✅ **Expandable Categories**: Each category (Employees, Positions, Stations) is expandable with draggable cards
+- ✅ **Default Timeframes**: Positions and Stations can have `defaultStartTime` and `defaultEndTime` that pre-populate shift times
+- ✅ **Draggable Resource Cards**: All three resource types (employee, position, station) can be dragged to create shifts
+- ✅ **Visual Feedback**: DragOverlay shows green card with resource details during drag
+- ✅ **Card Persistence**: Cards remain visible (opacity-30) during drag, preventing disappearing issue
+
+**Shift Modal Improvements (November 20-25, 2025)**  
+- ✅ **Station Dropdown**: Added station selection dropdown to shift creation/edit modal
+- ✅ **Color Picker**: Functional color picker that saves to database (8 color options)
+- ✅ **Dynamic Button Text**: Button shows "CREATE SHIFT" for new shifts, "SAVE" for editing existing shifts
+- ✅ **Contextual Labels**: Shift blocks show position/station in employee view, employee name in position/station view
+- ✅ **Time Display**: Shift time always shown at top of shift block
+
+**When I Work Visualization (November 20-25, 2025)**  
+- ✅ **Shift Block Styling**: Diagonal stripe pattern for conflicts/open shifts, red triangle warning indicator
+- ✅ **Time Format**: "9a ~ 5p" style time display
+- ✅ **Color Schemes**: Gray with stripes for conflicts, solid colors for confirmed shifts
+- ✅ **Employee Row Enhancements**: Total hours per employee, profile icon, yellow warning indicators
+- ✅ **Open Shifts Row**: Green background with green circle + question mark icon
+- ✅ **Summary Row**: "Assigned Total" label with total hours, red exclamation marks for days with issues
+
+**Layout Mode Improvements (November 20-25, 2025)**  
+- ✅ **Combined Position/Station View**: Single "Position/Station" layout mode button (replaces separate buttons)
+- ✅ **Day View Navigation**: Previous/Next day buttons when in day view mode
+- ✅ **Availability Conflict Detection**: Conflicts detected and displayed in all layout modes (not just employee view)
+
+**Authentication & Routing Fixes (November 25, 2025)**  
+- ✅ **Server Layout Auth**: Made workspace layout less aggressive with auth checks (prevents redirect loops)
+- ✅ **Client-Side Auth**: Added client-side auth protection in DashboardLayoutWrapper
+- ✅ **Session Handling**: Fixed session cookie issues causing redirects to login
+
+**Previous Focus: Schedule Builder Reliability & Member Shift Persistence — COMPLETE ✅**
+
+### **Previous Session Highlights** 🎉
+**Date**: November 19, 2025  
+**Focus**: Ensuring drag-and-drop works for member employees, persisting open-shift assignments, and hardening backend validation.
+
+#### **What Was Accomplished**
+
+**Member Employee Support**  
+- ✅ **Synthetic Employee Rows** now persist after reloads. `memberShiftAssignments` map (shiftId → memberUserId) is hydrated from `localStorage` on mount and written back whenever assignments change.  
+- ✅ **Schedule Calendar Rendering** uses the assignment map so open shifts follow the correct member row in both week and day views.  
+- ✅ **Shift Edit Modal** dropdown understands `member-*` IDs, auto-sending `employeePositionId: null` and recording the member mapping.
+
+**Shift Update Reliability**  
+- ✅ **Drag-and-drop updates** always include `employeePositionId` (explicit `null`) so backend knows a shift remains open when moved between member employees.  
+- ✅ **Concurrent updates guarded** with `updatingShiftIds` to prevent duplicate mutations and ghost shifts.  
+- ✅ **Post-update refresh** now calls `fetchShifts(scheduleId)` directly so totals/footer recalc immediately.
+
+**Backend Validation & Error Surfacing**  
+- ✅ `server/src/controllers/schedulingController.ts` rejects invalid `employeePositionId` values up front (UUID check + `member-*` handling), disconnects relations safely, and keeps `isOpenShift` in sync.  
+- ✅ API client (`web/src/api/scheduling.ts`) and `useScheduling` hook bubble up detailed errors so the UI no longer shows false positives (“Shift updated successfully”) when backend failed.
+
+**Quality-of-life polish**  
+- ✅ Week/day totals stay accurate because the assignment map is cleaned whenever shifts reload.  
+- ✅ Drag logs now include source/target context which made debugging member rows fast.  
+- ✅ Job location/station fields remain intact during drag thanks to cautious `updates` payload construction.
+
+#### **Technical Implementation Details**
+
+- **State Persistence**: `memberShiftAssignments` initializes from `localStorage` key `memberShiftAssignments_${businessId}_${scheduleId}` and is written back via `useEffect`. Invalid or stale entries are pruned whenever shifts reload.  
+- **Calendar Filtering**: `ScheduleCalendarGrid` receives the assignment map and, when rendering employee layout, matches `member-*` rows by looking up the stored memberUserId.  
+- **Shift Updates**: `handleDragEnd` builds an `updates` payload that always carries `startTime`, `endTime`, and the correct `employeePositionId` (UUID or `null`). Member rows trigger explicit null assignment plus map update/logging.  
+- **Backend Safeguards**: `updateShift` treats `member-*` IDs and empty strings as disconnects, validates UUIDs before `connect`, and logs structured errors when user input is invalid.
+
+#### **Files Modified (This Session)**
+- `web/src/components/scheduling/ScheduleBuilderVisual.tsx` — localStorage persistence, assignment map hygiene, improved drag/drop logging, error handling.  
+- `web/src/components/scheduling/ScheduleCalendarGrid.tsx` — renders member rows using assignment map so open shifts stay visible.  
+- `web/src/api/scheduling.ts` & `web/src/hooks/useScheduling.ts` — richer error propagation for create/update shift calls.  
+- `server/src/controllers/schedulingController.ts` — UUID validation + explicit disconnect/connect logic for `employeePositionId`, `stationName`, `locationId`.
+
+---
+
+## Previous Focus: Schedule Builder UI/UX Enhancements — COMPLETE ✅
+
+---
+
+## Previous Focus: Scheduling Module UI/UX Enhancement & Shift Swap Implementation — COMPLETE ✅
+
+### **Previous Session Highlights** 🎉
+**Date**: November 14, 2025  
+**Focus**: Complete shift swap functionality, UI/UX improvements, and layout redesign
+
+#### **What Was Accomplished**
+- ✅ **Shift Swap Backend Implementation**: Fully functional shift swap request, approval, and denial system
+  - `requestShiftSwap` - Employees can request swaps for their shifts
+  - `approveShiftSwapAdmin` / `denyShiftSwapAdmin` - Admin approval/denial
+  - `approveShiftSwapManager` / `denyShiftSwapManager` - Manager approval/denial
+  - `getPendingShiftSwapRequestsForTeam` - Manager view of pending swaps
+  - Automatic shift assignment when swaps are approved
+- ✅ **Shift Swap Frontend UI**: Complete employee and manager interfaces
+  - Employee view: List swap requests, request new swaps, view status
+  - Manager view: Approve/deny swap requests with notes
+  - Status badges (PENDING, APPROVED, DENIED)
+  - Integration with schedule data
+- ✅ **Layout Redesign**: Modern sidebar navigation system
+  - Left sidebar with role-based navigation (Dashboard, Schedule Builder, Templates, Analytics, etc.)
+  - Central dashboard as default view with key metrics
+  - Removed internal tabs in favor of sidebar navigation
+  - All pages live within global header and sidebars
+- ✅ **Schedule Builder Functionality**: Full CRUD operations
+  - Create/Edit/Delete schedules with modals
+  - Create/Edit/Delete shifts with detailed forms
+  - Schedule detail view with shift management
+  - Publish schedules functionality
+  - Schedule status management (DRAFT, PUBLISHED)
+- ✅ **Templates & Analytics Views**: Functional implementations
+  - Templates view: List published schedules as templates
+  - Analytics view: Key metrics and detailed breakdowns
+- ✅ **UI/UX Improvements**: Enhanced readability and design
+  - Fixed light gray text in modals (changed to `text-gray-900`)
+  - Updated Input and Textarea components with proper text colors
+  - Sleeker stat cards with improved typography and spacing
+  - Better visual hierarchy and hover effects
+- ✅ **Text Color Fixes**: Improved modal and form readability
+  - All form labels changed from `text-gray-700` to `text-gray-900`
+  - Input/Textarea components now use `text-gray-900` for text
+  - Placeholders remain light gray for proper contrast
+
+#### **Technical Implementation Details**
+**Backend Functions Implemented**:
+- `requestShiftSwap` - Validates shift ownership, creates swap request with 7-day expiration
+- `approveShiftSwapAdmin` / `approveShiftSwapManager` - Updates status, assigns employee if specified
+- `denyShiftSwapAdmin` / `denyShiftSwapManager` - Updates status with manager notes
+- `getPendingShiftSwapRequestsForTeam` - Filters by direct reports for managers
+
+**Frontend Components Created/Updated**:
+- `SchedulingLayout.tsx` - Main layout wrapper with sidebar and content area
+- `SchedulingSidebar.tsx` - Role-based navigation sidebar
+- `SchedulingDashboard.tsx` - Default dashboard view with stats and calendar
+- `SchedulingAdminContent.tsx` - Admin views (Builder, Templates, Analytics) with full CRUD
+- `SchedulingTeamContent.tsx` - Manager views (Team Schedules, Swap Approvals)
+- `SchedulingEmployeeContent.tsx` - Employee views (My Schedule, Availability, Swaps, Open Shifts)
+- `SchedulingContentView.tsx` - Content router based on view and role
+
+**API Client Updates**:
+- `approveShiftSwap` / `denyShiftSwap` - Support for both admin and manager endpoints
+- Updated to use correct endpoint based on scope (admin vs manager)
+
+#### **Module Status**
+- ✅ **Backend**: 100% functional - All CRUD operations, shift swaps, permissions
+- ✅ **Frontend**: 100% functional - Complete UI with sidebar navigation
+- ✅ **Shift Swaps**: 100% functional - Request, approve, deny workflow complete
+- ✅ **UI/UX**: 100% improved - Readable text, sleek design, modern layout
+- ✅ **Integration**: Ready for HR module integration (time-off blocking, employee data)
+
+---
+
+## Previous Focus: Scheduling Module Marketplace Registration — COMPLETE ✅
+
+### **Previous Session Highlights** 🎉
+**Date**: November 13, 2025 (Evening Session)  
+**Focus**: Scheduling Module added to marketplace catalog
+
+#### **What Was Accomplished**
+- ✅ **Updated Module Seed Script**: Added HR and Scheduling to `scripts/ensure-builtin-modules.ts`
+- ✅ **Fixed Category Enum**: Changed from "BUSINESS" to "PRODUCTIVITY" (valid enum value)
+- ✅ **Created Scheduling Module Record**: Successfully inserted into Module table
+- ✅ **Verified Database**: All 5 built-in modules now registered:
+  - Drive (free, PRODUCTIVITY)
+  - Chat (free, COMMUNICATION)  
+  - Calendar (free, PRODUCTIVITY)
+  - HR Management (business-advanced, PRODUCTIVITY)
+  - **Scheduling (business-basic, PRODUCTIVITY)** ✨ NEW
+- ✅ **Marketplace Ready**: Businesses can now install Scheduling module from catalog
+
+---
+
+## Previous Focus: AI Context Implementation — COMPLETE ✅
+
+### **Previous Session Highlights** 🎉
+**Date**: November 13, 2025 (Earlier)  
+**Focus**: Comprehensive AI Context implementation for HR & Scheduling modules
+
+#### **What Was Built** (This Session)
+- ✅ **HR AI Context Controller**: Created `server/src/controllers/hrAIContextController.ts` with 3 comprehensive context providers
+- ✅ **HR Context Endpoints**: 
+  - `hr_overview` → Returns employee counts, time-off stats, recent hires, staffing levels
+  - `employee_count` → Provides headcount breakdown by department and position
+  - `time_off_summary` → Shows who's off today/this week, pending requests, daily breakdown
+- ✅ **Scheduling AI Context**: Replaced stub implementations in `schedulingController.ts` with full logic
+- ✅ **Scheduling Context Endpoints**:
+  - `scheduling_overview` → Returns schedule stats, fill rates, upcoming schedules
+  - `coverage_status` → Shows who's working today/tomorrow, coverage rates by day
+  - `scheduling_conflicts` → Identifies open shifts, pending swaps, overlapping shifts
+- ✅ **Controller Integration**: Updated `hrController.ts` to re-export functions from `hrAIContextController.ts`
+- ✅ **Type Safety**: All implementations use proper TypeScript types (no `any`, proper error handling)
+- ✅ **Error Logging**: Consistent `catch (error: unknown)` pattern with structured logging
+- ✅ **Documentation Created**: 
+  - Created `memory-bank/aiContextSystem.md` (524 lines) - Comprehensive AI context documentation
+  - Updated `.cursor/rules/coding-standards.mdc` - Added AI context as MANDATORY for all modules
+  - AI context is now a non-negotiable requirement for module development
+
+#### **AI System Status** (All Modules)
+- ✅ **Drive**: AI context implemented (recent files, storage stats, file queries)
+- ✅ **Chat**: AI context implemented (conversations, unread messages, history)
+- ✅ **Calendar**: AI context implemented (upcoming events, today's schedule, availability)
+- ✅ **HR**: AI context implemented ✨ NEW
+- ✅ **Scheduling**: AI context implemented ✨ NEW
+
+#### **What the AI Can Now Answer**
+**HR Questions**:
+- "How many employees do we have?" → Total, active, by employment type, by department
+- "Who's off today?" → Lists all employees on time-off with details
+- "Show me the attendance summary" → Staffing levels and pending requests
+- "What's our headcount by department?" → Breaks down employees by department/position
+
+**Scheduling Questions**:
+- "Who's working tomorrow?" → Shows all scheduled shifts with employee details
+- "Are there any open shifts this week?" → Lists unfilled shifts that need coverage
+- "Show me the coverage status" → Coverage rates by day with gaps identified
+- "What scheduling conflicts do we have?" → Overlapping shifts and swap requests
+
+---
+
+## Previous Focus: Scheduling Module — COMPLETE ✅
+
+### **Session Highlights** 🎉
+**Date**: November 13, 2025 (Earlier)  
+**Focus**: Complete end-to-end Scheduling Module implementation
+
+#### **What Was Built**
+- ✅ **Scheduling Module Foundation**: Separate from HR module - focuses on planning future shifts (vs HR tracking past attendance)
+- ✅ **Database Schema**: 6 Prisma models (Schedule, ScheduleShift, ShiftTemplate, EmployeeAvailability, ShiftSwapRequest, ScheduleTemplate)
+- ✅ **API Structure**: Full REST API with admin, manager, and employee routes (40+ endpoints)
+- ✅ **Permission System**: Three-tier access control with businessId extraction from requests
+- ✅ **Feature Gating**: Module subscription validation middleware
+- ✅ **AI Integration**: Full AI context with keywords, patterns, entities, actions, and context providers
+- ✅ **Server Integration**: Routes registered, module added to built-in modules registry, Prisma build script updated
+- ✅ **Frontend Complete**: API client, React hooks, and all 3 UI pages
+
+#### **Architecture Decision Made**
+**Keep Both HR & Scheduling Modules**:
+- **HR Module**: Tracks what ACTUALLY happened (attendance, clock in/out, payroll)
+- **Scheduling Module**: Plans what SHOULD happen (shift planning, coverage, assignments)
+- **Integration**: They talk to each other (time-off blocks availability, published schedules create expected attendance)
+- **Business Need**: Some businesses need scheduling without full HR, others need both
+
+#### **Complete Implementation** (Today)
+**Backend (100%)**:
+- ✅ Created `schedulingProductContext.md` - 719 lines comprehensive documentation
+- ✅ Created `prisma/modules/scheduling/core.prisma` - complete schema with all relations
+- ✅ Added scheduling relations to Business, User, and EmployeePosition models
+- ✅ Created `server/src/routes/scheduling.ts` - 120+ lines of API routes
+- ✅ Created `server/src/middleware/schedulingPermissions.ts` - 240+ lines permission middleware
+- ✅ Created `server/src/middleware/schedulingFeatureGating.ts` - module subscription validation
+- ✅ Created `server/src/controllers/schedulingController.ts` - 877 lines with all CRUD operations
+- ✅ Registered routes in `server/src/index.ts`
+- ✅ Registered module in `registerBuiltInModules.ts` with full AI context
+- ✅ Updated `scripts/build-prisma-schema.js` to include scheduling module
+- ✅ Ran Prisma build and generate successfully
+
+**Frontend (100%)**:
+- ✅ Created `web/src/api/scheduling.ts` - Complete API client with TypeScript types (500+ lines)
+- ✅ Created `web/src/hooks/useScheduling.ts` - Comprehensive React hook (600+ lines)
+- ✅ Created `web/src/app/business/[id]/admin/scheduling/page.tsx` - Admin dashboard with calendar view
+- ✅ Created `web/src/app/business/[id]/workspace/scheduling/me/page.tsx` - Employee self-service
+- ✅ Created `web/src/app/business/[id]/workspace/scheduling/team/page.tsx` - Manager team view
+
+#### **Next Steps** (Enhancement Phase)
+- Test scheduling module in development environment
+- Create database migration for production deployment
+- Implement advanced features: drag-and-drop builder, shift templates UI, labor forecasting
+- Build HR integration: time-off → availability blocking, schedules → expected attendance
+- Add real-time WebSocket updates for schedule changes
+
+---
+
+## Previous Focus: Employee Onboarding Module — COMPLETE ✅
 
 ### **Latest Session Highlights** 🎉
 **Date**: November 12, 2025  
 **Focus**: Shipping the onboarding module end-to-end and validating production readiness
 
-#### **What Shipped**
+- #### **What Shipped**
+- ✅ **Onboarding Asset Delivery**: Admins can attach documents, equipment, and uniform catalog items to onboarding checklists; new journeys automatically copy referenced files into each hire’s `Employee Documents` drive folder.
+- ✅ **HR Settings Enhancements**: The module settings editor now includes reusable equipment and uniform libraries with metadata (SKU, sizing, care instructions) that pre-fill checklist items and stay in sync with business catalogs.
 - ✅ **Prisma Module & Relations**: Added `prisma/modules/hr/onboarding.prisma` with templates, task templates, journeys, and task instances, plus back-relations on `Business` and `EmployeeHRProfile` so multi-tenant scoping is enforced.
 - ✅ **Backend Services & Routes**: `hrOnboardingService` now exposes template CRUD, journey creation, employee/manager task lists, and completion flows; `hrController` + `hr.ts` deliver new admin/employee/manager endpoints behind the onboarding feature gate.
 - ✅ **Frontend Surfaces**:  
@@ -16,11 +437,12 @@
 - ✅ **Shared Utilities**: `useHRFeatures` understands the onboarding feature flag, the module settings context merges onboarding config safely, and the Next.js module settings page keeps state in sync with the overlay dialog.
 - ✅ **Tooling & Verification**: Ran `pnpm prisma:generate` after relation updates, executed the new migration, and confirmed `pnpm type-check` passes across server/web packages.
 
-#### **Outstanding / Next Steps**
-- Capture onboarding analytics (journey velocity, task completion SLAs) and surface them in the admin dashboard.
-- Add notification hooks (email/Slack) when tasks require approvals or when new hires fall behind schedule.
-- Seed default onboarding templates per industry/tier to accelerate business setup.
-- Begin scoping the Training & Learning module (next item in the master module roadmap).
+- #### **Outstanding / Next Steps**
+- Capture onboarding analytics (journey velocity, task completion SLAs) and surface them in the admin dashboard.                                                
+- Add notification hooks (email/Slack) when tasks require approvals or when new hires fall behind schedule.                                                     
+- Integrate equipment/uniform catalogs with inventory fulfillment (assignment tracking and receipt confirmation).                                               
+- Seed default onboarding templates per industry/tier to accelerate business setup.                                                                             
+- Begin scoping the Training & Learning module (next item in the master module roadmap).                                                                        
 
 ---
 

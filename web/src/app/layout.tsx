@@ -6,7 +6,7 @@ import SessionProvider from "./SessionProvider";
 import HydrationHandler from "./HydrationHandler";
 import { DashboardProvider } from "../contexts/DashboardContext";
 import { WorkAuthProvider } from "../contexts/WorkAuthContext";
-import React, { useEffect } from "react";
+import React from "react";
 import { ThemeProvider } from '../components/ThemeProvider';
 import { GlobalBrandingProvider } from "../contexts/GlobalBrandingContext";
 import { GlobalSearchProvider } from "../contexts/GlobalSearchContext";
@@ -16,6 +16,9 @@ import { ToastProvider } from 'shared/components/ToastProvider';
 import { ChatProvider } from '../contexts/ChatContext';
 import { GlobalTrashProvider } from '../contexts/GlobalTrashContext';
 import DevelopmentHelper from './DevelopmentHelper';
+import { SessionReadyGate } from '../components/auth/SessionReadyGate';
+import { AuthErrorProvider } from '../contexts/AuthErrorContext';
+import { LoginModal } from '../components/auth/LoginModal';
 
 export const dynamic = "force-dynamic";
 
@@ -59,26 +62,31 @@ export default function RootLayout({
         <ThemeProvider>
           <HydrationHandler>
             <SessionProvider>
-              <WorkAuthProvider>
-              <DashboardProvider>
-                  <GlobalBrandingProvider>
-                    <GlobalSearchProvider>
-                      <ChatProvider>
-                        <GlobalTrashProvider>
-                          <ToastProvider>
-                            <ErrorBoundaryWrapper>
-                              {children}
-                              <StackableChatContainer />
-                              <Toaster position="top-right" />
-                              <DevelopmentHelper />
-                            </ErrorBoundaryWrapper>
-                          </ToastProvider>
-                        </GlobalTrashProvider>
-                      </ChatProvider>
-                    </GlobalSearchProvider>
-                  </GlobalBrandingProvider>
-              </DashboardProvider>
-              </WorkAuthProvider>
+              <SessionReadyGate>
+                <WorkAuthProvider>
+                  <DashboardProvider>
+                    <GlobalBrandingProvider>
+                      <GlobalSearchProvider>
+                        <ChatProvider>
+                          <GlobalTrashProvider>
+                            <AuthErrorProvider>
+                              <ToastProvider>
+                                <ErrorBoundaryWrapper>
+                                  {children}
+                                  <StackableChatContainer />
+                                  <Toaster position="top-right" />
+                                  <LoginModal />
+                                  <DevelopmentHelper />
+                                </ErrorBoundaryWrapper>
+                              </ToastProvider>
+                            </AuthErrorProvider>
+                          </GlobalTrashProvider>
+                        </ChatProvider>
+                      </GlobalSearchProvider>
+                    </GlobalBrandingProvider>
+                  </DashboardProvider>
+                </WorkAuthProvider>
+              </SessionReadyGate>
             </SessionProvider>
           </HydrationHandler>
         </ThemeProvider>

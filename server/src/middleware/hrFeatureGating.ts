@@ -35,6 +35,26 @@ interface HRFeatures {
   benefits: boolean;
 }
 
+type HRFeatureOverrides = {
+  employees?: {
+    enabled?: boolean;
+    customFields?: boolean;
+  };
+  attendance?: {
+    enabled?: boolean;
+    clockInOut?: boolean;
+    geolocation?: boolean;
+  };
+  onboarding?: {
+    enabled?: boolean;
+    automation?: boolean;
+  };
+  payroll?: boolean;
+  recruitment?: boolean;
+  performance?: boolean;
+  benefits?: boolean;
+};
+
 const TIER_FEATURES: Record<string, HRFeatures> = {
   business_advanced: {
     employees: {
@@ -86,13 +106,72 @@ export function getHRFeaturesForTier(tier: string): HRFeatures {
   return TIER_FEATURES[tier] || TIER_FEATURES.business_advanced;
 }
 
+function applyFeatureOverrides(base: HRFeatures, overrides?: HRFeatureOverrides | null): HRFeatures {
+  if (!overrides) {
+    return base;
+  }
+
+  const employeesOverride = overrides.employees ?? {};
+  const employeesEnabled = base.employees.enabled && (employeesOverride.enabled ?? true);
+  const employeesCustomFields =
+    employeesEnabled && base.employees.customFields && (employeesOverride.customFields ?? true);
+
+  const attendanceOverride = overrides.attendance ?? {};
+  const attendanceEnabled = base.attendance.enabled && (attendanceOverride.enabled ?? true);
+  const attendanceClockInOut =
+    attendanceEnabled && base.attendance.clockInOut && (attendanceOverride.clockInOut ?? true);
+  const attendanceGeolocation =
+    attendanceEnabled && base.attendance.geolocation && (attendanceOverride.geolocation ?? true);
+
+  const onboardingOverride = overrides.onboarding ?? {};
+  const onboardingEnabled = base.onboarding.enabled && (onboardingOverride.enabled ?? true);
+  const onboardingAutomation =
+    onboardingEnabled && base.onboarding.automation && (onboardingOverride.automation ?? true);
+
+  return {
+    employees: {
+      enabled: employeesEnabled,
+      limit: employeesEnabled ? base.employees.limit : 0,
+      customFields: employeesCustomFields
+    },
+    attendance: {
+      enabled: attendanceEnabled,
+      clockInOut: attendanceClockInOut,
+      geolocation: attendanceGeolocation
+    },
+    onboarding: {
+      enabled: onboardingEnabled,
+      automation: onboardingAutomation
+    },
+    payroll: base.payroll && (overrides.payroll ?? true),
+    recruitment: base.recruitment && (overrides.recruitment ?? true),
+    performance: base.performance && (overrides.performance ?? true),
+    benefits: base.benefits && (overrides.benefits ?? true)
+  };
+}
+
+async function getHRFeatureOverrides(businessId: string): Promise<HRFeatureOverrides | null> {
+  const installation = await prisma.businessModuleInstallation.findUnique({
+    where: { moduleId_businessId: { moduleId: 'hr', businessId } },
+    select: { configured: true }
+  });
+
+  if (!installation?.configured) {
+    return null;
+  }
+
+  const configured = installation.configured as {
+    settings?: { hrFeatures?: HRFeatureOverrides };
+  } | null;
+
+  return configured?.settings?.hrFeatures ?? null;
+}
+
 /**
  * Check if tier has access to a specific HR feature
  * Feature path examples: 'payroll', 'attendance.clockInOut', 'employees.limit'
  */
-export function checkFeatureAccess(tier: string, featurePath: string): boolean {
-  const features = getHRFeaturesForTier(tier);
-  
+export function checkFeatureAccessByFeatures(features: HRFeatures, featurePath: string): boolean {
   // Parse feature path (e.g., "payroll", "attendance.clockInOut")
   const parts = featurePath.split('.');
   let current: unknown = features;
@@ -105,8 +184,29 @@ export function checkFeatureAccess(tier: string, featurePath: string): boolean {
     }
   }
   
-  // Feature exists - check if it's enabled (boolean) or has a value
+  if (typeof current === 'object' && current !== null) {
+    const record = current as Record<string, unknown>;
+    if (typeof record.enabled === 'boolean') {
+      return record.enabled;
+    }
+    const booleanValues = Object.values(record).filter(
+      (value): value is boolean => typeof value === 'boolean'
+    );
+    if (booleanValues.length > 0) {
+      return booleanValues.some(Boolean);
+    }
+    return true;
+  }
+
+  if (typeof current === 'number') {
+    return current > 0;
+  }
+
   return !!current;
+}
+
+export function checkFeatureAccess(tier: string, featurePath: string): boolean {
+  return checkFeatureAccessByFeatures(getHRFeaturesForTier(tier), featurePath);
 }
 
 /**
@@ -171,8 +271,13 @@ export function checkHRFeature(featureName: string) {
         });
       }
       
-      // Check feature access by tier
-      const hasAccess = checkFeatureAccess(tier, featureName);
+      let features = req.hrFeatures as HRFeatures | undefined;
+      if (!features) {
+        const overrides = await getHRFeatureOverrides(businessId);
+        features = applyFeatureOverrides(getHRFeaturesForTier(tier), overrides);
+      }
+
+      const hasAccess = checkFeatureAccessByFeatures(features, featureName);
       
       if (!hasAccess) {
         return res.status(403).json({
@@ -186,7 +291,7 @@ export function checkHRFeature(featureName: string) {
       // Attach tier info to request for use in controllers
       req.hrTier = tier;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      req.hrFeatures = getHRFeaturesForTier(tier) as any;
+      req.hrFeatures = features as any;
       
       next();
     } catch (error) {
@@ -240,10 +345,12 @@ export async function checkBusinessAdvancedOrHigher(
       });
     }
     
-    // Attach tier info for later use
+    const overrides = await getHRFeatureOverrides(businessId);
+    const features = applyFeatureOverrides(getHRFeaturesForTier(tier), overrides);
+    
     req.hrTier = tier;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    req.hrFeatures = getHRFeaturesForTier(tier) as any;
+    req.hrFeatures = features as any;
     
     next();
   } catch (error) {
@@ -315,10 +422,13 @@ export async function getBusinessHRFeatures(businessId: string): Promise<{
   
   const activeSub = business.subscriptions[0];
   const tier = activeSub?.tier || business.tier || 'free';
-  
+
+  const overrides = await getHRFeatureOverrides(businessId);
+  const features = applyFeatureOverrides(getHRFeaturesForTier(tier), overrides);
+
   return {
     tier,
-    features: getHRFeaturesForTier(tier)
+    features
   };
 }
 

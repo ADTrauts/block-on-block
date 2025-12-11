@@ -78,6 +78,8 @@ export interface Position {
   currentEmployees: number;
   permissions: PermissionData[];
   permissionSets: PermissionSet[];
+  defaultStartTime?: string | null;
+  defaultEndTime?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -163,6 +165,8 @@ export interface CreatePositionData {
   permissions?: PermissionData[];
   assignedModules?: any;
   customPermissions?: any;
+  defaultStartTime?: string;
+  defaultEndTime?: string;
 }
 
 export interface CreatePermissionData {

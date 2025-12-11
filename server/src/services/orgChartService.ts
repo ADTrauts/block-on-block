@@ -46,6 +46,8 @@ export interface CreatePositionData {
   assignedModules?: ModuleData[];
   maxOccupants?: number;
   customPermissions?: PermissionData[];
+  defaultStartTime?: string;
+  defaultEndTime?: string;
 }
 
 export interface OrgChartStructure {
@@ -220,7 +222,9 @@ export class OrgChartService {
         assignedModules: data.assignedModules as unknown as Prisma.InputJsonValue,
         maxOccupants: data.maxOccupants || 1,
         customPermissions: data.customPermissions as unknown as Prisma.InputJsonValue,
-      },
+        defaultStartTime: data.defaultStartTime || null,
+        defaultEndTime: data.defaultEndTime || null,
+      } as Prisma.PositionUncheckedCreateInput,
     });
   }
 
@@ -314,6 +318,12 @@ export class OrgChartService {
     }
     if (data.customPermissions) {
       updateData.customPermissions = data.customPermissions as any;
+    }
+    if (data.defaultStartTime !== undefined) {
+      updateData.defaultStartTime = data.defaultStartTime;
+    }
+    if (data.defaultEndTime !== undefined) {
+      updateData.defaultEndTime = data.defaultEndTime;
     }
     
     return await prisma.position.update({

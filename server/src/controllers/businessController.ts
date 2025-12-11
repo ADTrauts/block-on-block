@@ -27,6 +27,9 @@ interface UpdateBusinessRequest {
   email?: string;
   description?: string;
   branding?: Record<string, unknown>;
+  schedulingMode?: string;
+  schedulingStrategy?: string;
+  schedulingConfig?: Record<string, unknown>;
 }
 
 interface InviteMemberRequest {

@@ -1,13 +1,21 @@
 'use client';
 import { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { calendarAPI, EventItem } from '../../../api/calendar';
 import { useDashboard } from '../../../contexts/DashboardContext';
 import { CalendarProvider, useCalendarContext } from '../../../contexts/CalendarContext';
 import CalendarListSidebar from '../../../components/calendar/CalendarListSidebar';
-import EventDrawer from '../../../components/calendar/EventDrawer';
 import { useSession } from 'next-auth/react';
 import { chatSocket } from '../../../lib/chatSocket';
+import { 
+  Calendar as CalendarIcon, 
+  Clock,
+  MapPin,
+  Users,
+  Video
+} from 'lucide-react';
+import { Avatar } from 'shared/components';
 
 // Define Calendar type for the filter dropdown
 interface Calendar {
@@ -23,7 +31,9 @@ function MonthInner() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showDrawer, setShowDrawer] = useState(false);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
+  const eventClickRef = useRef<EventItem | null>(null);
   const [draftStart, setDraftStart] = useState<Date | undefined>(undefined);
   const [draftEnd, setDraftEnd] = useState<Date | undefined>(undefined);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
@@ -36,6 +46,47 @@ function MonthInner() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [calendars, setCalendars] = useState<Calendar[]>([]);
+
+  // Debug: Log when modal state changes
+  useEffect(() => {
+    const eventFromRef = eventClickRef.current;
+    console.log('📅 Personal Calendar: Modal state changed', { 
+      showEventModal, 
+      selectedEventId: selectedEvent?.id,
+      selectedEventTitle: selectedEvent?.title,
+      hasSelectedEvent: !!selectedEvent,
+      refEventId: eventFromRef?.id,
+      hasRefEvent: !!eventFromRef,
+      canShowModal: showEventModal && (selectedEvent || eventFromRef),
+      windowDefined: typeof window !== 'undefined'
+    });
+    if (showEventModal && (selectedEvent || eventFromRef)) {
+      const eventToShow = selectedEvent || eventFromRef;
+      console.log('📅 Personal Calendar: Modal should be visible', { 
+        showEventModal, 
+        selectedEventId: eventToShow?.id,
+        title: eventToShow?.title,
+        usingRef: !selectedEvent && !!eventFromRef
+      });
+      // Also check if modal element exists in DOM
+      setTimeout(() => {
+        const modal = document.querySelector('[data-calendar-modal="true"]');
+        console.log('📅 Personal Calendar: Modal in DOM?', { 
+          exists: !!modal, 
+          zIndex: modal ? window.getComputedStyle(modal as Element).zIndex : null,
+          display: modal ? window.getComputedStyle(modal as Element).display : null,
+          visibility: modal ? window.getComputedStyle(modal as Element).visibility : null,
+          opacity: modal ? window.getComputedStyle(modal as Element).opacity : null
+        });
+      }, 100);
+    } else if (showEventModal && !selectedEvent && !eventFromRef) {
+      console.warn('⚠️ Personal Calendar: showEventModal is true but no event available!', {
+        showEventModal,
+        selectedEvent,
+        refEvent: eventFromRef
+      });
+    }
+  }, [showEventModal, selectedEvent]);
 
   // Load calendars for filter dropdown
   useEffect(() => {
@@ -100,6 +151,27 @@ function MonthInner() {
     
     return filtered;
   }, [events, selectedCalendarFilter, selectedAttendeeFilter, selectedStatusFilter, debouncedSearchText, session]);
+
+  // Helper functions for modal
+  const formatTime = (timeString: string, timezone?: string) => {
+    const date = new Date(timeString);
+    if (timezone) {
+      return new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: timezone
+      }).format(date);
+    }
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getEventColor = (event: EventItem) => {
+    const calendar = calendars.find(c => c.id === event.calendarId);
+    return calendar?.color || '#3b82f6'; // Default to blue
+  };
 
   // Debounced search
   useEffect(() => {
@@ -286,7 +358,13 @@ function MonthInner() {
               {/* Action Buttons */}
               <div className="flex items-center space-x-2">
                 <button 
-                  onClick={() => setShowDrawer(true)} 
+                  onClick={() => {
+                    const now = new Date();
+                    setDraftStart(now);
+                    setDraftEnd(new Date(now.getTime() + 60 * 60 * 1000));
+                    setEditingEvent(null);
+                    // TODO: Open event creation modal or drawer
+                  }} 
                   className="px-3 py-1.5 rounded-lg font-medium text-white shadow-sm hover:shadow-md transition-all text-xs"
                   style={{ backgroundColor: 'var(--primary-green)' }}
                 >
@@ -483,8 +561,35 @@ function MonthInner() {
           <MonthGrid 
             viewDate={viewDate} 
             events={filteredEvents} 
-            onCellCreate={(start, end) => { setEditingEvent(null); setDraftStart(start); setDraftEnd(end); setShowDrawer(true); }} 
-            onEventClick={(ev) => { setEditingEvent(ev); setShowDrawer(true); }}
+            onCellCreate={(start, end) => { 
+              // This is for creating new events, not viewing existing ones
+              // Don't open the event modal - open the event drawer/editor instead
+              setEditingEvent(null); 
+              setDraftStart(start); 
+              setDraftEnd(end); 
+              // Don't set showEventModal here - this is for new event creation
+            }} 
+            onEventClick={(ev) => { 
+              console.log('📅 Personal Calendar: Event clicked', { 
+                eventId: ev.id, 
+                title: ev.title,
+                event: ev,
+                eventType: typeof ev,
+                hasId: !!ev.id,
+                eventKeys: Object.keys(ev)
+              });
+              // Store event in ref immediately to avoid race conditions
+              eventClickRef.current = ev;
+              // Set both states in a single batch
+              setSelectedEvent(ev);
+              setShowEventModal(true);
+              console.log('📅 Personal Calendar: Modal state set', { 
+                showEventModal: true, 
+                selectedEventId: ev.id,
+                eventPassed: !!ev,
+                refSet: !!eventClickRef.current
+              });
+            }}
             onEventMove={async (ev, deltaDays) => {
               const start = new Date(ev.occurrenceStartAt || ev.startAt);
               const end = new Date(ev.occurrenceEndAt || ev.endAt);
@@ -518,17 +623,340 @@ function MonthInner() {
           />
         )}
       </div>
-      <EventDrawer
-        isOpen={showDrawer}
-        onClose={() => setShowDrawer(false)}
-        onCreated={() => { setShowDrawer(false); /* TODO: trigger refresh */ setViewDate(new Date(viewDate)); }}
-        onUpdated={() => { setShowDrawer(false); setViewDate(new Date(viewDate)); }}
-        contextType={currentDashboard ? (getDashboardType(currentDashboard).toUpperCase() as any) : undefined}
-        contextId={(currentDashboard as any)?.business?.id || (currentDashboard as any)?.household?.id || currentDashboard?.id}
-        defaultStart={draftStart}
-        defaultEnd={draftEnd}
-        eventToEdit={editingEvent || undefined}
-      />
+      
+      {/* Modern Event Modal - Rendered via portal to avoid overflow clipping */}
+      {(() => {
+        const eventToShow = selectedEvent || eventClickRef.current;
+        const shouldShow = showEventModal && eventToShow && typeof window !== 'undefined';
+        console.log('📅 Personal Calendar: Modal render check', {
+          showEventModal,
+          hasSelectedEvent: !!selectedEvent,
+          hasRefEvent: !!eventClickRef.current,
+          eventToShow: !!eventToShow,
+          windowDefined: typeof window !== 'undefined',
+          shouldShow
+        });
+        
+        if (!shouldShow) return null;
+        
+        if (!eventToShow) {
+          console.error('📅 Personal Calendar: Modal condition passed but no event!');
+          return null;
+        }
+        
+        return createPortal(
+          <div 
+            data-calendar-modal="true"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ zIndex: 99999, position: 'fixed' }}
+            onClick={(e) => {
+              // Only close if clicking the backdrop itself, not the modal content
+              if (e.target === e.currentTarget) {
+                console.log('📅 Personal Calendar: Backdrop clicked, closing modal');
+                setShowEventModal(false);
+                setSelectedEvent(null);
+                eventClickRef.current = null;
+              }
+            }}
+          >
+            <div 
+              className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modern Header with Gradient */}
+              <div 
+                className="px-6 py-5 relative overflow-hidden"
+                style={{
+                  background: `linear-gradient(135deg, ${getEventColor(eventToShow)}15 0%, ${getEventColor(eventToShow)}05 100%)`
+                }}
+              >
+                <div className="flex items-start justify-between relative z-10">
+                  <div className="flex items-start space-x-4 flex-1">
+                    <div 
+                      className="w-14 h-14 rounded-xl flex-shrink-0 flex items-center justify-center shadow-lg"
+                      style={{ backgroundColor: getEventColor(eventToShow) }}
+                    >
+                      <CalendarIcon className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                        {eventToShow.title}
+                      </h2>
+                      <div className="flex items-center space-x-2">
+                        {eventToShow.recurrenceRule && (
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full flex items-center space-x-1">
+                          <Clock className="w-3 h-3" />
+                          <span>Recurring Event</span>
+                        </span>
+                      )}
+                      {eventToShow.allDay && (
+                        <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                          All Day
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowEventModal(false);
+                    setSelectedEvent(null);
+                    eventClickRef.current = null;
+                  }}
+                  className="p-2 hover:bg-white/50 rounded-xl transition-all"
+                >
+                  <span className="sr-only">Close</span>
+                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(90vh-180px)]">
+              {eventToShow.description && (
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <p className="text-gray-700 leading-relaxed">{eventToShow.description}</p>
+                </div>
+              )}
+
+              {/* Modern Info Cards */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Time Card */}
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl p-4 border border-blue-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <h4 className="text-sm font-bold text-blue-900">Time</h4>
+                  </div>
+                  {eventToShow.allDay ? (
+                    <p className="text-sm text-blue-800 font-medium">All day event</p>
+                  ) : (
+                    <p className="text-sm text-blue-800 font-medium">
+                      {formatTime(eventToShow.occurrenceStartAt || eventToShow.startAt, eventToShow.timezone)} - {formatTime(eventToShow.occurrenceEndAt || eventToShow.endAt, eventToShow.timezone)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Location Card */}
+                {eventToShow.location && (
+                  <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-xl p-4 border border-purple-200">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <MapPin className="w-5 h-5 text-purple-600" />
+                      <h4 className="text-sm font-bold text-purple-900">Location</h4>
+                    </div>
+                    <p className="text-sm text-purple-800 font-medium">{eventToShow.location}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Online Meeting Card */}
+              {eventToShow.onlineMeetingLink && (
+                <div className="bg-gradient-to-br from-green-50 to-green-100/50 rounded-xl p-4 border border-green-200">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <Video className="w-5 h-5 text-green-600" />
+                    <h4 className="text-sm font-bold text-green-900">Online Meeting</h4>
+                  </div>
+                  <a 
+                    href={eventToShow.onlineMeetingLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-all transform hover:scale-105"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>Join Meeting</span>
+                  </a>
+                </div>
+              )}
+
+              {/* Attendees Section */}
+              {eventToShow.attendees && eventToShow.attendees.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-5 h-5 text-gray-600" />
+                      <h4 className="text-sm font-bold text-gray-900">
+                        Attendees ({eventToShow.attendees.length})
+                      </h4>
+                    </div>
+                    {/* RSVP Buttons - Show if current user is an attendee */}
+                    {(() => {
+                      const currentUserEmail = (session as any)?.user?.email;
+                      const currentUserId = (session as any)?.user?.id;
+                      const isAttendee = eventToShow.attendees?.some(
+                        att => att.email === currentUserEmail || att.userId === currentUserId
+                      );
+                      const userAttendee = eventToShow.attendees?.find(
+                        att => att.email === currentUserEmail || att.userId === currentUserId
+                      );
+                      
+                      if (!isAttendee) return null;
+                      
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 mr-2">RSVP:</span>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const result = await calendarAPI.rsvp(eventToShow.id, 'ACCEPTED');
+                                if (result?.success && result.data) {
+                                  setSelectedEvent(result.data);
+                                  eventClickRef.current = result.data;
+                                  // Refresh events list
+                                  const start = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+                                  const end = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0, 23, 59, 59);
+                                  const selectedIds = Array.from(visibleCalendarIds);
+                                  const updated = selectedIds.length > 0
+                                    ? await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter, calendarIds: selectedIds })
+                                    : await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter });
+                                  if (updated?.success) {
+                                    setEvents(updated.data || []);
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('Failed to accept event:', error);
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                              userAttendee?.response === 'ACCEPTED' 
+                                ? 'bg-green-600 text-white' 
+                                : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const result = await calendarAPI.rsvp(eventToShow.id, 'TENTATIVE');
+                                if (result?.success && result.data) {
+                                  setSelectedEvent(result.data);
+                                  eventClickRef.current = result.data;
+                                  // Refresh events list
+                                  const start = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+                                  const end = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0, 23, 59, 59);
+                                  const selectedIds = Array.from(visibleCalendarIds);
+                                  const updated = selectedIds.length > 0
+                                    ? await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter, calendarIds: selectedIds })
+                                    : await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter });
+                                  if (updated?.success) {
+                                    setEvents(updated.data || []);
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('Failed to set tentative:', error);
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                              userAttendee?.response === 'TENTATIVE' 
+                                ? 'bg-yellow-600 text-white' 
+                                : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                            }`}
+                          >
+                            Maybe
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const result = await calendarAPI.rsvp(eventToShow.id, 'DECLINED');
+                                if (result?.success && result.data) {
+                                  setSelectedEvent(result.data);
+                                  eventClickRef.current = result.data;
+                                  // Refresh events list
+                                  const start = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+                                  const end = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0, 23, 59, 59);
+                                  const selectedIds = Array.from(visibleCalendarIds);
+                                  const updated = selectedIds.length > 0
+                                    ? await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter, calendarIds: selectedIds })
+                                    : await calendarAPI.listEvents({ start: start.toISOString(), end: end.toISOString(), contexts: contextFilter });
+                                  if (updated?.success) {
+                                    setEvents(updated.data || []);
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('Failed to decline event:', error);
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                              userAttendee?.response === 'DECLINED' 
+                                ? 'bg-red-600 text-white' 
+                                : 'bg-red-100 text-red-700 hover:bg-red-200'
+                            }`}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="space-y-3">
+                    {eventToShow.attendees.map((attendee, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg transition-colors">
+                        <div className="flex items-center space-x-3">
+                          <Avatar size={32} nameOrEmail={attendee.email || attendee.userId || 'Unknown'} />
+                          <span className="text-sm font-medium text-gray-900">{attendee.email || attendee.userId}</span>
+                        </div>
+                        {attendee.response && (
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            attendee.response === 'ACCEPTED' ? 'bg-green-100 text-green-700' :
+                            attendee.response === 'DECLINED' ? 'bg-red-100 text-red-700' :
+                            attendee.response === 'TENTATIVE' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {attendee.response === 'NEEDS_ACTION' ? 'Pending Response' :
+                             attendee.response === 'ACCEPTED' ? 'Accepted' :
+                             attendee.response === 'DECLINED' ? 'Declined' :
+                             attendee.response === 'TENTATIVE' ? 'Tentative' :
+                             attendee.response}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recurrence Info */}
+              {eventToShow.recurrenceRule && (
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <h4 className="text-sm font-bold text-blue-900">Recurring Event</h4>
+                      <p className="text-sm text-blue-700 mt-1 font-mono">{eventToShow.recurrenceRule}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modern Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setShowEventModal(false);
+                  setSelectedEvent(null);
+                  eventClickRef.current = null;
+                }}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowEventModal(false);
+                  setSelectedEvent(null);
+                  eventClickRef.current = null;
+                }}
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+              >
+                Edit Event
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+        );
+      })()}
     </div>
   );
 }
@@ -671,7 +1099,13 @@ function MonthGrid({ viewDate, events, onCellCreate, onEventClick, onEventMove, 
             } as React.CSSProperties : isDragging && dragStartIdx !== null && dragEndIdx !== null && cell.idx >= Math.min(dragStartIdx, dragEndIdx) && cell.idx <= Math.max(dragStartIdx, dragEndIdx) ? {
               '--tw-ring-color': 'var(--info-blue)'
             } as React.CSSProperties : undefined}
-            onClick={() => {
+            onClick={(e) => {
+              // Don't create a new event if clicking on an existing event
+              const target = e.target as HTMLElement;
+              if (target.closest('[data-event-item]')) {
+                console.log('📅 MonthGrid: Click was on an event, ignoring cell create');
+                return;
+              }
               if (!cell.date) return;
               const start = new Date(cell.date);
               start.setHours(9,0,0,0);
@@ -706,13 +1140,42 @@ function MonthGrid({ viewDate, events, onCellCreate, onEventClick, onEventMove, 
                 return (
                   <div
                     key={ev.id}
-                    className="flex items-center gap-2 truncate w-full hover:shadow-md rounded-lg cursor-move transition-all duration-200 transform hover:scale-[1.02] bg-white border-l-4 shadow-sm hover:shadow-lg"
+                    data-event-item="true"
+                    className="flex items-center gap-2 truncate w-full hover:shadow-md rounded-lg cursor-pointer transition-all duration-200 transform hover:scale-[1.02] bg-white border-l-4 shadow-sm hover:shadow-lg"
                     style={{
                       marginLeft: overlapPosition * 8,
                       maxWidth: `calc(100% - ${overlapPosition * 8}px)`,
-                      borderLeftColor: color
+                      borderLeftColor: color,
+                      pointerEvents: 'auto',
+                      position: 'relative',
+                      zIndex: 10
                     }}
-                    onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.nativeEvent) {
+                        e.nativeEvent.stopImmediatePropagation();
+                      }
+                      console.log('📅 MonthGrid: Event clicked directly', { 
+                        eventId: ev.id, 
+                        title: ev.title,
+                        event: ev,
+                        hasId: !!ev.id,
+                        target: e.target,
+                        currentTarget: e.currentTarget
+                      });
+                      // Ensure we have a valid event before calling the handler
+                      if (ev && ev.id) {
+                        console.log('📅 MonthGrid: Calling onEventClick handler');
+                        onEventClick(ev);
+                      } else {
+                        console.error('📅 MonthGrid: Invalid event object', { ev });
+                      }
+                    }}
+                    onMouseDown={(e) => {
+                      // Prevent button from capturing the click
+                      e.stopPropagation();
+                    }}
                     draggable
                     onDragStart={(e) => {
                       // Shift+drag for start resize, Alt+drag for end resize, default is move

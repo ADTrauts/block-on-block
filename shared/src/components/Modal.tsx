@@ -8,15 +8,17 @@ interface ModalProps {
   onClose: () => void;
   children: React.ReactNode;
   title?: string;
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'xlarge';
   closeOnEscape?: boolean;
   closeOnOverlayClick?: boolean;
+  headerActions?: React.ReactNode;
 }
 
 const sizeClasses = {
   small: 'max-w-sm',
   medium: 'max-w-md',
   large: 'max-w-lg',
+  xlarge: 'max-w-5xl',
 } as const;
 
 export const Modal: React.FC<ModalProps> = ({ 
@@ -27,6 +29,7 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'medium',
   closeOnEscape = true,
   closeOnOverlayClick = true,
+  headerActions,
 }) => {
   const handleEscape = useCallback((event: KeyboardEvent) => {
     if (event.key === 'Escape' && closeOnEscape) {
@@ -82,7 +85,7 @@ export const Modal: React.FC<ModalProps> = ({
           padding: '24px',
           position: 'relative',
           zIndex: 10000,
-          maxWidth: size === 'small' ? '384px' : size === 'medium' ? '448px' : '512px',
+          maxWidth: size === 'small' ? '384px' : size === 'medium' ? '448px' : size === 'large' ? '512px' : '1024px',
           width: '100%',
           margin: '32px 16px',
           maxHeight: 'calc(100vh - 64px)',
@@ -91,42 +94,44 @@ export const Modal: React.FC<ModalProps> = ({
         role="document"
       >
         <div className="flex items-center justify-between mb-4">
-          {title && (
-            <h2 
-              id="modal-title"
-              className="text-lg font-semibold text-gray-900"
-              style={{ color: '#111827' }}
+          <div className="flex-1">
+            {title && (
+              <h2 
+                id="modal-title"
+                className="text-lg font-semibold text-gray-900"
+                style={{ color: '#111827' }}
+              >
+                {title}
+              </h2>
+            )}
+          </div>
+          <div className="flex items-center space-x-2">
+            {headerActions}
+            <button
+              className="text-gray-400 hover:text-gray-500 focus:outline-none"
+              style={{
+                color: '#9CA3AF',
+                cursor: 'pointer',
+              }}
+              onClick={onClose}
+              aria-label="Close modal"
             >
-              {title}
-            </h2>
-          )}
-          <button
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-500 focus:outline-none"
-            style={{
-              position: 'absolute',
-              top: '16px',
-              right: '16px',
-              color: '#9CA3AF',
-              cursor: 'pointer',
-            }}
-            onClick={onClose}
-            aria-label="Close modal"
-          >
-            <span className="sr-only">Close</span>
-            <svg 
-              className="h-6 w-6" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M6 18L18 6M6 6l12 12" 
-              />
-            </svg>
-          </button>
+              <span className="sr-only">Close</span>
+              <svg 
+                className="h-6 w-6" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M6 18L18 6M6 6l12 12" 
+                />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="mt-2">
           {children}

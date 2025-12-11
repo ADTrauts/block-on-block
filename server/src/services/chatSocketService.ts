@@ -197,6 +197,43 @@ export class ChatSocketService {
         this.handlePresenceUpdate(socket, data);
       });
 
+      // Handle scheduling room joins
+      socket.on('join_business', (businessId: string) => {
+        socket.join(`business_${businessId}`);
+        logger.debug('User joined business room', {
+          operation: 'socket_join_business',
+          businessId,
+          userId: user.userId
+        });
+      });
+
+      socket.on('join_schedule', (scheduleId: string) => {
+        socket.join(`schedule_${scheduleId}`);
+        logger.debug('User joined schedule room', {
+          operation: 'socket_join_schedule',
+          scheduleId,
+          userId: user.userId
+        });
+      });
+
+      socket.on('leave_schedule', (scheduleId: string) => {
+        socket.leave(`schedule_${scheduleId}`);
+        logger.debug('User left schedule room', {
+          operation: 'socket_leave_schedule',
+          scheduleId,
+          userId: user.userId
+        });
+      });
+
+      socket.on('leave_business', (businessId: string) => {
+        socket.leave(`business_${businessId}`);
+        logger.debug('User left business room', {
+          operation: 'socket_leave_business',
+          businessId,
+          userId: user.userId
+        });
+      });
+
       // Handle disconnect
       socket.on('disconnect', () => {
         this.handleDisconnect(socket);
@@ -545,6 +582,104 @@ export class ChatSocketService {
 
   public getConnectedUsers(): string[] {
     return Array.from(this.userSockets.keys());
+  }
+
+  // ============================================================================
+  // SCHEDULING MODULE BROADCASTS
+  // ============================================================================
+
+  /**
+   * Broadcast scheduling event to all users in a business
+   */
+  public broadcastToBusiness(businessId: string, event: string, data: Record<string, unknown>) {
+    this.io.to(`business_${businessId}`).emit(event, data);
+    logger.debug('Scheduling event broadcasted to business', {
+      operation: 'socket_scheduling_broadcast',
+      businessId,
+      event
+    });
+  }
+
+  /**
+   * Broadcast scheduling event to all users viewing a specific schedule
+   */
+  public broadcastToSchedule(scheduleId: string, event: string, data: Record<string, unknown>) {
+    this.io.to(`schedule_${scheduleId}`).emit(event, data);
+    logger.debug('Scheduling event broadcasted to schedule', {
+      operation: 'socket_scheduling_broadcast',
+      scheduleId,
+      event
+    });
+  }
+
+  /**
+   * Broadcast shift created event
+   */
+  public broadcastShiftCreated(businessId: string, scheduleId: string, shift: Record<string, unknown>) {
+    const eventData = {
+      businessId,
+      scheduleId,
+      shift,
+      timestamp: new Date().toISOString()
+    };
+    this.broadcastToSchedule(scheduleId, 'schedule:shift:created', eventData);
+    this.broadcastToBusiness(businessId, 'schedule:shift:created', eventData);
+  }
+
+  /**
+   * Broadcast shift updated event
+   */
+  public broadcastShiftUpdated(businessId: string, scheduleId: string, shift: Record<string, unknown>) {
+    const eventData = {
+      businessId,
+      scheduleId,
+      shift,
+      timestamp: new Date().toISOString()
+    };
+    this.broadcastToSchedule(scheduleId, 'schedule:shift:updated', eventData);
+    this.broadcastToBusiness(businessId, 'schedule:shift:updated', eventData);
+  }
+
+  /**
+   * Broadcast shift deleted event
+   */
+  public broadcastShiftDeleted(businessId: string, scheduleId: string, shiftId: string) {
+    const eventData = {
+      businessId,
+      scheduleId,
+      shiftId,
+      timestamp: new Date().toISOString()
+    };
+    this.broadcastToSchedule(scheduleId, 'schedule:shift:deleted', eventData);
+    this.broadcastToBusiness(businessId, 'schedule:shift:deleted', eventData);
+  }
+
+  /**
+   * Broadcast schedule published event
+   */
+  public broadcastSchedulePublished(businessId: string, scheduleId: string, schedule: Record<string, unknown>) {
+    const eventData = {
+      businessId,
+      scheduleId,
+      schedule,
+      timestamp: new Date().toISOString()
+    };
+    this.broadcastToBusiness(businessId, 'schedule:published', eventData);
+  }
+
+  /**
+   * Join user to business and schedule rooms for scheduling updates
+   */
+  public joinSchedulingRooms(socket: SocketWithData, businessId: string, scheduleId?: string) {
+    socket.join(`business_${businessId}`);
+    if (scheduleId) {
+      socket.join(`schedule_${scheduleId}`);
+    }
+    logger.debug('User joined scheduling rooms', {
+      operation: 'socket_join_scheduling',
+      businessId,
+      scheduleId
+    });
   }
 }
 

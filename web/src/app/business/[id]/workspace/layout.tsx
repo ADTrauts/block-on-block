@@ -8,52 +8,47 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../lib/auth';
 
 export default async function Layout({ children, params }: { children: React.ReactNode, params: { id: string } }) {
-  const session = await getServerSession(authOptions);
+  let session;
+  let token: string | undefined;
   
-  // Redirect to login if no session
-  if (!session) {
-    redirect('/auth/login');
+  try {
+    session = await getServerSession(authOptions);
+    token = session?.accessToken;
+  } catch (error) {
+    console.error('Session fetch error (non-critical, will be handled by client):', error);
   }
   
-  const token = session.accessToken;
-  if (!token) {
-    redirect('/auth/login');
-  }
+  // Don't redirect immediately - let the client-side handle it if session is missing
+  // This prevents redirect loops during client-side navigation
   
   let business = null;
-  try {
-    const response = await serverBusinessApiCall<{ success: boolean; data: any }>(`/${params.id}`, { method: 'GET' }, token);
-    if (response.success) {
-      business = response.data;
+  if (token) {
+    try {
+      const response = await serverBusinessApiCall<{ success: boolean; data: any }>(`/${params.id}`, { method: 'GET' }, token);
+      if (response.success) {
+        business = response.data;
+      }
+    } catch (error: any) {
+      console.error('Error fetching business:', error);
+      
+      // Handle business not found specifically
+      if (error.message?.includes('Business not found') || error.status === 404) {
+        console.error(`Business with ID ${params.id} not found`);
+        return notFound();
+      }
+      
+      // For auth errors, let the client handle them (don't redirect here)
+      if (error.status === 401 || error.status === 403) {
+        console.warn('Auth error in server layout, allowing client to handle');
+      }
     }
-  } catch (error: any) {
-    console.error('Error fetching business:', error);
-    
-    // Handle server-side auth errors by redirecting to login
-    if (error.message?.includes('Session expired') || 
-        error.message?.includes('No authentication token') ||
-        error.status === 401 || 
-        error.status === 403) {
-      redirect('/auth/login');
-    }
-    
-    // Handle business not found specifically
-    if (error.message?.includes('Business not found') || error.status === 404) {
-      console.error(`Business with ID ${params.id} not found`);
-      return notFound();
-    }
-    
-    // For other errors, throw them to be handled by Next.js error boundary
-    throw error;
-  }
-  
-  if (!business) {
-    console.error(`Business data is null for ID ${params.id}`);
-    return notFound();
   }
 
+  // Use params.id as fallback if business is null (e.g., auth errors)
+  const businessId = business?.id || params.id;
+
   return (
-    <BusinessConfigurationProvider businessId={business.id}>
+    <BusinessConfigurationProvider businessId={businessId}>
       <PositionAwareModuleProvider>
         <DashboardLayoutWrapper business={business}>
           {children}

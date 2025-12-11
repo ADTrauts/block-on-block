@@ -30,6 +30,7 @@ import CalendarModuleWrapper from '../calendar/CalendarModuleWrapper';
 import DriveSidebar from '../../app/drive/DriveSidebar';
 import CalendarListSidebar from '../calendar/CalendarListSidebar';
 import HRWorkspaceLanding from '../hr/HRWorkspaceLanding';
+import SchedulingLayout from '../scheduling/SchedulingLayout';
 
 interface Business {
   id: string;
@@ -629,6 +630,8 @@ export default function BusinessWorkspaceContent({ business, currentModule, busi
         );
       case 'hr':
         return <HRWorkspaceLanding businessId={business.id} />;
+      case 'scheduling':
+        return <SchedulingLayout businessId={business.id} />;
       case 'analytics':
         return <BusinessAnalyticsWidget />;
       case 'members':

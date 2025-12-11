@@ -234,6 +234,31 @@ export async function getDashboardById(userId: string, dashboardId: string) {
   });
 }
 
+export async function ensureBusinessDashboardForUser(userId: string, businessId: string) {
+  const existing = await prisma.dashboard.findFirst({
+    where: { userId, businessId },
+    include: { widgets: true }
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true }
+  });
+
+  const dashboardName = business?.name ? `${business.name} Workspace` : 'Business Workspace';
+
+  const dashboard = await createDashboard(userId, {
+    name: dashboardName,
+    businessId
+  });
+
+  return dashboard;
+}
+
 export async function updateDashboard(userId: string, dashboardId: string, data: DashboardUpdateData) {
   // First, validate that the user exists
   const user = await prisma.user.findUnique({

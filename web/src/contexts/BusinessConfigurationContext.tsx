@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useWorkAuth } from './WorkAuthContext';
 import { installModule, uninstallModule, configureModule, getInstalledModules, ModuleDetails } from '../api/modules';
@@ -141,9 +141,27 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
   const maxWsErrors = 3; // Maximum WebSocket errors before switching to polling
   const pollingInterval = 30000; // 30 seconds
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const subscribedBusinessIdRef = useRef<string | null>(null); // Track which business we're subscribed to
+  const previousConfigRef = useRef<string | null>(null); // Track previous config to prevent unnecessary updates
+  const loadingRef = useRef(false); // Track if we're currently loading to prevent concurrent calls
+  const lastLoadTimeRef = useRef<number>(0); // Track last load time to prevent too-frequent loads
 
   // Load business configuration
   const loadConfiguration = useCallback(async (businessId: string) => {
+    // Don't proceed if session is not ready
+    if (!session?.accessToken) {
+      // Removed console.log to reduce noise
+      return;
+    }
+    
+    // Prevent concurrent loads and too-frequent loads (min 2 seconds between loads)
+    const now = Date.now();
+    if (loadingRef.current || (now - lastLoadTimeRef.current < 2000)) {
+      return;
+    }
+    
+    loadingRef.current = true;
+    lastLoadTimeRef.current = now;
     setLoading(true);
     setError(null);
     
@@ -157,8 +175,6 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
           businessId: businessId
         });
         
-        console.log('Raw installed modules:', installedModules);
-        
         // Transform installed modules to BusinessModule format
         businessModules = installedModules.map((module) => ({
           id: module.id,
@@ -168,8 +184,6 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
           category: module.category || 'business',
           description: module.description || ''
         }));
-        
-        console.log('Transformed business modules:', businessModules);
         
         // If no modules returned, log a warning but don't use fallback
         // The admin should install modules from the module management page
@@ -189,9 +203,10 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
       let orgChartData;
       let employeeData: EmployeePosition[] = [];
       try {
+        // session?.accessToken is guaranteed to exist here due to check at function start
         const [orgStructure, employees] = await Promise.all([
-          getOrgChartStructure(businessId, session?.accessToken || ''),
-          getBusinessEmployees(businessId, session?.accessToken || '')
+          getOrgChartStructure(businessId, session!.accessToken),
+          getBusinessEmployees(businessId, session!.accessToken)
         ]);
         
         orgChartData = orgStructure.success ? orgStructure.data : {
@@ -216,8 +231,9 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
       // Load business data for branding, tier, and subscriptions
       let businessDataLoaded: any = null;
       try {
+        // session?.accessToken is guaranteed to exist here due to check at function start
         const businessResponse = await fetch(`/api/business/${businessId}`, {
-          headers: session?.accessToken ? { 'Authorization': `Bearer ${session.accessToken}` } : undefined
+          headers: { 'Authorization': `Bearer ${session!.accessToken}` }
         });
         if (businessResponse.ok) {
           const businessResult = await businessResponse.json();
@@ -227,19 +243,28 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
           const activeSubscription = businessDataLoaded?.subscriptions?.find((s: any) => s.status === 'active');
           const tier = activeSubscription?.tier || businessDataLoaded?.tier || 'free';
           
-          setBusinessTier(tier);
-          setSubscriptions(businessDataLoaded?.subscriptions || null);
-          setBusinessData({
-            id: businessDataLoaded.id,
-            name: businessDataLoaded.name,
-            tier: businessDataLoaded.tier
+          // Only update state if values have changed
+          setBusinessTier(prev => prev !== tier ? tier : prev);
+          setSubscriptions(prev => {
+            const newSubs = businessDataLoaded?.subscriptions || null;
+            if (JSON.stringify(prev) !== JSON.stringify(newSubs)) {
+              return newSubs;
+            }
+            return prev;
+          });
+          setBusinessData(prev => {
+            const newData = {
+              id: businessDataLoaded.id,
+              name: businessDataLoaded.name,
+              tier: businessDataLoaded.tier
+            };
+            if (!prev || prev.id !== newData.id || prev.name !== newData.name || prev.tier !== newData.tier) {
+              return newData;
+            }
+            return prev;
           });
           
-          console.log('[BusinessConfig] Business tier loaded:', tier, {
-            hasActiveSub: !!activeSubscription,
-            businessTier: businessDataLoaded.tier,
-            subscriptions: businessDataLoaded.subscriptions
-          });
+          // Business tier loaded (removed console.log to reduce noise)
         }
       } catch (error) {
         console.warn('Failed to load business data for branding:', error);
@@ -334,7 +359,12 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
         tierPermissions: {}
       };
       
-      setConfiguration(businessConfig);
+      // Only update configuration if it has actually changed
+      const configString = JSON.stringify(businessConfig);
+      if (previousConfigRef.current !== configString) {
+        previousConfigRef.current = configString;
+        setConfiguration(businessConfig);
+      }
     } catch (err) {
       console.error('Failed to load business configuration:', err);
       setError(err instanceof Error ? err.message : 'Failed to load configuration');
@@ -343,8 +373,9 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
       // The UI should show appropriate error states and guide admins to module management
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
-  }, []);
+  }, [session?.accessToken]);
 
   // Update module status (enable/disable)
   const updateModuleStatus = useCallback(async (moduleId: string, status: 'enabled' | 'disabled') => {
@@ -605,18 +636,25 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
     }
   }, [businessId, websocket, wsConnected]);
 
+  // Store loadConfiguration in a ref to avoid recreating polling
+  const loadConfigurationRef = useRef(loadConfiguration);
+  useEffect(() => {
+    loadConfigurationRef.current = loadConfiguration;
+  }, [loadConfiguration]);
+
   // Start polling as fallback
   const startPolling = useCallback((businessId: string) => {
     // Clear any existing polling
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
     
-    console.log('Starting polling for business configuration updates');
+    // Polling started (removed console.log to reduce noise)
     pollingRef.current = setInterval(() => {
-      loadConfiguration(businessId);
+      loadConfigurationRef.current(businessId);
     }, pollingInterval);
-  }, [loadConfiguration, pollingInterval]);
+  }, [pollingInterval]);
 
   // Stop polling
   const stopPolling = useCallback(() => {
@@ -628,18 +666,29 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
 
   // Subscribe to WebSocket updates
   const subscribeToUpdates = useCallback((businessId: string) => {
+    // Prevent duplicate subscriptions
+    if (subscribedBusinessIdRef.current === businessId) {
+      return; // Already subscribed to this business
+    }
+    
+    // Unsubscribe from previous business if different
+    if (subscribedBusinessIdRef.current && subscribedBusinessIdRef.current !== businessId) {
+      stopPolling();
+    }
+    
     // Business-specific WebSocket endpoints are not implemented yet
     // Use polling for business configuration updates
-    console.log('Using polling for business configuration updates');
+    // (removed console.log to reduce noise)
     setUsePolling(true);
+    subscribedBusinessIdRef.current = businessId;
     startPolling(businessId);
-    return;
-  }, [startPolling]);
+  }, [startPolling, stopPolling]);
 
   // Unsubscribe from updates
   const unsubscribeFromUpdates = useCallback(() => {
     stopPolling();
     setWsConnected(false);
+    subscribedBusinessIdRef.current = null;
   }, [stopPolling]);
 
   // Get enabled modules
@@ -678,10 +727,16 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
   const loadOrgChart = useCallback(async (businessId: string) => {
     if (!configuration) return;
     
+    // Don't proceed if session is not ready
+    if (!session?.accessToken) {
+      console.log('[BusinessConfig] Waiting for session before loading org chart...');
+      return;
+    }
+    
     try {
       const [orgStructure, employees] = await Promise.all([
-        getOrgChartStructure(businessId, session?.accessToken || ''),
-        getBusinessEmployees(businessId, session?.accessToken || '')
+        getOrgChartStructure(businessId, session.accessToken),
+        getBusinessEmployees(businessId, session.accessToken)
       ]);
       
       const orgChartData = orgStructure.success ? orgStructure.data : {
@@ -904,7 +959,8 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
   useEffect(() => {
     const targetBusinessId = workCredentials?.businessId || businessId;
     
-    if (targetBusinessId) {
+    // Only load if we have both businessId and session token
+    if (targetBusinessId && session?.accessToken) {
       loadConfiguration(targetBusinessId);
       subscribeToUpdates(targetBusinessId);
       
@@ -912,7 +968,8 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
         unsubscribeFromUpdates();
       };
     }
-  }, [workCredentials?.businessId, businessId, loadConfiguration, subscribeToUpdates, unsubscribeFromUpdates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workCredentials?.businessId, businessId, session?.accessToken]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -921,7 +978,8 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
     };
   }, [unsubscribeFromUpdates]);
 
-  const value: BusinessConfigurationContextType = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo<BusinessConfigurationContextType>(() => ({
     configuration,
     businessTier,
     subscriptions,
@@ -948,7 +1006,33 @@ export function BusinessConfigurationProvider({ children, businessId }: Business
     updatePositionPermissions,
     updateDepartmentModules,
     syncOrgChartChanges
-  };
+  }), [
+    configuration,
+    businessTier,
+    subscriptions,
+    businessData,
+    loading,
+    error,
+    loadConfiguration,
+    updateModuleStatus,
+    updateModulePermissions,
+    installNewModule,
+    updateBranding,
+    updateSettings,
+    subscribeToUpdates,
+    unsubscribeFromUpdates,
+    getEnabledModules,
+    hasPermission,
+    getUserRole,
+    loadOrgChart,
+    getUserPosition,
+    getUserDepartment,
+    hasPositionPermission,
+    getModulesForUser,
+    updatePositionPermissions,
+    updateDepartmentModules,
+    syncOrgChartChanges
+  ]);
 
   return (
     <BusinessConfigurationContext.Provider value={value}>
