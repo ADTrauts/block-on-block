@@ -18,6 +18,21 @@ export default function ChatPage() {
     hasAnyModules
   } = useDashboard();
 
+  // Handle fileId query parameter from Drive "Discuss in chat" action
+  useEffect(() => {
+    const fileId = searchParams?.get('fileId');
+    const fileName = searchParams?.get('fileName');
+    
+    if (fileId && fileName) {
+      // Store file reference for ChatContent to use
+      // Remove query params after storing to clean up URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('fileId');
+      newUrl.searchParams.delete('fileName');
+      window.history.replaceState({}, '', newUrl.toString());
+    }
+  }, [searchParams]);
+
   // Handle dashboard context from URL
   useEffect(() => {
     if (loading) return; // Wait for dashboards to load
@@ -116,10 +131,14 @@ export default function ChatPage() {
     );
   }
 
+  // Pass file reference to ChatContent if present in URL
+  const fileId = searchParams?.get('fileId');
+  const fileName = searchParams?.get('fileName');
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Use panel-based system with 94+ features including classification, governance, teams */}
-      <ChatContent />
+      <ChatContent fileReference={fileId && fileName ? { fileId, fileName } : undefined} />
     </div>
   );
 } 

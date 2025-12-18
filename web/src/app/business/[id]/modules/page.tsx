@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Card, Button, Badge, Spinner, Alert } from 'shared/components';
 import { 
@@ -53,6 +53,7 @@ interface Business {
 export default function BusinessModulesPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const businessId = params?.id as string;
 
@@ -68,6 +69,17 @@ export default function BusinessModulesPage() {
 
   // Core modules that are auto-installed
   const coreModuleIds = ['drive', 'chat', 'calendar'];
+
+  // Get active tab from URL params (defaults to 'installed')
+  useEffect(() => {
+    const tab = searchParams?.get('tab') as 'installed' | 'marketplace' | null;
+    if (tab && (tab === 'installed' || tab === 'marketplace')) {
+      setActiveTab(tab);
+    } else {
+      // Default to 'installed' if no tab param or invalid tab
+      setActiveTab('installed');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (businessId && session?.accessToken) {
@@ -91,10 +103,17 @@ export default function BusinessModulesPage() {
         scope: 'business', 
         businessId 
       });
+      console.log('[Module Manager] Installed modules:', installed);
+      console.log('[Module Manager] Scheduling module found:', installed.find(m => m.id === 'scheduling' || m.id.includes('scheduling')));
       setInstalledModules(installed);
 
-      // Load marketplace modules
-      const marketplace = await getMarketplaceModules();
+      // Load marketplace modules (with business scope to properly determine installed status)
+      const marketplace = await getMarketplaceModules({
+        scope: 'business',
+        businessId
+      });
+      console.log('[Module Manager] Marketplace modules:', marketplace);
+      console.log('[Module Manager] Scheduling in marketplace:', marketplace.find(m => m.id === 'scheduling' || m.id.includes('scheduling')));
       setMarketplaceModules(marketplace);
 
     } catch (err) {
@@ -282,7 +301,10 @@ export default function BusinessModulesPage() {
         {/* Tabs */}
         <div className="flex space-x-4 mb-6">
           <button
-            onClick={() => setActiveTab('installed')}
+            onClick={() => {
+              setActiveTab('installed');
+              router.push(`/business/${businessId}/modules?tab=installed`);
+            }}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'installed'
                 ? 'bg-blue-500 text-white'
@@ -292,7 +314,10 @@ export default function BusinessModulesPage() {
             Installed Modules ({filteredInstalled.length})
           </button>
           <button
-            onClick={() => setActiveTab('marketplace')}
+            onClick={() => {
+              setActiveTab('marketplace');
+              router.push(`/business/${businessId}/modules?tab=marketplace`);
+            }}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               activeTab === 'marketplace'
                 ? 'bg-blue-500 text-white'

@@ -6,7 +6,7 @@ import { Message, Conversation, FileReference, Thread } from 'shared/types/chat'
 import { chatAPI } from '../../api/chat';
 import { getMessages } from '../../api/chat';
 import { Button, Input, Avatar, Badge, Spinner } from 'shared/components';
-import { Send, Paperclip, Smile, MoreVertical, Download, Trash2, Share2, Users, MessageSquare, Reply, Plus, CheckCircle, Search, X, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { Send, Paperclip, Smile, MoreVertical, Download, Trash2, Share2, Users, MessageSquare, Reply, Plus, CheckCircle, Search, X, ChevronLeft, ChevronRight, Shield, FileText } from 'lucide-react';
 import ChatFileUpload from './ChatFileUpload';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
@@ -21,10 +21,17 @@ import { enforceGovernancePolicies } from '../../api/governance';
 import { useModuleFeatures } from '../../hooks/useFeatureGating';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { toast } from 'react-hot-toast';
+import { useNotificationSocket, NotificationEvent } from '../../lib/notificationSocket';
+import { useRouter } from 'next/navigation';
 
 // Test if emoji packages are working
 // Emoji data loaded: !!data
 // Emoji Picker component: !!Picker
+
+interface FileReference {
+  fileId: string;
+  fileName: string;
+}
 
 interface ChatMainPanelProps {
   panelState: {
@@ -33,6 +40,7 @@ interface ChatMainPanelProps {
   };
   onThreadSelect: (threadId: string | null) => void;
   onToggleRightPanel?: () => void;
+  fileReference?: FileReference;
 }
 
 // Quick reaction emojis for common reactions
@@ -217,34 +225,138 @@ const MessageItem = React.memo(({
               </div>
             )}
             
-            {/* File Attachments */}
+            {/* File Attachments with Rich Previews */}
             {message.fileReferences && message.fileReferences.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {message.fileReferences.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center space-x-2 p-2 bg-white bg-opacity-20 rounded"
-                  >
-                    <span className="text-lg">{getFileIcon(file.file.type)}</span>
-                    <span className="text-xs flex-1 truncate">{file.file.name}</span>
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={() => onFilePreview(file)}
-                        className="p-1 hover:bg-white hover:bg-opacity-20 rounded"
-                        aria-label={`Preview file: ${file.file.name}`}
-                      >
-                        <Search className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => onFileDownload(file)}
-                        className="p-1 hover:bg-white hover:bg-opacity-20 rounded"
-                        aria-label={`Download file: ${file.file.name}`}
-                      >
-                        <Download className="w-3 h-3" />
-                      </button>
+              <div className="mt-2 space-y-2">
+                {message.fileReferences.map((file) => {
+                  const isImage = file.file.type.startsWith('image/');
+                  const isPDF = file.file.type.includes('pdf');
+                  const isDocument = file.file.type.includes('word') || 
+                                    file.file.type.includes('document') ||
+                                    file.file.type.includes('excel') ||
+                                    file.file.type.includes('spreadsheet') ||
+                                    file.file.type.includes('presentation') ||
+                                    file.file.type.includes('powerpoint');
+                  
+                  return (
+                    <div
+                      key={file.id}
+                      className={`rounded-lg overflow-hidden border ${
+                        isImage ? 'bg-gray-50' : 'bg-white bg-opacity-20'
+                      }`}
+                    >
+                      {/* Image Preview */}
+                      {isImage && (
+                        <div className="relative group">
+                          <img
+                            src={file.file.url || `/api/drive/files/${file.fileId}/download`}
+                            alt={file.file.name}
+                            className="w-full max-w-md max-h-64 object-contain cursor-pointer"
+                            onClick={() => onFilePreview(file)}
+                            onError={(e) => {
+                              // Fallback to download endpoint if image fails to load
+                              const target = e.target as HTMLImageElement;
+                              target.src = `/api/drive/files/${file.fileId}/download`;
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-opacity flex items-center justify-center">
+                            <div className="opacity-0 group-hover:opacity-100 flex space-x-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onFilePreview(file);
+                                }}
+                                className="p-2 bg-white bg-opacity-90 rounded-full shadow-lg hover:bg-opacity-100"
+                                aria-label={`Preview image: ${file.file.name}`}
+                              >
+                                <Search className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onFileDownload(file);
+                                }}
+                                className="p-2 bg-white bg-opacity-90 rounded-full shadow-lg hover:bg-opacity-100"
+                                aria-label={`Download image: ${file.file.name}`}
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="px-3 py-2 bg-white bg-opacity-90">
+                            <p className="text-xs font-medium text-gray-900 truncate">{file.file.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {(file.file.size / 1024).toFixed(1)} KB
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* PDF/Document Preview Card */}
+                      {(isPDF || isDocument) && (
+                        <div className="p-3">
+                          <div className="flex items-start space-x-3">
+                            <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                              {isPDF ? (
+                                <FileText className="w-6 h-6 text-blue-600" />
+                              ) : (
+                                <FileText className="w-6 h-6 text-blue-600" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {file.file.name}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {isPDF ? 'PDF Document' : 'Document'} • {(file.file.size / 1024).toFixed(1)} KB
+                              </p>
+                            </div>
+                            <div className="flex space-x-1">
+                              <button
+                                onClick={() => onFilePreview(file)}
+                                className="p-2 hover:bg-gray-100 rounded transition-colors"
+                                aria-label={`Preview file: ${file.file.name}`}
+                              >
+                                <Search className="w-4 h-4 text-gray-600" />
+                              </button>
+                              <button
+                                onClick={() => onFileDownload(file)}
+                                className="p-2 hover:bg-gray-100 rounded transition-colors"
+                                aria-label={`Download file: ${file.file.name}`}
+                              >
+                                <Download className="w-4 h-4 text-gray-600" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Generic File Preview */}
+                      {!isImage && !isPDF && !isDocument && (
+                        <div className="flex items-center space-x-2 p-2">
+                          <span className="text-lg">{getFileIcon(file.file.type)}</span>
+                          <span className="text-xs flex-1 truncate">{file.file.name}</span>
+                          <div className="flex space-x-1">
+                            <button
+                              onClick={() => onFilePreview(file)}
+                              className="p-1 hover:bg-white hover:bg-opacity-20 rounded"
+                              aria-label={`Preview file: ${file.file.name}`}
+                            >
+                              <Search className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => onFileDownload(file)}
+                              className="p-1 hover:bg-white hover:bg-opacity-20 rounded"
+                              aria-label={`Download file: ${file.file.name}`}
+                            >
+                              <Download className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             
@@ -386,9 +498,12 @@ const MessageItem = React.memo(({
 
 MessageItem.displayName = 'MessageItem';
 
-export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRightPanel }: ChatMainPanelProps) {
+export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRightPanel, fileReference: fileReferenceProp }: ChatMainPanelProps) {
   const { data: session } = useSession();
+  const router = useRouter();
   const { currentDashboard, getDashboardType } = useDashboard();
+  const notificationSocket = useNotificationSocket();
+  const [fileNotifications, setFileNotifications] = useState<NotificationEvent[]>([]);
   const {
     activeConversation,
     messages,
@@ -439,6 +554,81 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [loadingThreadMessages, setLoadingThreadMessages] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [fileReference, setFileReference] = useState<FileReference | undefined>(fileReferenceProp);
+
+  // Handle file reference from Drive "Discuss in chat"
+  useEffect(() => {
+    if (fileReferenceProp) {
+      setFileReference(fileReferenceProp);
+      // Auto-attach file when a conversation is selected
+      if (activeConversation?.id && selectedFiles.length === 0) {
+        setSelectedFiles([{ id: fileReferenceProp.fileId, name: fileReferenceProp.fileName }]);
+        // Clear file reference after attaching
+        setTimeout(() => setFileReference(undefined), 3000);
+      }
+    }
+  }, [fileReferenceProp, activeConversation?.id, selectedFiles.length]);
+
+  // Listen for file activity notifications (when files are shared)
+  useEffect(() => {
+    const handleNotification = (notification: NotificationEvent) => {
+      // Only show drive_permission notifications in chat
+      if (notification.type === 'drive_permission' || notification.type === 'drive_shared') {
+        setFileNotifications(prev => [notification, ...prev].slice(0, 5)); // Keep last 5
+        
+        // Show toast notification with action to open file
+        const fileId = (notification.data as any)?.fileId;
+        const folderId = (notification.data as any)?.folderId;
+        const fileName = (notification.data as any)?.fileName || (notification.data as any)?.folderName || 'item';
+        
+        if (fileId) {
+          toast.success(
+            (t) => (
+              <div className="flex items-center space-x-2">
+                <span>{notification.title}</span>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    router.push(`/drive/shared?file=${fileId}`);
+                  }}
+                  className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
+                >
+                  Open file
+                </button>
+              </div>
+            ),
+            { duration: 5000 }
+          );
+        } else if (folderId) {
+          toast.success(
+            (t) => (
+              <div className="flex items-center space-x-2">
+                <span>{notification.title}</span>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    router.push(`/drive/shared?folder=${folderId}`);
+                  }}
+                  className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
+                >
+                  Open folder
+                </button>
+              </div>
+            ),
+            { duration: 5000 }
+          );
+        } else {
+          toast.success(notification.title, { duration: 3000 });
+        }
+      }
+    };
+
+    notificationSocket.onNotification(handleNotification);
+
+    return () => {
+      // Cleanup handled by notificationSocket
+    };
+  }, [notificationSocket, router]);
 
   // Load threads when conversation changes
   useEffect(() => {
@@ -913,6 +1103,38 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
         </div>
         {/* Thread Input */}
         <div className="p-4 border-t bg-white flex-shrink-0">
+          {/* File Reference Banner from Drive */}
+          {fileReference && !selectedFiles.some(f => f.id === fileReference.fileId) && (
+            <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-900">File from Drive</p>
+                    <p className="text-xs text-blue-700">{fileReference.fileName}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setSelectedFiles([{ id: fileReference.fileId, name: fileReference.fileName }]);
+                      setFileReference(undefined);
+                    }}
+                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Attach
+                  </button>
+                  <button
+                    onClick={() => setFileReference(undefined)}
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Reply Indicator */}
           {replyToMessage && (
             <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
@@ -1057,7 +1279,89 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
           </button>
         )}
       </div>
-      {/* Main Conversation Messages */}
+      
+      {/* File Activity Notifications Banner */}
+      {fileNotifications.length > 0 && (
+        <div className="bg-blue-50 border-b border-blue-200 p-3 space-y-2">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-2">
+              <Folder className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-900">Recent file activity</span>
+            </div>
+            <button
+              onClick={() => setFileNotifications([])}
+              className="text-blue-600 hover:text-blue-800"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {fileNotifications.slice(0, 3).map((notification) => {
+            const fileId = (notification.data as any)?.fileId;
+            const folderId = (notification.data as any)?.folderId;
+            return (
+              <div
+                key={notification.id || notification.createdAt}
+                className="flex items-center justify-between p-2 bg-white rounded border border-blue-200 hover:bg-blue-50 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-900 truncate">{notification.title}</p>
+                  {notification.body && (
+                    <p className="text-xs text-gray-600 truncate">{notification.body}</p>
+                  )}
+                </div>
+                {(fileId || folderId) && (
+                  <button
+                    onClick={() => {
+                      if (fileId) {
+                        router.push(`/drive/shared?file=${fileId}`);
+                      } else if (folderId) {
+                        router.push(`/drive/shared?folder=${folderId}`);
+                      }
+                      setFileNotifications(prev => prev.filter(n => n.id !== notification.id && n.createdAt !== notification.createdAt));
+                    }}
+                    className="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+        {/* File Reference Banner from Drive */}
+        {fileReference && !selectedFiles.some(f => f.id === fileReference.fileId) && (
+          <div className="p-4 bg-blue-50 border-b border-blue-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <FileText className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900">File from Drive</p>
+                  <p className="text-xs text-blue-700">{fileReference.fileName}</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    setSelectedFiles([{ id: fileReference.fileId, name: fileReference.fileName }]);
+                    setFileReference(undefined);
+                  }}
+                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Attach to message
+                </button>
+                <button
+                  onClick={() => setFileReference(undefined)}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Main Conversation Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {isLoading ? <Spinner /> :
           messages.length === 0 ? <p className="text-gray-500">No messages yet.</p> :

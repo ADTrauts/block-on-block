@@ -38,6 +38,18 @@ export function WorkAuthProvider({ children }: WorkAuthProviderProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const clearWorkUIActiveFlag = () => {
+    try {
+      localStorage.removeItem('vssyl_work_ui_active');
+    } catch {
+      // ignore
+    }
+    // Notify same-tab listeners (AvatarContextMenu)
+    window.dispatchEvent(
+      new CustomEvent('vssyl:work-ui-active', { detail: { active: false } })
+    );
+  };
+
   // Check for existing work token on mount
   useEffect(() => {
     const storedToken = localStorage.getItem('workToken');
@@ -88,6 +100,7 @@ export function WorkAuthProvider({ children }: WorkAuthProviderProps) {
 
   const logoutWork = () => {
     localStorage.removeItem('workToken');
+    clearWorkUIActiveFlag();
     setWorkToken(null);
     setWorkCredentials(null);
     setError(null);
@@ -107,6 +120,7 @@ export function WorkAuthProvider({ children }: WorkAuthProviderProps) {
       } else {
         // Token is invalid, remove it
         localStorage.removeItem('workToken');
+        clearWorkUIActiveFlag();
         setWorkToken(null);
         setWorkCredentials(null);
         return false;
@@ -114,6 +128,7 @@ export function WorkAuthProvider({ children }: WorkAuthProviderProps) {
     } catch (err) {
       // Token is invalid, remove it
       localStorage.removeItem('workToken');
+      clearWorkUIActiveFlag();
       setWorkToken(null);
       setWorkCredentials(null);
       return false;

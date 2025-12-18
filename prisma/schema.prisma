@@ -160,6 +160,50 @@ enum ReminderMethod {
 // ============================================================================
 
 // ============================================================================
+// PROFILE PHOTOS - USER PHOTO LIBRARY
+// ============================================================================
+// Purpose: Store original profile photo uploads + derived avatar renditions
+// Notes:
+// - Original is immutable; avatarUrl can be regenerated (crop/rotate updates)
+// - Trashed items integrate with Global Trash via trashedAt
+// ============================================================================
+
+model UserProfilePhoto {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Optional assignment back-relations (photo belongs to the user above; these link to user's current assignments)
+  personalForUser User? @relation("UserPersonalPhoto")
+  businessForUser User? @relation("UserBusinessPhoto")
+
+  // Immutable original upload (source of truth)
+  originalUrl String
+
+  // Derived avatar rendition (square image used in UI)
+  avatarUrl   String
+
+  // Crop metadata used to generate avatarUrl (stored for future edits/regeneration)
+  crop        Json?
+  rotation    Int?     // degrees
+
+  trashedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([trashedAt])
+  @@map("user_profile_photos")
+}
+
+
+
+
+// ============================================================================
+// AUTH MODULE
+// ============================================================================
+
+// ============================================================================
 // USER & AUTHENTICATION MODELS
 // ============================================================================
 
@@ -173,6 +217,12 @@ model User {
   image           String?
   personalPhoto   String?  // Personal profile photo
   businessPhoto   String?  // Professional/business profile photo
+  // Profile photo library + assignments (preferred; URLs above kept for backward compatibility)
+  personalPhotoId String? @unique
+  personalPhotoRef UserProfilePhoto? @relation("UserPersonalPhoto", fields: [personalPhotoId], references: [id])
+  businessPhotoId String? @unique
+  businessPhotoRef UserProfilePhoto? @relation("UserBusinessPhoto", fields: [businessPhotoId], references: [id])
+  profilePhotos   UserProfilePhoto[]
   stripeCustomerId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -2470,6 +2520,7 @@ model AIConversation {
   isArchived      Boolean        @default(false)
   isPinned        Boolean        @default(false)
   messageCount    Int            @default(0)
+  trashedAt       DateTime?      // Global trash system support
   messages        AIMessage[]
   
   // Indexes for performance
@@ -2477,6 +2528,7 @@ model AIConversation {
   @@index([dashboardId])
   @@index([businessId])
   @@index([isArchived, lastMessageAt])
+  @@index([trashedAt])
   @@map("ai_conversations")
 }
 
@@ -3051,6 +3103,7 @@ model Event {
   updatedById      String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+  trashedAt        DateTime?    // Global trash system support
 
   attendees        EventAttendee[]
   reminders        Reminder[]
@@ -3060,6 +3113,7 @@ model Event {
 
   @@index([calendarId])
   @@index([startAt, endAt])
+  @@index([trashedAt])
   @@map("events")
 }
 

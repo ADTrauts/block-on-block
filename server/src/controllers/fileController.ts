@@ -7,6 +7,7 @@ import { getOrCreateChatFilesFolder } from '../services/driveService';
 import { NotificationService } from '../services/notificationService';
 import { storageService } from '../services/storageService';
 import { prisma } from '../lib/prisma';
+import { getChatSocketService } from '../services/chatSocketService';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../lib/logger';
 
@@ -258,6 +259,26 @@ export async function uploadFile(req: RequestWithFile, res: Response) {
         },
       },
     });
+
+    // Broadcast real-time drive event to owner
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(userId, 'drive:item:created', {
+        itemId: fileRecord.id,
+        itemType: 'file',
+        dashboardId: fileRecord.dashboardId,
+        folderId: fileRecord.folderId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:created event', {
+        operation: 'file_upload_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the upload if socket broadcast fails
+    }
 
     res.status(201).json({ file: fileRecord });
   } catch (err) {
@@ -603,6 +624,26 @@ export async function updateFile(req: Request, res: Response) {
       },
     });
 
+    // Broadcast real-time drive event to owner
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(userId, 'drive:item:updated', {
+        itemId: id,
+        itemType: 'file',
+        dashboardId: updated?.dashboardId ?? originalFile.dashboardId,
+        folderId: updated?.folderId ?? originalFile.folderId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:updated event', {
+        operation: 'file_update_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Non-critical
+    }
+
     res.json({ file: updated });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update file' });
@@ -643,6 +684,25 @@ export async function deleteFile(req: Request, res: Response) {
         },
       },
     });
+
+    // Broadcast real-time drive event to owner
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(userId, 'drive:item:deleted', {
+        itemId: id,
+        itemType: 'file',
+        dashboardId: fileToDelete.dashboardId,
+        folderId: fileToDelete.folderId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:deleted event', {
+        operation: 'file_delete_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+    }
 
     res.json({ trashed: true });
   } catch (err) {
@@ -969,56 +1029,107 @@ export async function toggleFileStarred(req: Request, res: Response) {
 
 // Get shared items for the current user
 export async function getSharedItems(req: Request, res: Response) {
-  if (!hasUserId(req.user)) {
-    res.sendStatus(401);
-    return;
-  }
   try {
+    if (!hasUserId(req.user)) {
+      await logger.error('User authentication check failed in getSharedItems', {
+        operation: 'file_get_shared_items',
+        user: req.user
+      });
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
     const userId = (req as AuthenticatedRequest).user?.id;
+    
+    if (!userId) {
+      await logger.error('User ID not found in getSharedItems', {
+        operation: 'file_get_shared_items',
+        user: (req as AuthenticatedRequest).user
+      });
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    await logger.debug('Fetching shared items', {
+      operation: 'file_get_shared_items',
+      userId
+    });
 
     // Get files that have been shared with this user
-    const sharedFiles = await prisma.file.findMany({
-      where: {
-        permissions: {
-          some: {
-            userId: userId,
-            canRead: true
+    let sharedFiles = [];
+    try {
+      sharedFiles = await prisma.file.findMany({
+        where: {
+          trashedAt: null,
+          permissions: {
+            some: {
+              userId: userId,
+              canRead: true
+            }
           }
-        }
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true }
         },
-        permissions: {
-          where: { userId: userId },
-          select: { canRead: true, canWrite: true }
-        }
-      },
-      orderBy: { updatedAt: 'desc' }
-    });
+        include: {
+          user: {
+            select: { id: true, name: true, email: true }
+          },
+          permissions: {
+            where: { userId: userId },
+            select: { canRead: true, canWrite: true }
+          }
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+    } catch (fileError: unknown) {
+      const err = fileError as Error;
+      await logger.error('Error fetching shared files', {
+        operation: 'file_get_shared_items',
+        step: 'fetch_files',
+        error: {
+          message: err.message,
+          stack: err.stack
+        },
+        userId
+      });
+      // Continue with empty array - don't fail the entire request
+      sharedFiles = [];
+    }
 
     // Get folders that have been shared with this user
-    const sharedFolders = await prisma.folder.findMany({
-      where: {
-        permissions: {
-          some: {
-            userId: userId,
-            canRead: true
+    let sharedFolders = [];
+    try {
+      sharedFolders = await prisma.folder.findMany({
+        where: {
+          trashedAt: null,
+          permissions: {
+            some: {
+              userId: userId,
+              canRead: true
+            }
           }
-        }
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true }
         },
-        permissions: {
-          where: { userId: userId },
-          select: { canRead: true, canWrite: true }
-        }
-      },
-      orderBy: { updatedAt: 'desc' }
-    });
+        include: {
+          user: {
+            select: { id: true, name: true, email: true }
+          },
+          permissions: {
+            where: { userId: userId },
+            select: { canRead: true, canWrite: true }
+          }
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+    } catch (folderError: unknown) {
+      const err = folderError as Error;
+      await logger.error('Error fetching shared folders', {
+        operation: 'file_get_shared_items',
+        step: 'fetch_folders',
+        error: {
+          message: err.message,
+          stack: err.stack
+        },
+        userId
+      });
+      // Continue with empty array - don't fail the entire request
+      sharedFolders = [];
+    }
 
     // Transform the data to include permission information
     const transformedFiles = sharedFiles.map(file => ({
@@ -1035,12 +1146,13 @@ export async function getSharedItems(req: Request, res: Response) {
       files: transformedFiles,
       folders: transformedFolders
     });
-  } catch (err) {
+  } catch (err: unknown) {
+    const error = err as Error;
     await logger.error('Failed to get shared items', {
       operation: 'file_get_shared_items',
       error: {
-        message: err instanceof Error ? err.message : 'Unknown error',
-        stack: err instanceof Error ? err.stack : undefined
+        message: error.message,
+        stack: error.stack
       }
     });
     res.status(500).json({ message: 'Failed to fetch shared items' });
@@ -1141,6 +1253,26 @@ export async function moveFile(req: Request, res: Response) {
         },
       },
     });
+
+    // Broadcast real-time drive event to owner
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(userId, 'drive:item:moved', {
+        itemId: id,
+        itemType: 'file',
+        dashboardId: updatedFile.dashboardId,
+        folderId: updatedFile.folderId,
+        originalFolderId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:moved event', {
+        operation: 'file_move_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+    }
 
     res.json({ file: updatedFile, message: 'File moved successfully' });
   } catch (err) {

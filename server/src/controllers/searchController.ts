@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { SearchFilters, SearchResult, SearchProvider } from 'shared/types/search';
 import { logger } from '../lib/logger';
 
@@ -225,21 +226,83 @@ async function searchDrive(query: string, userId: string, filters?: SearchFilter
   });
   const results: SearchResult[] = [];
 
-  // Search files - simplified query to match our working test
+  // Normalize optional filters (date range, pinned, mime category)
+  let dateStart: Date | undefined;
+  let dateEnd: Date | undefined;
+  if (filters?.dateRange) {
+    const startValue = filters.dateRange.start;
+    const endValue = filters.dateRange.end;
+    dateStart = startValue ? new Date(startValue) : undefined;
+    dateEnd = endValue ? new Date(endValue) : undefined;
+  }
+
+  const pinnedOnly = filters?.pinned === true;
+  const driveMimeCategory = filters?.driveMimeCategory;
+
+  // Build file where conditions
+  const fileAndConditions: Prisma.FileWhereInput[] = [
+    {
+      OR: [
+        { name: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    { userId: userId },
+    { trashedAt: null },
+  ];
+
+  if (dateStart || dateEnd) {
+    fileAndConditions.push({
+      updatedAt: {
+        ...(dateStart ? { gte: dateStart } : {}),
+        ...(dateEnd ? { lte: dateEnd } : {}),
+      },
+    });
+  }
+
+  if (pinnedOnly) {
+    fileAndConditions.push({ starred: true });
+  }
+
+  if (driveMimeCategory) {
+    // Map high-level category to underlying Prisma conditions
+    const mimeConditions: Prisma.FileWhereInput[] = [];
+    if (driveMimeCategory === 'documents') {
+      mimeConditions.push(
+        { type: { contains: 'pdf', mode: 'insensitive' } },
+        { type: { contains: 'word', mode: 'insensitive' } },
+        { type: { contains: 'document', mode: 'insensitive' } },
+      );
+    } else if (driveMimeCategory === 'spreadsheets') {
+      mimeConditions.push(
+        { type: { contains: 'excel', mode: 'insensitive' } },
+        { type: { contains: 'spreadsheet', mode: 'insensitive' } },
+      );
+    } else if (driveMimeCategory === 'images') {
+      mimeConditions.push({ type: { startsWith: 'image/', mode: 'insensitive' } });
+    } else if (driveMimeCategory === 'videos') {
+      mimeConditions.push({ type: { startsWith: 'video/', mode: 'insensitive' } });
+    }
+
+    if (mimeConditions.length > 0) {
+      fileAndConditions.push({
+        OR: mimeConditions,
+      });
+    }
+  }
+
+  // Search files
   await logger.debug('Drive search files', {
-    operation: 'search_drive_files'
+    operation: 'search_drive_files',
+    filtersApplied: {
+      dateStart,
+      dateEnd,
+      pinnedOnly,
+      driveMimeCategory,
+    },
   });
   const files = await prisma.file.findMany({
     where: {
-      AND: [
-        {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-          ],
-        },
-        { userId: userId }, // Simplified: just check user ownership
-        { trashedAt: null },
-      ],
+      AND: fileAndConditions,
     },
     include: {
       folder: true,
@@ -273,17 +336,38 @@ async function searchDrive(query: string, userId: string, filters?: SearchFilter
     });
   }
 
-  // Search folders - simplified query to match our working test
+  // Build folder where conditions (share date/pinned filters where appropriate)
+  const folderAndConditions: Prisma.FolderWhereInput[] = [
+    { name: { contains: query, mode: 'insensitive' } },
+    { userId: userId },
+    { trashedAt: null },
+  ];
+
+  if (dateStart || dateEnd) {
+    folderAndConditions.push({
+      updatedAt: {
+        ...(dateStart ? { gte: dateStart } : {}),
+        ...(dateEnd ? { lte: dateEnd } : {}),
+      },
+    });
+  }
+
+  if (pinnedOnly) {
+    folderAndConditions.push({ starred: true });
+  }
+
+  // Search folders
   await logger.debug('Drive search folders', {
-    operation: 'search_drive_folders'
+    operation: 'search_drive_folders',
+    filtersApplied: {
+      dateStart,
+      dateEnd,
+      pinnedOnly,
+    },
   });
   const folders = await prisma.folder.findMany({
     where: {
-      AND: [
-        { name: { contains: query, mode: 'insensitive' } },
-        { userId: userId }, // Simplified: just check user ownership
-        { trashedAt: null },
-      ],
+      AND: folderAndConditions,
     },
     take: 5,
   });

@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { calendarAPI, Calendar, EventItem, Attendee, EventComment } from '../../api/calendar';
 import { useCalendarContext } from '../../contexts/CalendarContext';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { useGlobalTrash } from '../../contexts/GlobalTrashContext';
+import { toast } from 'react-hot-toast';
 
 interface EventPayload {
   calendarId: string;
@@ -49,6 +51,7 @@ interface ICSEventData {
 }
 
 export default function EventDrawer({ isOpen, onClose, onCreated, onUpdated, contextType, contextId, defaultStart, defaultEnd, eventToEdit }: EventDrawerProps) {
+  const { trashItem } = useGlobalTrash();
   const [title, setTitle] = useState('');
   const [startAt, setStartAt] = useState<string>('');
   const [endAt, setEndAt] = useState<string>('');
@@ -498,15 +501,42 @@ export default function EventDrawer({ isOpen, onClose, onCreated, onUpdated, con
                     if (eventToEdit.recurrenceRule) {
                       const thisOnly = confirm('Delete this occurrence only? Press Cancel to delete the entire series.');
                       if (thisOnly) {
+                        // For single occurrence, use API (creates exception)
                         await calendarAPI.deleteEvent(eventToEdit.id, { editMode: 'THIS', occurrenceStartAt: eventToEdit.occurrenceStartAt || eventToEdit.startAt });
+                        toast.success('Occurrence deleted');
                       } else {
-                        await calendarAPI.deleteEvent(eventToEdit.id);
+                        // For entire series, use global trash
+                        await trashItem({
+                          id: eventToEdit.id,
+                          name: eventToEdit.title,
+                          type: 'event',
+                          moduleId: 'calendar',
+                          moduleName: 'Calendar',
+                          metadata: {
+                            calendarId: eventToEdit.calendarId,
+                          },
+                        });
+                        toast.success(`${eventToEdit.title} moved to trash`);
                       }
                     } else {
-                      await calendarAPI.deleteEvent(eventToEdit.id);
+                      // For non-recurring events, use global trash
+                      await trashItem({
+                        id: eventToEdit.id,
+                        name: eventToEdit.title,
+                        type: 'event',
+                        moduleId: 'calendar',
+                        moduleName: 'Calendar',
+                        metadata: {
+                          calendarId: eventToEdit.calendarId,
+                        },
+                      });
+                      toast.success(`${eventToEdit.title} moved to trash`);
                     }
                     onUpdated?.(eventToEdit);
                     onClose();
+                  } catch (error) {
+                    console.error('Failed to delete event:', error);
+                    toast.error('Failed to delete event');
                   } finally {
                     setSaving(false);
                   }
@@ -522,9 +552,14 @@ export default function EventDrawer({ isOpen, onClose, onCreated, onUpdated, con
                   if (!eventToEdit?.id) return;
                   setSaving(true);
                   try {
+                    // For skipping single occurrence, use API (creates exception)
                     await calendarAPI.deleteEvent(eventToEdit.id, { editMode: 'THIS', occurrenceStartAt: eventToEdit.occurrenceStartAt || eventToEdit.startAt });
+                    toast.success('Occurrence skipped');
                     onUpdated?.(eventToEdit);
                     onClose();
+                  } catch (error) {
+                    console.error('Failed to skip occurrence:', error);
+                    toast.error('Failed to skip occurrence');
                   } finally {
                     setSaving(false);
                   }

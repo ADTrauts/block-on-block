@@ -40,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta httpEquiv="Permissions-Policy" content="fullscreen=*" />
         <script dangerouslySetInnerHTML={{
           __html: `
             (function() {

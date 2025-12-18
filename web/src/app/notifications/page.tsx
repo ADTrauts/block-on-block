@@ -399,9 +399,22 @@ export default function NotificationsPage() {
                   return (
                     <div
                       key={notification.id}
-                      className={`bg-white border rounded-lg p-4 transition-all hover:shadow-md ${
+                      className={`bg-white border rounded-lg p-4 transition-all hover:shadow-md cursor-pointer ${
                         notification.read ? 'opacity-75' : 'border-blue-200 bg-blue-50'
                       }`}
+                      onClick={() => {
+                        // Auto-navigate to relevant resource if clickable
+                        if ((notification.data as any)?.fileId) {
+                          router.push(`/drive/shared?file=${(notification.data as any)?.fileId}`);
+                          handleMarkAsRead(notification.id);
+                        } else if ((notification.data as any)?.folderId) {
+                          router.push(`/drive/shared?folder=${(notification.data as any)?.folderId}`);
+                          handleMarkAsRead(notification.id);
+                        } else if ((notification.data as any)?.conversationId) {
+                          router.push(`/chat?conversation=${(notification.data as any)?.conversationId}`);
+                          handleMarkAsRead(notification.id);
+                        }
+                      }}
                     >
                       <div className="flex items-start space-x-3">
                         <div className="flex-shrink-0">
@@ -455,9 +468,44 @@ export default function NotificationsPage() {
                               Archive
                             </Button>
                             {Boolean((notification.data as any)?.conversationId) && (
-                              <Button variant="ghost" size="sm" className="text-xs">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-xs"
+                                onClick={() => {
+                                  router.push(`/chat?conversation=${(notification.data as any)?.conversationId}`);
+                                }}
+                              >
                                 <ChevronRight className="w-3 h-3 mr-1" />
                                 Go to conversation
+                              </Button>
+                            )}
+                            {Boolean((notification.data as any)?.fileId) && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-xs"
+                                onClick={() => {
+                                  router.push(`/drive/shared?file=${(notification.data as any)?.fileId}`);
+                                  handleMarkAsRead(notification.id);
+                                }}
+                              >
+                                <Folder className="w-3 h-3 mr-1" />
+                                Open file
+                              </Button>
+                            )}
+                            {Boolean((notification.data as any)?.folderId) && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-xs"
+                                onClick={() => {
+                                  router.push(`/drive/shared?folder=${(notification.data as any)?.folderId}`);
+                                  handleMarkAsRead(notification.id);
+                                }}
+                              >
+                                <Folder className="w-3 h-3 mr-1" />
+                                Open folder
                               </Button>
                             )}
                           </div>

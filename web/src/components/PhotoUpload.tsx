@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Upload, X, Camera, User, Building, AlertCircle } from 'lucide-react';
 import { Button } from 'shared/components';
 import { toast } from 'react-hot-toast';
+import PhotoCropModal from './PhotoCropModal';
 
 interface PhotoUploadProps {
   currentPhoto?: string | null;
@@ -26,6 +27,8 @@ export default function PhotoUpload({
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
 
   const isPersonal = photoType === 'personal';
   const icon = isPersonal ? User : Building;
@@ -48,18 +51,9 @@ export default function PhotoUpload({
     }
 
     setError(null);
-    setIsUploading(true);
-
-    try {
-      await onUpload(file);
-      toast.success(`${title} uploaded successfully!`);
-    } catch (err) {
-      console.error('Upload error:', err);
-      setError('Failed to upload photo. Please try again.');
-      toast.error('Failed to upload photo');
-    } finally {
-      setIsUploading(false);
-    }
+    // Open crop editor before uploading
+    setPendingFile(file);
+    setCropOpen(true);
   }, [onUpload, title]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -112,10 +106,42 @@ export default function PhotoUpload({
     }
   };
 
+  const handleCroppedUpload = async (result: { originalFile: File; crop: { x: number; y: number; width: number; height: number; rotation: number; zoom: number } }) => {
+    setIsUploading(true);
+    try {
+      // Backward compat: upload expects a single file; until profile settings migrates
+      // to library mode, we upload the original and let the server generate avatar via crop params.
+      // The uploadProfilePhoto API now accepts crop params.
+      // We pass the original file here; the caller's onUpload should attach crop params.
+      await onUpload(result.originalFile);
+      toast.success(`${title} uploaded successfully!`);
+    } catch (err) {
+      console.error('Upload error:', err);
+      setError('Failed to upload photo. Please try again.');
+      toast.error('Failed to upload photo');
+    } finally {
+      setIsUploading(false);
+      setPendingFile(null);
+      setCropOpen(false);
+    }
+  };
+
   const IconComponent = icon;
 
   return (
     <div className={`space-y-4 ${className}`}>
+      <PhotoCropModal
+        open={cropOpen}
+        imageFile={pendingFile}
+        title={`Crop ${title}`}
+        onClose={() => {
+          if (isUploading) return;
+          setCropOpen(false);
+          setPendingFile(null);
+        }}
+        onConfirm={handleCroppedUpload}
+      />
+
       {/* Header */}
       <div className="flex items-center space-x-3">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${

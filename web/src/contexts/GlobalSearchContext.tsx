@@ -130,7 +130,9 @@ export function GlobalSearchProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    console.log('🔍 Frontend Search Debug - Starting search with:', { query, filters });
+    const effectiveFilters = filters ?? state.filters;
+
+    console.log('🔍 Frontend Search Debug - Starting search with:', { query, filters: effectiveFilters });
 
     dispatch({ type: 'SET_QUERY', payload: query });
     dispatch({ type: 'SET_LOADING', payload: true });
@@ -140,7 +142,7 @@ export function GlobalSearchProvider({ children }: { children: React.ReactNode }
       // Call search API with auth token
       const token = getAuthToken();
       console.log('🔍 Frontend Search Debug:', { query, token: token ? 'Present' : 'Missing', session: !!session });
-      const results = await searchAPI.search(query, filters, token || undefined);
+      const results = await searchAPI.search(query, effectiveFilters, token || undefined);
       console.log('🔍 Frontend Search Debug - API response:', results);
       dispatch({ type: 'SET_RESULTS', payload: results });
       dispatch({ type: 'ADD_TO_HISTORY', payload: query });

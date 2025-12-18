@@ -1,11 +1,12 @@
-  'use client';
+'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDashboard } from '../../contexts/DashboardContext';
 import DriveSidebar from '../../app/drive/DriveSidebar';
 import { DriveModuleWrapper } from './DriveModuleWrapper';
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 
 interface DrivePageContentProps {
   className?: string;
@@ -15,8 +16,35 @@ export function DrivePageContent({ className = '' }: DrivePageContentProps) {
   const { data: session } = useSession();
   const { currentDashboard, navigateToDashboard } = useDashboard();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Use ref instead of state to avoid render-phase updates
+  const dragEndHandlerRef = useRef<((event: DragEndEvent | null) => Promise<void>) | null>(null);
+
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor)
+  );
+
+  // Drag handlers
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const activeId = event.active.id as string;
+    setDraggingId(activeId);
+  }, []);
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent | null) => {
+    setDraggingId(null);
+    if (dragEndHandlerRef.current && event && typeof dragEndHandlerRef.current === 'function') {
+      await dragEndHandlerRef.current(event);
+    }
+  }, []);
 
   // File upload handler
   const handleFileUpload = useCallback(() => {
@@ -94,37 +122,58 @@ export function DrivePageContent({ className = '' }: DrivePageContentProps) {
     router.push(`/drive?dashboard=${dashboardId}`);
   }, [navigateToDashboard, router]);
 
-  // Folder selection handler
-  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
-    setSelectedFolder(folder);
-    // Folder selection is handled by DriveModuleWrapper which receives dashboardId
-    // The selected folder ID is passed to DriveModule via props if needed
-    // For now, folder navigation is handled by the DriveModule's currentFolder state
-    console.log('Selected folder:', folder);
+  // Folder selection handler - receives folderId string from DriveSidebar
+  const handleFolderSelect = useCallback((folderId: string | null) => {
+    setSelectedFolder(folderId ? { id: folderId, name: '' } : null);
   }, []);
 
+  // Initialize selected folder from URL (?folder=...) so other pages can deep-link into Drive
+  useEffect(() => {
+    if (!searchParams) {
+      return;
+    }
+    const folderId = searchParams.get('folder');
+    if (folderId) {
+      setSelectedFolder({ id: folderId, name: '' });
+    }
+  }, [searchParams]);
+
   return (
-    <div className={`flex h-screen bg-gray-50 ${className}`}>
-      {/* Drive Sidebar - Same for all users */}
-      <DriveSidebar 
-        onNewFolder={handleCreateFolder} 
-        onFileUpload={handleFileUpload} 
-        onFolderUpload={handleFileUpload}
-        onContextSwitch={handleContextSwitch}
-        onFolderSelect={handleFolderSelect}
-        selectedFolderId={selectedFolder?.id}
-      />
-      
-      {/* Main Content - Context-aware module */}
-      <div className="flex-1 overflow-hidden">
-        <DriveModuleWrapper 
-          className="h-full" 
-          refreshTrigger={refreshTrigger}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className={`flex h-screen bg-gray-50 ${className}`}>
+        {/* Drive Sidebar - Same for all users */}
+        <DriveSidebar 
+          onNewFolder={handleCreateFolder} 
+          onFileUpload={handleFileUpload} 
+          onFolderUpload={handleFileUpload}
+          onContextSwitch={handleContextSwitch}
+          onFolderSelect={handleFolderSelect}
+          selectedFolderId={selectedFolder?.id}
         />
+        
+        {/* Main Content - Context-aware module */}
+        <div className="flex-1 overflow-hidden">
+          <DriveModuleWrapper 
+            className="h-full" 
+            refreshTrigger={refreshTrigger}
+            selectedFolderId={selectedFolder?.id || null}
+            onFolderSelect={(folderId) => {
+              // Update selected folder state with folderId from DriveModuleWrapper
+              setSelectedFolder(folderId ? { id: folderId, name: '' } : null);
+            }}
+            onRegisterDragEndHandler={(handler) => {
+              dragEndHandlerRef.current = handler;
+            }}
+          />
+        </div>
       </div>
-    </div>
+    </DndContext>
   );
 }
 
 export default DrivePageContent;
-

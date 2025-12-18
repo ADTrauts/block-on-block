@@ -16,6 +16,8 @@ import {
 } from '../../api/aiConversations';
 import { authenticatedApiCall } from '../../lib/apiUtils';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { useGlobalTrash } from '../../contexts/GlobalTrashContext';
+import { toast } from 'react-hot-toast';
 
 interface ConversationItem {
   id: string;
@@ -39,6 +41,7 @@ export default function AIChatModule({
 }: AIChatModuleProps) {
   const { data: session } = useSession();
   const { currentDashboard } = useDashboard();
+  const { trashItem } = useGlobalTrash();
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationItem[]>([]);
@@ -382,19 +385,35 @@ export default function AIChatModule({
     }
   };
 
-  // Delete conversation
+  // Delete conversation (move to trash)
   const handleDeleteConversation = async (conversationId: string) => {
     if (!session?.accessToken) return;
 
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return;
+
     try {
-      await deleteConversation(conversationId, session.accessToken);
+      // Use global trash API
+      await trashItem({
+        id: conversation.id,
+        name: conversation.title || 'Untitled Conversation',
+        type: 'ai_conversation',
+        moduleId: 'ai-chat',
+        moduleName: 'AI Chat',
+        metadata: {
+          dashboardId: dashboardId || currentDashboard?.id,
+        },
+      });
+
+      toast.success(`${conversation.title || 'Conversation'} moved to trash`);
       setConversations(prev => prev.filter(c => c.id !== conversationId));
       
       if (currentConversationId === conversationId) {
         handleNewConversation();
       }
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
+      console.error('Failed to move conversation to trash:', error);
+      toast.error('Failed to move conversation to trash');
     }
   };
 

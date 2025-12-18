@@ -11,11 +11,13 @@ import {
   BriefcaseIcon,
   AcademicCapIcon
 } from '@heroicons/react/24/outline';
-import { Pin } from 'lucide-react';
+import { Pin, Download } from 'lucide-react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import FolderTree from '../../components/drive/FolderTree';
+import { useDroppable } from '@dnd-kit/core';
+import { useDriveWebSocket } from '../../hooks/useDriveWebSocket';
 
 interface DriveSidebarProps {
   onNewFolder: () => void;
@@ -23,7 +25,7 @@ interface DriveSidebarProps {
   onFolderUpload: () => void;
   onTrashDrop?: () => void;
   onContextSwitch?: (dashboardId: string) => void;
-  onFolderSelect?: (folder: any) => void;
+  onFolderSelect?: (folderId: string | null) => void;
   selectedFolderId?: string;
   lockedDashboardId?: string;
 }
@@ -80,11 +82,6 @@ const dropdownItems: DropdownItemProps[] = [
   { icon: FolderIcon, label: 'New folder' },
   { icon: ArrowUpTrayIcon, label: 'File upload' },
   { icon: ArrowUpTrayIcon, label: 'Folder upload' },
-  { icon: FolderIcon, label: 'Google Docs', disabled: true },
-  { icon: FolderIcon, label: 'Google Sheets', disabled: true },
-  { icon: FolderIcon, label: 'Google Slides', disabled: true },
-  { icon: FolderIcon, label: 'Google Forms', disabled: true },
-  { icon: FolderIcon, label: 'More', disabled: true },
 ];
 
 // Helper functions
@@ -117,6 +114,7 @@ const styles: StyleProps = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+    position: 'relative',
   },
   newButton: {
     width: '100%',
@@ -224,7 +222,8 @@ export default function DriveSidebar({
   
   // Get dashboard context
   const { 
-    allDashboards, 
+    allDashboards,
+    dashboards,
     currentDashboard, 
     getDashboardType, 
     getDashboardDisplayName 
@@ -279,6 +278,81 @@ export default function DriveSidebar({
   // Get session for authentication
   const { data: session } = useSession();
 
+  // Root drop zone for moving items back to drive root via sidebar
+  const { setNodeRef: setRootDropRef, isOver: isOverRoot } = useDroppable({
+    id: 'drive-root-sidebar',
+    disabled: false,
+  });
+
+  // Storage usage state (only for personal drives)
+  const [storageUsage, setStorageUsage] = useState({ used: 0, total: 10 * 1024 * 1024 * 1024 }); // 10GB default
+  const [isLoadingStorage, setIsLoadingStorage] = useState(false);
+
+  // Calculate total storage across all personal dashboards
+  const loadPersonalStorage = useCallback(async () => {
+    if (!session?.accessToken) return;
+    
+    // Only calculate for personal drives
+    // Check if current dashboard is personal (not business/enterprise/educational/household)
+    const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
+    const isPersonalDrive = dashboardType === 'personal';
+    
+    if (!isPersonalDrive) {
+      setStorageUsage({ used: 0, total: 10 * 1024 * 1024 * 1024 });
+      return;
+    }
+
+    try {
+      setIsLoadingStorage(true);
+      
+      // Get all personal dashboard IDs
+      const personalDashboardIds = dashboards?.personal?.map((d: any) => d.id) || [];
+      
+      if (personalDashboardIds.length === 0) {
+        setStorageUsage({ used: 0, total: 10 * 1024 * 1024 * 1024 });
+        return;
+      }
+
+      // Fetch files from all personal dashboards
+      const filePromises = personalDashboardIds.map(async (dashboardId: string) => {
+        const response = await fetch(`/api/drive/files?dashboardId=${dashboardId}`, {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!response.ok) return [];
+        const files = await response.json();
+        return files;
+      });
+
+      const allFilesArrays = await Promise.all(filePromises);
+      const allFiles = allFilesArrays.flat();
+      
+      // Calculate total size across all personal dashboards
+      const totalSize = allFiles.reduce((sum: number, file: any) => sum + (file.size || 0), 0);
+      setStorageUsage({ used: totalSize, total: 10 * 1024 * 1024 * 1024 });
+    } catch (error) {
+      console.error('Failed to load storage usage:', error);
+    } finally {
+      setIsLoadingStorage(false);
+    }
+  }, [session?.accessToken, dashboards, currentDashboard, getDashboardType]);
+
+  useEffect(() => {
+    loadPersonalStorage();
+  }, [loadPersonalStorage]);
+
+  // Format file size helper
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizeIndex = Math.min(i, sizes.length - 1);
+    return parseFloat((bytes / Math.pow(k, sizeIndex)).toFixed(2)) + ' ' + sizes[sizeIndex];
+  };
+
   // API functions for folder management
   const loadRootFolders = useCallback(async (dashboardId: string) => {
     try {
@@ -287,13 +361,17 @@ export default function DriveSidebar({
         return;
       }
       
-      const response = await fetch(`/api/drive/folders?dashboardId=${dashboardId}&parentId=null`, {
+      // Don't pass parentId=null - just omit it so the API filters for parentId IS NULL
+      const response = await fetch(`/api/drive/folders?dashboardId=${dashboardId}`, {
         headers: {
           'Authorization': `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json'
         }
       });
-      if (!response.ok) throw new Error('Failed to load folders');
+      if (!response.ok) {
+        console.error('Failed to load folders:', response.status, response.statusText);
+        throw new Error('Failed to load folders');
+      }
       const folders = await response.json();
       
       const folderNodes: FolderNode[] = folders.map((folder: any) => ({
@@ -413,7 +491,8 @@ export default function DriveSidebar({
 
   const handleFolderSelect = useCallback((folder: FolderNode) => {
     if (onFolderSelect) {
-      onFolderSelect(folder);
+      // Pass folder ID as string to match DriveModuleWrapper's expected signature
+      onFolderSelect(folder.id);
     }
   }, [onFolderSelect]);
 
@@ -428,11 +507,10 @@ export default function DriveSidebar({
     } else {
       // Expand drive
       setExpandedDrives(prev => new Set([...Array.from(prev), dashboardId]));
-      if (!folderTrees[dashboardId]) {
-        await loadRootFolders(dashboardId);
-      }
+      // Always try to load folders, even if they exist (in case they were deleted/added)
+      await loadRootFolders(dashboardId);
     }
-  }, [expandedDrives, folderTrees, loadRootFolders]);
+  }, [expandedDrives, loadRootFolders]);
 
   // Auto-expand the locked workspace drive so seeded folders are immediately visible
   useEffect(() => {
@@ -444,6 +522,55 @@ export default function DriveSidebar({
       void handleDriveExpand(lockedDashboardId);
     }
   }, [lockedDashboardId, contextDrives, expandedDrives, handleDriveExpand]);
+
+  // Real-time Drive updates via WebSocket: refresh folder trees on relevant drive events
+  useDriveWebSocket({
+    enabled: true,
+    events: {
+      onItemCreated: async (data: Record<string, unknown>) => {
+        const dashboardId = data.dashboardId as string | undefined;
+        const folderId = data.folderId as string | null | undefined;
+        // If folder was created in root or in a visible parent, refresh the tree
+        if (dashboardId && (!folderId || folderTrees[dashboardId]?.some(f => f.id === folderId))) {
+          await loadRootFolders(dashboardId);
+        }
+      },
+      onItemUpdated: async (data: Record<string, unknown>) => {
+        const dashboardId = data.dashboardId as string | undefined;
+        if (dashboardId && folderTrees[dashboardId]) {
+          await loadRootFolders(dashboardId);
+        }
+      },
+      onItemDeleted: async (data: Record<string, unknown>) => {
+        const dashboardId = data.dashboardId as string | undefined;
+        if (dashboardId && folderTrees[dashboardId]) {
+          await loadRootFolders(dashboardId);
+        }
+      },
+      onItemMoved: async (data: Record<string, unknown>) => {
+        const dashboardId = data.dashboardId as string | undefined;
+        const previousFolderId = data.previousFolderId as string | null | undefined;
+        const folderId = data.folderId as string | null | undefined;
+        // Refresh both source and destination folder trees
+        if (dashboardId) {
+          await loadRootFolders(dashboardId);
+          // If moved to/from a subfolder, refresh that subfolder's children
+          if (previousFolderId && folderTrees[dashboardId]?.some(f => f.id === previousFolderId)) {
+            await loadSubfolders(dashboardId, previousFolderId);
+          }
+          if (folderId && folderTrees[dashboardId]?.some(f => f.id === folderId)) {
+            await loadSubfolders(dashboardId, folderId);
+          }
+        }
+      },
+      onItemPinned: async (data: Record<string, unknown>) => {
+        const dashboardId = data.dashboardId as string | undefined;
+        if (dashboardId && folderTrees[dashboardId]) {
+          await loadRootFolders(dashboardId);
+        }
+      },
+    },
+  });
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -474,11 +601,20 @@ export default function DriveSidebar({
 
   const handleDriveClick = (drive: ContextDrive, event: React.MouseEvent) => {
     event.preventDefault();
-    if (lockedDashboardId) {
+
+    // If the sidebar is locked to a specific workspace, only allow clicking that drive
+    if (lockedDashboardId && drive.dashboardId !== lockedDashboardId) {
       return;
     }
+
+    // Switch context / navigate to this drive (root)
     if (onContextSwitch) {
       onContextSwitch(drive.dashboardId);
+    }
+
+    // Reset folder selection to root for the active drive
+    if (onFolderSelect) {
+      onFolderSelect(null);
     }
   };
 
@@ -532,12 +668,17 @@ export default function DriveSidebar({
           const isExpanded = expandedDrives.has(drive.dashboardId);
           const hasFolders = folderTrees[drive.dashboardId] && folderTrees[drive.dashboardId].length > 0;
           
+          const isRootDropTarget = drive.active;
+
           return (
-            <div key={drive.id}>
+            <div
+              key={drive.id}
+              ref={isRootDropTarget ? setRootDropRef : undefined}
+            >
               <div
                 style={{
                   ...styles.driveItem,
-                  background: colorScheme.bg,
+                  background: isRootDropTarget && isOverRoot ? '#dbeafe' : colorScheme.bg,
                   color: colorScheme.text,
                   fontWeight: drive.active ? 600 : 500,
                   borderLeft: drive.active ? `3px solid ${colorScheme.border}` : 'none',
@@ -570,8 +711,8 @@ export default function DriveSidebar({
                 </button>
               </div>
               
-              {/* Folder Tree */}
-              {isExpanded && hasFolders && (
+              {/* Folder Tree - Show when expanded, even if no folders yet */}
+              {isExpanded && (
                 <div style={{ marginLeft: 16, marginTop: 4 }}>
                   <FolderTree
                     folders={folderTrees[drive.dashboardId] || []}
@@ -611,6 +752,54 @@ export default function DriveSidebar({
           </Link>
         ))}
       </section>
+
+      {/* Storage Usage - Only show for personal drives, at the bottom */}
+      {currentDashboard && getDashboardType(currentDashboard) === 'personal' && (
+        <div style={{
+          padding: '12px',
+          background: '#f8fafc',
+          borderRadius: '8px',
+          marginTop: 'auto',
+          border: '1px solid #e5e7eb'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Download style={{ width: 16, height: 16, color: '#6b7280' }} />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Storage</span>
+            </div>
+            {!isLoadingStorage && (
+              <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                {formatFileSize(storageUsage.used)} / {formatFileSize(storageUsage.total)}
+              </span>
+            )}
+          </div>
+          {!isLoadingStorage && (
+            <>
+              <div style={{
+                width: '100%',
+                background: '#e5e7eb',
+                borderRadius: '4px',
+                height: '6px',
+                overflow: 'hidden'
+              }}>
+                <div
+                  style={{
+                    background: '#2563eb',
+                    height: '100%',
+                    borderRadius: '4px',
+                    transition: 'width 0.3s',
+                    width: `${Math.min((storageUsage.used / storageUsage.total) * 100, 100)}%`
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>
+                <span>{((storageUsage.used / storageUsage.total) * 100).toFixed(1)}% used</span>
+                <span>{formatFileSize(storageUsage.total - storageUsage.used)} available</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </aside>
   );
 } 

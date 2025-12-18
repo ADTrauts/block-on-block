@@ -126,7 +126,13 @@ const SharedPageContent = () => {
 
   const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
     setSelectedFolder(folder);
-  }, []);
+    if (folder) {
+      const dashboardId = currentDashboard?.id;
+      const basePath = '/drive';
+      const query = dashboardId ? `?dashboard=${dashboardId}&folder=${folder.id}` : `?folder=${folder.id}`;
+      router.push(`${basePath}${query}`);
+    }
+  }, [currentDashboard, router]);
 
   useEffect(() => {
     if (status === 'authenticated' && session) {

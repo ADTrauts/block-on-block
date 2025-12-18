@@ -260,6 +260,59 @@ export class StorageService {
     }
   }
 
+  /**
+   * Download a file as a Buffer.
+   * For GCS: filePath should be the object path inside the bucket (e.g. "profile-photos/abc.jpg").
+   * For Local: filePath can be a full path or a filename; we resolve against uploadDir.
+   */
+  async getFileBuffer(filePath: string): Promise<Buffer> {
+    if (this.config.provider === 'gcs' && this.bucket) {
+      const file = this.bucket.file(filePath);
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      const [data] = await file.download();
+      return data;
+    }
+
+    const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+    const resolved = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(uploadDir, path.basename(filePath));
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`File not found: ${resolved}`);
+    }
+    return fs.readFileSync(resolved);
+  }
+
+  /**
+   * Extract a provider-specific storage path from a public URL.
+   * Returns null if the URL isn't recognized.
+   */
+  extractPathFromUrl(urlString: string): string | null {
+    try {
+      const u = new URL(urlString);
+      // GCS public URL: https://storage.googleapis.com/<bucket>/<path>
+      if (u.hostname === 'storage.googleapis.com') {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length >= 2) {
+          // parts[0] = bucket name, rest = object path
+          return parts.slice(1).join('/');
+        }
+      }
+      // Local public URL: <base>/uploads/<filename>
+      const segments = u.pathname.split('/').filter(Boolean);
+      const uploadsIdx = segments.indexOf('uploads');
+      if (uploadsIdx >= 0 && segments[uploadsIdx + 1]) {
+        return segments.slice(uploadsIdx + 1).join('/');
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private async uploadToGCS(
     file: Express.Multer.File,
     destinationPath: string,

@@ -229,6 +229,14 @@ router.delete('/positions/:id', async (req, res) => {
 router.get('/structure/:businessId', async (req, res) => {
   try {
     const { businessId } = req.params;
+    
+    if (!businessId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Business ID is required' 
+      });
+    }
+    
     const structure = await orgChartService.getOrgChartStructure(businessId);
     
     // Transform the response to match frontend expectations
@@ -246,9 +254,18 @@ router.get('/structure/:businessId', async (req, res) => {
     };
     
     res.json(response);
-  } catch (error) {
-    console.error('Error fetching org chart structure:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch org chart structure' });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error fetching org chart structure:', {
+      error: err.message,
+      stack: err.stack,
+      businessId: req.params.businessId
+    });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch org chart structure',
+      message: err.message
+    });
   }
 });
 
@@ -260,11 +277,37 @@ router.post('/structure/:businessId/default', async (req, res) => {
   try {
     const { businessId } = req.params;
     const { industry } = req.body;
+    
+    if (!businessId) {
+      return res.status(400).json({ error: 'Business ID is required' });
+    }
+    
     await orgChartService.createDefaultOrgChart(businessId, industry);
-    res.status(201).json({ message: 'Default org chart structure created successfully' });
-  } catch (error) {
-    console.error('Error creating default org chart structure:', error);
-    res.status(500).json({ error: 'Failed to create default org chart structure' });
+    res.status(201).json({ 
+      success: true,
+      message: 'Default org chart structure created successfully' 
+    });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error creating default org chart structure:', {
+      businessId: req.params.businessId,
+      error: err.message,
+      stack: err.stack,
+    });
+    
+    // Provide more specific error messages
+    if (err.message.includes('not found')) {
+      return res.status(404).json({ 
+        success: false,
+        error: err.message 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create default org chart structure',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
@@ -308,6 +351,21 @@ router.get('/permissions', async (req, res) => {
   } catch (error) {
     console.error('Error fetching permissions:', error);
     res.status(500).json({ error: 'Failed to fetch permissions' });
+  }
+});
+
+/**
+ * GET /api/org-chart/permissions/:businessId
+ * Get all permissions for a business
+ */
+router.get('/permissions/:businessId', async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const permissions = await permissionService.getAllPermissions();
+    res.json({ success: true, data: permissions });
+  } catch (error) {
+    console.error('Error fetching permissions:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch permissions' });
   }
 });
 
@@ -463,6 +521,22 @@ router.post('/permission-sets/:id/copy', async (req, res) => {
 // ============================================================================
 
 /**
+ * GET /api/org-chart/employees/:businessId/vacant
+ * Get vacant positions for a business
+ * NOTE: This route must come before /employees/:businessId to avoid route conflicts
+ */
+router.get('/employees/:businessId/vacant', async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const vacantPositions = await employeeManagementService.getVacantPositions(businessId);
+    res.json({ success: true, data: vacantPositions });
+  } catch (error) {
+    console.error('Error fetching vacant positions:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch vacant positions' });
+  }
+});
+
+/**
  * GET /api/org-chart/employees/:businessId
  * Get all employees for a business
  */
@@ -601,21 +675,6 @@ router.get('/employees/summary/:businessId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching employee summary:', error);
     res.status(500).json({ error: 'Failed to fetch employee summary' });
-  }
-});
-
-/**
- * GET /api/org-chart/employees/vacant/:businessId
- * Get vacant positions
- */
-router.get('/employees/vacant/:businessId', async (req, res) => {
-  try {
-    const { businessId } = req.params;
-    const vacantPositions = await employeeManagementService.getVacantPositions(businessId);
-    res.json(vacantPositions);
-  } catch (error) {
-    console.error('Error fetching vacant positions:', error);
-    res.status(500).json({ error: 'Failed to fetch vacant positions' });
   }
 });
 

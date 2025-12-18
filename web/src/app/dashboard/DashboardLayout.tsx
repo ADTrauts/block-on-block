@@ -992,7 +992,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             right: 0,
             top: 64,
             height: 'calc(100vh - 64px)',
-            zIndex: 50,
+            zIndex: 2000,
             boxShadow: '0 0 8px rgba(0,0,0,0.04)',
             transition: 'width 0.2s ease-in-out',
             overflow: 'hidden',

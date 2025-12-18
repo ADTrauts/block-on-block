@@ -1,0 +1,38 @@
+// ============================================================================
+// PROFILE PHOTOS - USER PHOTO LIBRARY
+// ============================================================================
+// Purpose: Store original profile photo uploads + derived avatar renditions
+// Notes:
+// - Original is immutable; avatarUrl can be regenerated (crop/rotate updates)
+// - Trashed items integrate with Global Trash via trashedAt
+// ============================================================================
+
+model UserProfilePhoto {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Optional assignment back-relations (photo belongs to the user above; these link to user's current assignments)
+  personalForUser User? @relation("UserPersonalPhoto")
+  businessForUser User? @relation("UserBusinessPhoto")
+
+  // Immutable original upload (source of truth)
+  originalUrl String
+
+  // Derived avatar rendition (square image used in UI)
+  avatarUrl   String
+
+  // Crop metadata used to generate avatarUrl (stored for future edits/regeneration)
+  crop        Json?
+  rotation    Int?     // degrees
+
+  trashedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([trashedAt])
+  @@map("user_profile_photos")
+}
+
+

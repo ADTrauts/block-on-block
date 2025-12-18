@@ -82,6 +82,23 @@ export default function WorkTab({ onSwitchToWork }: WorkTabProps) {
     }
   }, [isWorkAuthenticated, workCredentials]);
 
+  // Persist whether the Work UI (BrandedWorkDashboard) is currently active.
+  // This is intentionally separate from "isWorkAuthenticated" because the work token can persist
+  // even when the user is browsing personal pages.
+  useEffect(() => {
+    const active = showBrandedDashboard;
+    if (active) {
+      localStorage.setItem('vssyl_work_ui_active', 'true');
+    } else {
+      localStorage.removeItem('vssyl_work_ui_active');
+    }
+
+    // Notify listeners in the SAME TAB. (The 'storage' event only fires across other tabs.)
+    window.dispatchEvent(
+      new CustomEvent('vssyl:work-ui-active', { detail: { active } })
+    );
+  }, [showBrandedDashboard]);
+
   // Helper to accept invitation tokens
   const acceptInvite = async (token: string) => {
     setJoinError(null);

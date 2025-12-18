@@ -1,6 +1,320 @@
 # Active Context - Vssyl Business Admin & AI Integration
 
-## Recent Enhancement: Folder Permissions & Sharing Implementation — COMPLETE ✅
+## Recent Enhancement: Scheduling Module Database Tables & Component Fixes — COMPLETE ✅
+
+### **Scheduling Module Database Tables & Component Fixes (December 2025)**
+**Goal**: Fix missing scheduling database tables and resolve undefined `scheduleId` prop warnings
+
+**What Was Accomplished**:
+- ✅ **Database Tables Recreated**: Used `prisma db push` to sync database schema and create missing `schedules`, `schedule_shifts`, and related scheduling tables
+- ✅ **Prisma Client Regenerated**: Regenerated Prisma client to ensure code can access the new tables
+- ✅ **Component Safety Checks**: Added defensive checks in `ScheduleBuilderVisual` to handle undefined `scheduleId` prop gracefully
+- ✅ **Parent Component Validation**: Added validation in `SchedulingAdminContent` to ensure `selectedSchedule.id` exists before rendering
+
+**Technical Implementation**:
+- **Database Sync**: Used `prisma db push --accept-data-loss` to sync database with Prisma schema (tables were missing because they were created with `db push` instead of migrations)
+- **Early Return Pattern**: Added early return in `ScheduleBuilderVisual` after all hooks to return `null` if `scheduleId` is undefined (following Rules of Hooks)
+- **Parent Validation**: Added `selectedSchedule && selectedSchedule.id` check in `SchedulingAdminContent` before rendering `ScheduleBuilderVisual`
+- **Warning Suppression**: Component now handles undefined props gracefully without console warnings
+
+**Root Cause Analysis**:
+1. **Missing Database Tables**: Scheduling tables (`schedules`, `schedule_shifts`, etc.) were created using `prisma db push` instead of `prisma migrate dev`, which doesn't create migration files. When the database was reset or migrations were reapplied, the tables disappeared because there was no migration to recreate them.
+2. **Undefined scheduleId Prop**: React Strict Mode double-rendering or brief state transitions caused `ScheduleBuilderVisual` to render with undefined `scheduleId` before `selectedSchedule` was fully set.
+
+**Key Files Modified**:
+- `web/src/components/scheduling/ScheduleBuilderVisual.tsx` — Added early return check after hooks for undefined `scheduleId`
+- `web/src/components/scheduling/SchedulingAdminContent.tsx` — Added validation to ensure `selectedSchedule.id` exists before rendering
+
+**Bugs Fixed**:
+1. **Missing Database Tables**: `The table 'public.schedules' does not exist` errors
+   - **Root Cause**: Tables created with `db push` instead of migrations, so they disappeared after database reset
+   - **Solution**: Used `prisma db push` to recreate tables, then regenerated Prisma client
+   - **Result**: All scheduling endpoints now work correctly, no more 500 errors
+
+2. **Undefined scheduleId Warning**: `⚠️ ScheduleBuilderVisual: scheduleId prop is undefined`
+   - **Root Cause**: Component rendering during state transitions before `selectedSchedule.id` is set
+   - **Solution**: Added defensive checks in both parent and child components
+   - **Result**: No more warnings, component handles undefined state gracefully
+
+**Architecture Decisions**:
+- **Migration Strategy**: Always use `prisma migrate dev` for schema changes to create proper migration files (not `db push`)
+- **Component Safety**: Always validate required props in parent components before passing to children
+- **Rules of Hooks**: Early returns must come after all hooks are called to maintain hook order
+
+**Next Steps**:
+- Create proper migration file for scheduling tables to prevent this issue in the future
+- Consider adding migration validation to catch missing tables early
+
+## Previous Enhancement: Global Trash System Unification & Organization — COMPLETE ✅
+
+### **Global Trash System Unification & Organization (December 2025)**
+**Goal**: Unify Drive trash and global trash into a single system, fix UI layering issues, and add module-based organization
+
+**What Was Accomplished**:
+- ✅ **Unified Trash System**: Drive Trash page now uses GlobalTrashContext and `/api/trash/*` endpoints - Drive trash and global trash are the same system
+- ✅ **Fixed Infinite Loading Loop**: Memoized `refreshTrash` in GlobalTrashContext with `useCallback` to prevent infinite re-renders
+- ✅ **Fixed UI Layering**: Global trash panel now renders via React portal to ensure it appears above all UI elements
+- ✅ **Module-Based Organization**: Added collapsible sections grouped by module (Drive, Chat, Calendar, etc.) for easy access
+- ✅ **Expandable Panel**: Added expand/minimize toggle to switch between compact (320px) and expanded (600px) panel sizes
+- ✅ **Improved Positioning**: Panel positioned above trash button with proper spacing and alignment
+- ✅ **Cross-Module Restore UI Refresh**: Restoring from trash triggers module UIs to refresh without requiring a full page reload
+
+**Technical Implementation**:
+- **Unified API**: Drive Trash page (`/drive/trash`) now filters `GlobalTrashContext` items by `moduleId === 'drive'` instead of using separate Drive-specific endpoints
+- **Context Memoization**: `refreshTrash` function wrapped in `useCallback` with `session?.accessToken` dependency to prevent infinite loops
+- **Portal Rendering**: Global trash panel uses `createPortal` to render at `document.body` level with z-index 9999, ensuring it's above all other UI
+- **Module Grouping**: Items grouped by `moduleId` using `useMemo`, with collapsible sections showing module name and item count
+- **Auto-Expand**: All modules expanded by default when panel opens, users can collapse sections they don't need
+- **Size Toggle**: Panel has two modes - compact (`w-80 max-h-96`) and expanded (`w-[600px] max-h-[600px]`) with smooth transitions
+- **Event Bridge (Restore)**: `GlobalTrashContext.restoreItem()` dispatches `CustomEvent('itemRestored')` with `{ id, moduleId, type, metadata }`; modules listen and refresh locally
+
+**Key Files Modified**:
+- `web/src/contexts/GlobalTrashContext.tsx` — Memoized `refreshTrash` with `useCallback`
+- `web/src/app/drive/trash/page.tsx` — Refactored to use `GlobalTrashContext` instead of Drive-specific API endpoints
+- `web/src/components/GlobalTrashBin.tsx` — Added portal rendering, module grouping, expand/collapse functionality
+- `web/src/app/dashboard/DashboardLayout.tsx` — Increased z-index for right sidebar to 2000
+- `web/src/components/modules/DriveModule.tsx` — Listens for `itemRestored` to reload Drive data
+- `web/src/components/modules/CalendarModule.tsx` — Listens for `itemRestored` to reload calendars/events
+- `web/src/components/modules/ChatModule.tsx` — Listens for `itemRestored` to reload conversations
+
+**Bugs Fixed**:
+1. **Infinite Loading Loop**: Drive trash page showed "loading" and blinked repeatedly
+   - **Root Cause**: `refreshTrash` function in context wasn't memoized, causing `useEffect` dependencies to change on every render
+   - **Solution**: Wrapped `refreshTrash` in `useCallback` with proper dependencies
+   - **Result**: Loading loop eliminated, page loads correctly
+
+2. **Global Trash Panel Hidden Behind UI**: Panel appeared behind other elements
+   - **Root Cause**: Panel was positioned absolutely within sidebar with z-index 50, lower than other UI elements
+   - **Solution**: Rendered panel via React portal to `document.body` with z-index 9999, added backdrop overlay
+   - **Result**: Panel now appears above all UI elements reliably
+
+3. **No Module Organization**: All trash items shown in flat list, hard to find items from specific modules
+   - **Root Cause**: Items displayed chronologically without grouping
+   - **Solution**: Grouped items by `moduleId` with collapsible sections, auto-expand on open
+   - **Result**: Easy navigation to items by module, cleaner organization
+
+**Architecture Decisions**:
+- **Single Source of Truth**: Global trash is the canonical system - Drive Trash page is just a filtered view
+- **Portal for Overlays**: Use React portals for UI elements that must appear above everything (modals, dropdowns, trash panel)
+- **Context Memoization**: Always memoize context functions that are used as `useEffect` dependencies to prevent infinite loops
+- **Module Grouping**: Organize multi-module data by module for better UX and discoverability
+
+## Previous Enhancement: Pinned Page Functionality Parity — COMPLETE ✅
+
+### **Pinned Page Functionality Parity (December 2025)**
+**Goal**: Make the pinned page operate with the same functionality as the standard drive page
+
+**What Was Accomplished**:
+- ✅ **Complete Refactor**: Refactored pinned page to use same components and handlers as DriveModule
+- ✅ **Image Thumbnails**: Added image thumbnail previews matching standard drive page
+- ✅ **Details Panel**: Added right-side details panel for file preview and information
+- ✅ **Context Menu**: Implemented full context menu with pin/unpin, share, download, delete actions
+- ✅ **Drag-and-Drop**: Integrated with global DndContext for moving items between folders
+- ✅ **Share Modals**: Added ShareModal and ShareLinkModal for sharing functionality
+- ✅ **Pin/Unpin**: Implemented toggle pin functionality that removes unpinned items from list
+- ✅ **Download**: Added file download functionality
+- ✅ **Delete**: Integrated with global trash system
+- ✅ **Layout Structure**: Matched layout (folders on top, files on bottom) with same styling
+- ✅ **View Modes**: Grid and list view toggle functionality
+- ✅ **Fullscreen Permissions**: Fixed fullscreen permissions policy warnings
+
+**Technical Implementation**:
+- **Component Reuse**: Created `DraggableItem` component in pinned page matching DriveModule's implementation
+- **Same Handlers**: Implemented all handlers (handleItemClick, handleDelete, handleShare, handleDownload, handleStar, handleContextMenu) matching DriveModule
+- **Details Panel Integration**: Added `DriveDetailsPanel` component for file preview and details
+- **DndContext Integration**: Wrapped pinned page with global `DndContext` for drag-and-drop
+- **Image Thumbnail Logic**: Reused same `getFileIcon` function that shows actual image previews
+- **Permissions Policy**: Updated to `fullscreen=*` to allow PDF viewer fullscreen functionality
+
+**Key Files Modified**:
+- `web/src/app/drive/starred/page.tsx` — Complete refactor to match DriveModule functionality
+- `web/src/app/layout.tsx` — Updated Permissions-Policy to `fullscreen=*`
+- `web/src/components/drive/DriveDetailsPanel.tsx` — Added style for PDF object tag
+
+**Features Now Available on Pinned Page**:
+- ✅ Click files to open details panel with preview
+- ✅ Click folders to navigate to folder
+- ✅ Right-click context menu with all actions
+- ✅ Drag-and-drop items to folders or trash
+- ✅ Pin/unpin items (unpinned items removed from list)
+- ✅ Share files and folders
+- ✅ Download files
+- ✅ Delete items (moves to global trash)
+- ✅ Image thumbnails for image files
+- ✅ PDF preview in details panel
+- ✅ Grid and list view modes
+- ✅ Same visual styling as standard drive page
+
+**Bugs Fixed**:
+1. **Missing Functionality**: Pinned page had empty click handlers and no context menu
+   - **Root Cause**: Pinned page was using basic FileGrid component without full functionality
+   - **Solution**: Refactored to use same DraggableItem component and handlers as DriveModule
+   - **Result**: Pinned page now has full feature parity with standard drive page
+
+2. **No Image Thumbnails**: Pinned page showed generic icons instead of image previews
+   - **Root Cause**: FileGrid component didn't have image thumbnail logic
+   - **Solution**: Added custom renderItem function with same getFileIcon logic as DriveModule
+   - **Result**: Image files now show actual thumbnails matching standard page
+
+3. **Fullscreen Permissions Warnings**: Browser console showing fullscreen policy violations
+   - **Root Cause**: PDF viewer in object tag needs fullscreen permission
+   - **Solution**: Updated Permissions-Policy meta tag to `fullscreen=*`
+   - **Result**: No more fullscreen permission warnings
+
+## Previous Enhancement: Drive Module Drag-and-Drop & React Fixes — COMPLETE ✅
+
+### **Drive Module Drag-and-Drop & React Fixes (December 2025)**
+**Goal**: Fix React errors and complete drag-and-drop functionality for Drive module
+
+**What Was Accomplished**:
+- ✅ **React Hooks Violation Fixed**: Created separate `FolderItem` component to fix "Rendered more hooks than during the previous render" error
+- ✅ **Render-Phase Update Warning Fixed**: Replaced state with refs for drag handler registration to prevent render-phase updates
+- ✅ **Duplicate Key Warning Fixed**: Prefixed React keys with item type (`folder-${id}`, `file-${id}`) to ensure uniqueness
+- ✅ **Null Event Handling**: Added proper null checks for drag events to prevent crashes
+- ✅ **Global Drag Context**: Moved `DndContext` to `DrivePageContent` to enable cross-component drag-and-drop
+- ✅ **Sidebar Folder Droppable**: Made sidebar folders droppable targets for drag-and-drop operations
+- ✅ **Root Drop Zone**: Enabled drag-and-drop to root drop zone from anywhere in the main content area
+- ✅ **Code Cleanup**: Removed remaining console.log statements
+
+**Technical Implementation**:
+- **FolderItem Component**: Created separate component (`web/src/components/drive/FolderTree.tsx`) that uses `useDroppable` hook at top level, fixing hooks violation
+- **Ref-Based Handler Registration**: Replaced `useState` for `dragEndHandler` with `useRef` in `DrivePageContent` to avoid render-phase updates
+- **Unique Keys**: Prefixed all item keys with type (`folder-${item.id}`, `file-${item.id}`) to prevent duplicate key warnings
+- **Global DndContext**: Moved `DndContext` from `DriveModule` to `DrivePageContent` to wrap both sidebar and main content
+- **Handler Registration Pattern**: `DriveModule` registers its `handleDragEnd` with parent via `onRegisterDragEndHandler` callback
+- **Null Safety**: Added null checks in `handleDragEnd` functions to handle edge cases gracefully
+
+**Key Files Modified**:
+- `web/src/components/drive/FolderTree.tsx` — Created `FolderItem` component to fix hooks violation
+- `web/src/components/drive/DrivePageContent.tsx` — Added global `DndContext`, ref-based handler registration, removed console.log
+- `web/src/components/modules/DriveModule.tsx` — Removed internal `DndContext`, registered handler with parent, prefixed keys, removed setTimeout workaround
+- `web/src/components/drive/DriveModuleWrapper.tsx` — Passes `onRegisterDragEndHandler` prop to modules
+
+**Bugs Fixed**:
+1. **React Hooks Violation**: `useDroppable` called inside `renderFolder` function (called in `.map()`)
+   - **Root Cause**: React hooks must be called at top level, not conditionally or in loops
+   - **Solution**: Created separate `FolderItem` component that calls `useDroppable` at top level
+   - **Result**: No more "Rendered more hooks" errors, hooks called consistently
+
+2. **Render-Phase Update Warning**: `setDragEndHandler` called during render causing "Cannot update component while rendering" warning
+   - **Root Cause**: Handler registration was updating state during render phase
+   - **Solution**: Replaced `useState` with `useRef` for handler storage (refs don't trigger re-renders)
+   - **Result**: No more render-phase update warnings, smooth component updates
+
+3. **Duplicate Key Warning**: Same item ID appearing in both folders and files arrays
+   - **Root Cause**: React requires unique keys; same ID could appear in multiple arrays
+   - **Solution**: Prefixed keys with item type (`folder-${id}`, `file-${id}`)
+   - **Result**: All keys are unique, no duplicate key warnings
+
+4. **Null Event Handling**: `handleDragEnd` receiving null events causing crashes
+   - **Root Cause**: Drag events can be null in edge cases
+   - **Solution**: Added null checks at start of `handleDragEnd` functions
+   - **Result**: Graceful handling of null events, no crashes
+
+**Known Issues Resolved**:
+- ❌ **Fixed**: React hooks violation in FolderTree component
+- ❌ **Fixed**: Render-phase update warnings in DrivePageContent
+- ❌ **Fixed**: Duplicate key warnings in DriveModule
+- ❌ **Fixed**: Null event crashes in drag handlers
+- ✅ **Cleaned**: Removed console.log statements
+
+**Drag-and-Drop Functionality**:
+- ✅ **Files to Folders**: Can drag files to folders in main content area
+- ✅ **Files to Sidebar Folders**: Can drag files to folders in left sidebar
+- ✅ **Folders to Folders**: Can drag folders to other folders
+- ✅ **Items to Root**: Can drag items to root drop zone
+- ✅ **Items to Trash**: Can drag items to global trash bin
+- ✅ **Visual Feedback**: Drop zones highlight when dragging over them
+
+## Previous Enhancement: Drive Module Bug Fixes & Improvements — COMPLETE ✅
+
+### **Drive Module Bug Fixes & Improvements (December 2025)**
+**Goal**: Fix critical bugs and improve Drive module functionality
+
+**What Was Accomplished**:
+- ✅ **Drag-to-Trash Integration**: Fixed drag-and-drop to global trash bin by adding native HTML5 drag handlers alongside @dnd-kit
+- ✅ **Type Safety Fix**: Fixed `onFolderSelect` callback type mismatch between DriveSidebar and DriveModuleWrapper
+- ✅ **Async Operation Fix**: Verified and ensured `loadFilesAndFolders()` is properly awaited in all move operations
+- ✅ **Image URL Normalization**: Fixed image loading errors by normalizing URLs to handle localhost URLs correctly
+- ✅ **Debug Log Cleanup**: Removed all debug console.log statements from DriveModule and DriveModuleWrapper
+
+**Technical Implementation**:
+- **Native HTML5 Drag Support**: Added `handleNativeDragStart` to `DraggableItem` component to set drag data for GlobalTrashBin compatibility
+- **URL Normalization**: Created `normalizeFileUrl()` function to filter out localhost URLs and use download endpoint instead
+- **Type Consistency**: Updated `DriveSidebar` to pass `folderId: string | null` instead of object, matching `DriveModuleWrapper` signature
+- **Preview URL Handling**: Enhanced `handleItemClick` to detect and handle localhost URLs, falling back to download endpoint
+
+**Key Files Modified**:
+- `web/src/components/modules/DriveModule.tsx` — Added native drag handlers, URL normalization, removed debug logs
+- `web/src/app/drive/DriveSidebar.tsx` — Fixed onFolderSelect callback to pass string instead of object
+- `web/src/components/drive/DriveModuleWrapper.tsx` — Removed debug logs
+
+**Bugs Fixed**:
+1. **Drag-to-Trash Not Working**: Items dragged to trash were moving to root instead
+   - **Root Cause**: @dnd-kit doesn't set native HTML5 drag data needed by GlobalTrashBin
+   - **Solution**: Added `onDragStart` handler to set `dataTransfer` data in format GlobalTrashBin expects
+   - **Result**: Dragging items to global trash bin now correctly moves them to trash
+
+2. **Type Mismatch in Folder Selection**: `DriveSidebar` passed object but `DriveModuleWrapper` expected string
+   - **Root Cause**: Callback signature mismatch in folder selection chain
+   - **Solution**: Updated `DriveSidebar.handleFolderSelect` to pass `folder.id` (string) instead of `{ id, name }` object
+   - **Result**: Type-safe folder selection throughout the component chain
+
+3. **Image Loading Errors**: URLs containing `http://localhost:5000` caused `ERR_NAME_NOT_RESOLVED`
+   - **Root Cause**: Localhost URLs from API were being incorrectly concatenated with production server URL
+   - **Solution**: Normalize URLs to filter out localhost, use download endpoint (`/api/drive/files/${id}/download`) instead
+   - **Result**: Images load correctly in both development and production environments
+
+**Known Issues Resolved**:
+- ❌ **Fixed**: Drag-to-trash not working - items moved to root instead
+- ❌ **Fixed**: Type mismatch in `onFolderSelect` callback chain
+- ❌ **Fixed**: Image URLs with localhost causing loading errors
+- ✅ **Cleaned**: All debug console.log statements removed
+
+## Previous Enhancement: Sidebar Folder Tree & Navigation — COMPLETE ✅
+
+### **Sidebar Folder Tree & Navigation (December 2025)**
+**Goal**: Implement expandable folder tree in sidebar for easy navigation and folder management
+
+**What Was Accomplished**:
+- ✅ **FolderTree Component**: Created recursive folder tree component with expand/collapse functionality
+- ✅ **Drive Expansion**: Added expand/collapse button (▶/▼) to each drive in sidebar
+- ✅ **Root Folder Loading**: Fixed API query to properly load root folders (omitting `parentId` parameter)
+- ✅ **Subfolder Loading**: Implemented lazy loading of subfolders when parent folders are expanded
+- ✅ **Folder Navigation**: Clicking folders in sidebar navigates to that folder in main DriveModule view
+- ✅ **Navigation Sync**: Sidebar folder selection syncs with DriveModule's `currentFolder` state
+- ✅ **Empty State**: FolderTree shows "No folders" message when folder list is empty
+- ✅ **Auto-Expand**: Locked workspace drives auto-expand to show seeded folders immediately
+- ✅ **Visual Feedback**: Selected folder highlighted in sidebar tree
+
+**Technical Implementation**:
+- **FolderTree Component**: Recursive component (`web/src/components/drive/FolderTree.tsx`) with expand/collapse state management
+- **API Fix**: Changed from `/api/drive/folders?dashboardId=${id}&parentId=null` to `/api/drive/folders?dashboardId=${id}` (omitting `parentId` allows API to filter for `parentId IS NULL`)
+- **State Management**: `folderTrees` state in DriveSidebar tracks folder structure per dashboard
+- **Lazy Loading**: Subfolders loaded on-demand when parent folder is expanded
+- **Navigation Sync**: `selectedFolderId` prop passed from DrivePageContent → DriveModuleWrapper → DriveModule
+- **Breadcrumb Integration**: Breadcrumb navigation in main view also updates sidebar selection
+
+**Key Files Modified**:
+- `web/src/app/drive/DriveSidebar.tsx` — Added folder tree state, expansion logic, and FolderTree rendering
+- `web/src/components/drive/FolderTree.tsx` — Created recursive folder tree component
+- `web/src/components/modules/DriveModule.tsx` — Added `selectedFolderId` prop and sync logic
+- `web/src/components/drive/DriveModuleWrapper.tsx` — Passes folder selection props to DriveModule
+- `web/src/components/drive/DrivePageContent.tsx` — Manages folder selection state and passes to wrapper
+
+**Key Features**:
+1. **Expandable Drives**: Click ▶ button to expand/collapse folder tree for each drive
+2. **Recursive Folders**: Nested folders can be expanded to show subfolders
+3. **Navigation**: Clicking a folder in sidebar navigates to that folder in main view
+4. **Visual Feedback**: Selected folder highlighted with blue background
+5. **Empty States**: Shows "No folders" when folder list is empty
+6. **Auto-Expand**: Business workspace drives auto-expand on load
+
+**Known Issues Resolved**:
+- ❌ **Fixed**: Passing `parentId=null` in query string was treated as string `"null"` instead of SQL `NULL`
+- ✅ **Solution**: Omit `parentId` parameter entirely to let API filter for `parentId IS NULL`
+
+## Previous Enhancement: Folder Permissions & Sharing Implementation — COMPLETE ✅
 
 ### **Folder Permissions & Sharing System (December 2025)**
 **Goal**: Implement comprehensive folder-level permissions and sharing functionality to match file sharing capabilities

@@ -16,9 +16,7 @@ import {
 import { Button, Alert } from 'shared/components';
 import { toast } from 'react-hot-toast';
 import { getUserLocation } from '@/api/location';
-import PhotoUpload from '@/components/PhotoUpload';
-import { getProfilePhotos, uploadProfilePhoto, removeProfilePhoto } from '@/api/profilePhotos';
-import { ProfilePhotos, UserProfile } from '@/api/profilePhotos';
+import ProfilePhotoManager from '@/components/ProfilePhotoManager';
 
 interface Location {
   country: {
@@ -48,13 +46,11 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<Location | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [profilePhotos, setProfilePhotos] = useState<ProfilePhotos | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  // Profile photos are managed by ProfilePhotoManager now (single library UI).
 
   useEffect(() => {
     if (session?.user) {
       loadUserLocation();
-      loadProfilePhotos();
     }
   }, [session]);
 
@@ -69,45 +65,6 @@ export default function SettingsPage() {
       console.error('Error loading location:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadProfilePhotos = async () => {
-    try {
-      const response = await getProfilePhotos();
-      setProfilePhotos(response.photos);
-      setUserProfile(response.user);
-    } catch (err) {
-      console.error('Error loading profile photos:', err);
-      setError('Failed to load profile photos');
-    }
-  };
-
-  const handlePhotoUpload = async (file: File, photoType: 'personal' | 'business') => {
-    try {
-      const response = await uploadProfilePhoto(file, photoType);
-      setUserProfile(response.user);
-      setProfilePhotos(prev => prev ? {
-        ...prev,
-        [photoType]: response.photoUrl
-      } : null);
-    } catch (err) {
-      console.error('Error uploading photo:', err);
-      throw err; // Re-throw to let PhotoUpload component handle the error
-    }
-  };
-
-  const handlePhotoRemove = async (photoType: 'personal' | 'business') => {
-    try {
-      const response = await removeProfilePhoto(photoType);
-      setUserProfile(response.user);
-      setProfilePhotos(prev => prev ? {
-        ...prev,
-        [photoType]: null
-      } : null);
-    } catch (err) {
-      console.error('Error removing photo:', err);
-      throw err; // Re-throw to let PhotoUpload component handle the error
     }
   };
 
@@ -265,29 +222,7 @@ export default function SettingsPage() {
         {/* Profile Photos Section */}
         <div className="mt-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Profile Photos</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Personal Photo */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <PhotoUpload
-                currentPhoto={profilePhotos?.personal || null}
-                photoType="personal"
-                onUpload={(file) => handlePhotoUpload(file, 'personal')}
-                onRemove={() => handlePhotoRemove('personal')}
-                disabled={loading}
-              />
-            </div>
-
-            {/* Business Photo */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <PhotoUpload
-                currentPhoto={profilePhotos?.business || null}
-                photoType="business"
-                onUpload={(file) => handlePhotoUpload(file, 'business')}
-                onRemove={() => handlePhotoRemove('business')}
-                disabled={loading}
-              />
-            </div>
-          </div>
+          <ProfilePhotoManager />
         </div>
 
         {/* Additional Settings Sections */}

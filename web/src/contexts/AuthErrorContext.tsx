@@ -18,12 +18,32 @@ export function AuthErrorProvider({ children }: { children: React.ReactNode }) {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginMessage, setLoginMessage] = useState<string | null>(null);
   const [returnUrl, setReturnUrl] = useState<string | null>(null);
-  const pathname = usePathname();
+  const [pathname, setPathname] = useState<string>('/');
+  
+  // Call usePathname unconditionally (required by React hooks rules)
+  // It may return null during SSR, which we handle gracefully
+  const nextPathname = usePathname();
+  
+  // Initialize pathname from window.location on client mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPathname(window.location.pathname);
+    }
+  }, []);
+
+  // Update pathname when Next.js pathname changes (only if valid)
+  useEffect(() => {
+    if (nextPathname && typeof window !== 'undefined') {
+      setPathname(nextPathname);
+    }
+  }, [nextPathname]);
 
   const showLoginModal = useCallback((message?: string) => {
     console.log('showLoginModal called:', { message, pathname });
-    // Store current URL for return after login
-    const currentUrl = typeof window !== 'undefined' ? window.location.pathname + window.location.search : pathname;
+    // Store current URL for return after login - always use window.location for accuracy
+    const currentUrl = typeof window !== 'undefined' 
+      ? window.location.pathname + window.location.search 
+      : pathname || '/';
     setReturnUrl(currentUrl);
     setLoginMessage(message || 'Your session has expired. Please log in to continue.');
     setIsLoginModalOpen(true);

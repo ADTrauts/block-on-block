@@ -4,6 +4,103 @@
 
 ## Current Session Issues & Solutions (December 2025)
 
+### **Scheduling Module Database Tables Missing - RESOLVED** ✅
+
+#### **Problem**: Scheduling Module Returning 500 Errors - Missing Database Tables
+**Symptoms:**
+```
+GET http://localhost:3000/api/scheduling/admin/schedules?businessId=... 500 (Internal Server Error)
+Invalid `prisma.schedule.findMany()` invocation in ...
+The table `public.schedules` does not exist in the current database.
+```
+
+**Root Cause**: 
+- Scheduling tables (`schedules`, `schedule_shifts`, etc.) were created using `prisma db push` instead of `prisma migrate dev`
+- `db push` syncs the schema but doesn't create migration files
+- When the database was reset or migrations were reapplied, the tables disappeared because there was no migration to recreate them
+- Existing migrations only added columns to tables (assuming they already existed), but never created the base tables
+
+**Solution Applied (December 2025):**
+1. **Recreated Database Tables**: Used `prisma db push --accept-data-loss` to sync database schema with Prisma schema
+2. **Regenerated Prisma Client**: Ran `pnpm prisma:generate` to regenerate Prisma client with new tables
+3. **Verified Tables Created**: Confirmed `schedules`, `schedule_shifts`, `schedule_templates`, `shift_templates`, `shift_swap_requests`, and `employee_availability` tables now exist
+
+**Files Modified:**
+- Database schema synced via `prisma db push`
+- Prisma client regenerated
+
+**Technical Implementation:**
+```bash
+# Sync database with schema (creates missing tables)
+pnpm prisma db push --accept-data-loss --skip-generate
+
+# Regenerate Prisma client
+pnpm prisma:generate
+```
+
+**Prevention for Future**:
+- **Always use `prisma migrate dev`** for schema changes to create proper migration files
+- **Never use `prisma db push`** for production schema changes (only for quick prototyping)
+- **Create baseline migration** for scheduling tables to prevent this issue in the future
+
+**Result**: ✅ All scheduling endpoints now work correctly, no more 500 errors
+
+---
+
+### **ScheduleBuilderVisual Undefined scheduleId Prop - RESOLVED** ✅
+
+#### **Problem**: ScheduleBuilderVisual Component Receiving Undefined scheduleId Prop
+**Symptoms:**
+```
+⚠️ ScheduleBuilderVisual: scheduleId prop is undefined - this should not happen
+```
+
+**Root Cause**: 
+- React Strict Mode double-rendering or brief state transitions
+- Component rendering before `selectedSchedule.id` is fully set in parent component
+- No defensive checks in component to handle undefined props gracefully
+
+**Solution Applied (December 2025):**
+1. **Parent Component Validation**: Added `selectedSchedule && selectedSchedule.id` check in `SchedulingAdminContent` before rendering `ScheduleBuilderVisual`
+2. **Component Early Return**: Added early return in `ScheduleBuilderVisual` after all hooks to return `null` if `scheduleId` is undefined (following Rules of Hooks)
+3. **Defensive Programming**: Component now handles undefined state gracefully without console warnings
+
+**Files Modified:**
+- `web/src/components/scheduling/SchedulingAdminContent.tsx` — Added validation: `if (selectedSchedule && selectedSchedule.id)`
+- `web/src/components/scheduling/ScheduleBuilderVisual.tsx` — Added early return after hooks: `if (!scheduleId) return null;`
+
+**Technical Implementation:**
+```typescript
+// Parent component - validate before rendering
+if (selectedSchedule && selectedSchedule.id) {
+  return (
+    <ScheduleBuilderVisual
+      scheduleId={selectedSchedule.id}
+      // ... other props
+    />
+  );
+}
+
+// Child component - early return after hooks
+export default function ScheduleBuilderVisual({ scheduleId, ... }: Props) {
+  // All hooks called first (Rules of Hooks)
+  const { data: session } = useSession();
+  const { schedules, shifts, ... } = useScheduling(...);
+  
+  // Early return after hooks
+  if (!scheduleId) {
+    console.warn('⚠️ ScheduleBuilderVisual: scheduleId prop is undefined - returning null');
+    return null;
+  }
+  
+  // Rest of component...
+}
+```
+
+**Result**: ✅ No more warnings, component handles undefined state gracefully
+
+---
+
 ### **Dashboard Page 500 Errors - RESOLVED** ✅
 
 #### **Problem**: Dashboard Page Returning 500 Errors with useContext Errors

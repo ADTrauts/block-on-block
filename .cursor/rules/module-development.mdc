@@ -910,6 +910,194 @@ const PROJECT_MANAGEMENT_AI_CONTEXT: ModuleAIContext = {
 
 ---
 
+## 🗑️ MANDATORY: Global Trash System
+
+### **Rule: All Deletable Items MUST Use Global Trash**
+
+**Critical Requirement**: Every module that allows users to delete items MUST use the global trash system. Hard deletes are NOT allowed for user-facing data.
+
+### **Why This Matters**
+
+1. **User Safety**: Users can recover accidentally deleted items
+2. **Data Recovery**: Items are retained for 30 days before permanent deletion
+3. **Consistency**: All modules follow the same deletion pattern
+4. **User Experience**: Unified trash bin accessible from right sidebar
+
+### **Implementation Requirements**
+
+#### **1. Database Schema**
+
+All deletable models MUST include a `trashedAt` field:
+
+```prisma
+model YourModel {
+  id        String    @id @default(uuid())
+  // ... other fields ...
+  trashedAt DateTime? // Global trash system support
+  
+  @@index([trashedAt])
+  @@map("your_table")
+}
+```
+
+#### **2. Backend Controller**
+
+**MANDATORY**: Set `trashedAt` instead of hard delete:
+
+```typescript
+// ❌ WRONG: Hard delete
+await prisma.yourModel.delete({ where: { id } });
+
+// ✅ CORRECT: Move to trash
+await prisma.yourModel.update({
+  where: { id },
+  data: { trashedAt: new Date() },
+});
+```
+
+**List Queries**: Always exclude trashed items:
+
+```typescript
+// ✅ CORRECT: Filter out trashed items
+const items = await prisma.yourModel.findMany({
+  where: {
+    userId,
+    trashedAt: null, // Exclude trashed items
+  },
+});
+```
+
+#### **3. Backend Trash Controller**
+
+Add support for your item type in `server/src/controllers/trashController.ts`:
+
+```typescript
+// In trashItem() function
+case 'your_item_type':
+  result = await prisma.yourModel.updateMany({
+    where: { id, userId, trashedAt: null },
+    data: { trashedAt: new Date() },
+  });
+  break;
+
+// In restoreItem() function
+if (result.count === 0) {
+  result = await prisma.yourModel.updateMany({
+    where: { id, userId, trashedAt: { not: null } },
+    data: { trashedAt: null },
+  });
+}
+
+// In deleteItem() function (permanent delete from trash)
+if (result.count === 0) {
+  result = await prisma.yourModel.deleteMany({
+    where: { id, userId, trashedAt: { not: null } },
+  });
+}
+
+// In emptyTrash() function
+prisma.yourModel.deleteMany({
+  where: { userId, trashedAt: { not: null } },
+}),
+```
+
+#### **4. Frontend Component**
+
+**MANDATORY**: Use `useGlobalTrash` hook:
+
+```typescript
+import { useGlobalTrash } from '../../contexts/GlobalTrashContext';
+import { toast } from 'react-hot-toast';
+
+export default function YourComponent() {
+  const { trashItem } = useGlobalTrash();
+  
+  const handleDelete = async (itemId: string) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    
+    if (!confirm(`Move "${item.name}" to trash?`)) return;
+    
+    try {
+      await trashItem({
+        id: item.id,
+        name: item.name,
+        type: 'your_item_type', // Must match backend type
+        moduleId: 'your-module',
+        moduleName: 'Your Module',
+        metadata: {
+          // Optional: Add relevant metadata
+        },
+      });
+      
+      toast.success(`${item.name} moved to trash`);
+      // Refresh your data
+      await loadItems();
+    } catch (error) {
+      console.error('Failed to move item to trash:', error);
+      toast.error('Failed to move item to trash');
+    }
+  };
+}
+```
+
+#### **5. TypeScript Types**
+
+Update `web/src/contexts/GlobalTrashContext.tsx`:
+
+```typescript
+export interface TrashedItem {
+  type: 'file' | 'folder' | 'conversation' | 'dashboard_tab' | 'module' | 'message' | 'ai_conversation' | 'event' | 'your_item_type';
+  // ... rest of interface
+}
+```
+
+Update `web/src/components/GlobalTrashBin.tsx`:
+
+```typescript
+const getItemIcon = (type: TrashedItem['type']) => {
+  switch (type) {
+    // ... existing cases ...
+    case 'your_item_type':
+      return '📦'; // Choose appropriate icon
+    default:
+      return '📄';
+  }
+};
+```
+
+### **Supported Item Types**
+
+Currently supported:
+- `file` - Drive files
+- `folder` - Drive folders
+- `conversation` - Chat conversations
+- `message` - Chat messages
+- `dashboard_tab` - Dashboard tabs
+- `ai_conversation` - AI chat conversations
+- `event` - Calendar events
+
+### **Exceptions**
+
+**Hard deletes are ONLY allowed for**:
+- System-generated temporary data
+- Cache entries
+- Log entries
+- Data explicitly marked as "temporary"
+
+**User-facing data MUST use trash system.**
+
+### **Testing Checklist**
+
+- [ ] Delete operation moves item to trash (not hard delete)
+- [ ] Trashed items don't appear in list queries
+- [ ] Items appear in global trash bin
+- [ ] Restore functionality works
+- [ ] Permanent delete from trash works
+- [ ] Empty trash removes all items
+
+---
+
 ## ✅ Module Approval Requirements
 
 For marketplace submission, modules must:
@@ -918,12 +1106,13 @@ For marketplace submission, modules must:
 2. ✅ **Working context providers** responding < 500ms
 3. ✅ **Authentication** on all endpoints
 4. ✅ **Error handling** for all API endpoints
-5. ✅ **Documentation** complete (README, API docs)
-6. ✅ **Tests** passing (unit, integration, AI context)
-7. ✅ **Security** review passed
-8. ✅ **Performance** benchmarks met
+5. ✅ **Global trash system** implemented for all deletable items
+6. ✅ **Documentation** complete (README, API docs)
+7. ✅ **Tests** passing (unit, integration, AI context)
+8. ✅ **Security** review passed
+9. ✅ **Performance** benchmarks met
 
-**Modules without AI context integration will be rejected.**
+**Modules without AI context integration OR global trash system will be rejected.**
 
 ---
 

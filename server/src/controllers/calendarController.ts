@@ -235,6 +235,7 @@ export async function listEventsInRange(req: Request, res: Response) {
   // Build event query
   const eventWhere: any = {
     calendarId: { in: calendarIdList },
+    trashedAt: null, // Exclude trashed events
     OR: [
       { startAt: { lt: endAt }, endAt: { gt: startAt } }
     ]
@@ -414,6 +415,9 @@ export async function searchEvents(req: Request, res: Response) {
       ...where.calendar,
       members: { some: { userId } },
     };
+    
+    // Exclude trashed events
+    where.trashedAt = null;
     
     const events = await prisma.event.findMany({
       where,
@@ -844,7 +848,12 @@ export async function deleteEvent(req: Request, res: Response) {
   const { id } = req.params;
   const editMode = req.query.editMode as 'THIS' | 'SERIES' | undefined;
   const occurrenceStartAt = typeof req.query.occurrenceStartAt === 'string' ? req.query.occurrenceStartAt : undefined;
-  const ev = await prisma.event.findUnique({ where: { id } });
+  const ev = await prisma.event.findFirst({ 
+    where: { 
+      id,
+      trashedAt: null // Only allow trashing non-trashed events
+    } 
+  });
   if (!ev) return res.status(404).json({ error: 'Not found' });
   const member = await prisma.calendarMember.findFirst({ where: { calendarId: ev.calendarId, userId, role: { in: ['OWNER', 'ADMIN', 'EDITOR'] } } });
   if (!member) return res.status(403).json({ error: 'Forbidden' });
@@ -892,7 +901,11 @@ export async function deleteEvent(req: Request, res: Response) {
     }
   }
 
-  await prisma.event.delete({ where: { id } });
+  // Move event to trash instead of hard delete
+  await prisma.event.update({
+    where: { id },
+    data: { trashedAt: new Date() },
+  });
   res.json({ success: true });
   // Audit: event deleted
   try {

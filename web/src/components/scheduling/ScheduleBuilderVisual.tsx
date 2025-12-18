@@ -1293,6 +1293,12 @@ const [currentDayOffset, setCurrentDayOffset] = useState(0); // Offset from sche
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schedule?.id, session?.accessToken]); // Only depend on schedule ID and session, not the full schedule object or handleSaveLayout
 
+  // Early return if scheduleId is not provided (after hooks)
+  if (!scheduleId) {
+    console.warn('⚠️ ScheduleBuilderVisual: scheduleId prop is undefined - returning null');
+    return null;
+  }
+
   if (loading || !schedule) {
     return (
       <div className="flex items-center justify-center h-full">

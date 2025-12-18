@@ -18,6 +18,7 @@ Update Rules for systemPatterns.md
 -->
 
 ## Summary of Major Changes / Update History
+- **2025-12: Added Global Trash System Architecture Pattern (unified trash system, module organization, portal rendering, context memoization, single source of truth pattern).**
 - **2025-10-16: Added Codebase Architecture Overview (complete application flow, context provider hierarchy, data flow patterns, module architecture, component organization, API structure, deployment architecture, key architectural decisions).**
 - **2025-09-22: Added Google Cloud Storage Integration patterns (storage abstraction layer, profile photo upload system, trash integration, uniform bucket access handling, Application Default Credentials, context-aware avatars).**
 - **2025-01-22: Added API Routing & Environment Variable Patterns (Next.js API route configuration, environment variable hierarchy, chat API path handling, browser cache management, WebSocket authentication patterns).**
@@ -127,6 +128,57 @@ localStorage marks completion (prevents re-prompting)
 - `web/src/app/dashboard/DashboardClient.tsx` - Auto-modal trigger
 - `web/src/components/DashboardBuildOutModal.tsx` - Module selection UI
 - `server/src/services/dashboardService.ts` - Backend creates empty dashboards
+
+#### **Global Trash System Pattern**
+
+```
+All Modules → Global Trash API (/api/trash/*)
+    ↓
+trashController.ts (unified backend)
+    ↓
+GlobalTrashContext (React Context)
+    ↓
+├─ GlobalTrashBin (sidebar panel)
+│   └─ Module-organized, collapsible sections
+└─ Module-Specific Views
+    └─ Drive Trash Page (filtered view)
+```
+
+**Key Principles:**
+1. **Single Source of Truth**: Global trash (`/api/trash/*`) is the canonical system
+2. **Unified Backend**: `trashController.ts` handles all item types (files, folders, conversations, messages, events, etc.)
+3. **Context-Based State**: `GlobalTrashContext` provides unified state management
+4. **Module Views**: Module-specific pages (e.g., `/drive/trash`) are filtered views of global trash
+5. **Soft Delete Pattern**: All items use `trashedAt` field (or `deletedAt` for messages) - no hard deletes
+6. **30-Day Retention**: Items automatically deleted after 30 days via scheduled cleanup
+
+**Implementation:**
+- `server/src/controllers/trashController.ts` - Unified trash operations (list, trash, restore, delete, empty)
+- `server/src/routes/trash.ts` - API routes for trash operations
+- `web/src/contexts/GlobalTrashContext.tsx` - React context with memoized functions
+- `web/src/components/GlobalTrashBin.tsx` - Portal-rendered panel with module organization
+- `web/src/app/drive/trash/page.tsx` - Drive-filtered view using GlobalTrashContext
+
+**Critical Patterns:**
+- **Context Memoization**: All context functions used as `useEffect` dependencies must be memoized with `useCallback`
+- **Portal Rendering**: Overlay panels (trash, modals) use React portals to ensure proper z-index layering
+- **Module Grouping**: Multi-module data organized by module with collapsible sections for better UX
+- **Filtered Views**: Module-specific pages filter global data rather than using separate APIs
+- **Restore/Event Bridge**: After a successful restore, `GlobalTrashContext` dispatches `CustomEvent('itemRestored')` so modules can refresh without a full page reload
+
+**UI Refresh on Restore (Cross-Module):**
+- **Event**: `window.dispatchEvent(new CustomEvent('itemRestored', { detail: { id, moduleId, type, metadata } }))`
+- **Listeners**:
+  - Drive: `web/src/components/modules/DriveModule.tsx` → reloads `loadFilesAndFolders()`
+  - Calendar: `web/src/components/modules/CalendarModule.tsx` → reloads `loadCalendars()` + `loadEvents()`
+  - Chat: `web/src/components/modules/ChatModule.tsx` → reloads `loadConversations()`
+- **Why**: Restores happen via global UI; modules may not be mounted at the trash page route, so we use a lightweight, in-browser event to trigger local refresh.
+
+**Database Pattern:**
+- All deletable models include `trashedAt: DateTime?` field
+- Queries exclude trashed items with `trashedAt: null` filter
+- Messages use `deletedAt` for consistency with chat patterns
+- Indexed on `trashedAt` for efficient cleanup queries
 
 #### **Business Workspace Isolation Pattern**
 

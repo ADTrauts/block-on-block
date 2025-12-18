@@ -204,6 +204,12 @@ Only baseline databases you trust already contain the schema changes; otherwise 
 3. **Document relationships** - Add comments explaining complex relationships
 4. **Group related models** - Keep related models in the same module file
 5. **Test changes** - Always test schema changes before committing
+6. **NEVER edit migration files after they've been applied** - ⚠️ **CRITICAL RULE**
+   - Once a migration is applied to any database (dev, staging, or production), it becomes **immutable**
+   - Editing migrations causes schema drift and requires database resets
+   - ✅ **If you need changes**: Create a new migration instead
+   - ❌ **Never do this**: Edit files in `prisma/migrations/[migration-name]/migration.sql`
+   - **Why**: Migrations are historical records. Changing them breaks the migration history and causes drift between environments.
 
 ## Future Enhancements
 

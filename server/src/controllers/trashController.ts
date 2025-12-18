@@ -10,7 +10,7 @@ function hasUserId(user: unknown): user is { id: string } | { sub: string } {
 interface TrashItemRequest {
   id: string;
   name: string;
-  type: 'file' | 'folder' | 'conversation' | 'dashboard_tab' | 'module' | 'message';
+  type: 'file' | 'folder' | 'conversation' | 'dashboard_tab' | 'module' | 'message' | 'ai_conversation' | 'event' | 'profile_photo';
   moduleId: string;
   moduleName: string;
   metadata?: Record<string, unknown>;
@@ -90,6 +90,21 @@ export async function listTrashedItems(req: Request, res: Response) {
       orderBy: { trashedAt: 'desc' },
     });
 
+    // Get trashed profile photos
+    const trashedProfilePhotos = await prisma.userProfilePhoto.findMany({
+      where: {
+        userId,
+        trashedAt: { not: null },
+      },
+      select: {
+        id: true,
+        trashedAt: true,
+        originalUrl: true,
+        avatarUrl: true,
+      },
+      orderBy: { trashedAt: 'desc' },
+    });
+
     // Get trashed messages
     const trashedMessages = await prisma.message.findMany({
       where: { 
@@ -122,6 +137,63 @@ export async function listTrashedItems(req: Request, res: Response) {
       },
       orderBy: { deletedAt: 'desc' },
     });
+
+    // Get trashed AI conversations (with error handling for missing column)
+    let trashedAIConversations: Array<{ id: string; title: string | null; trashedAt: Date | null; userId: string }> = [];
+    try {
+      trashedAIConversations = await prisma.aIConversation.findMany({
+        where: { 
+          userId, 
+          trashedAt: { not: null } 
+        },
+        select: {
+          id: true,
+          title: true,
+          trashedAt: true,
+          userId: true,
+        },
+        orderBy: { trashedAt: 'desc' },
+      });
+    } catch (error) {
+      // Column may not exist yet - migration not run
+      console.warn('AI conversations trash query failed (column may not exist):', error);
+    }
+
+    // Get trashed events (with error handling for missing column)
+    let trashedEvents: Array<{ id: string; title: string; trashedAt: Date | null; calendar: { name: string; members: Array<{ role: string }> } }> = [];
+    try {
+      trashedEvents = await prisma.event.findMany({
+        where: { 
+          trashedAt: { not: null },
+          calendar: {
+            members: {
+              some: {
+                userId: userId,
+                isActive: true
+              }
+            }
+          }
+        },
+        select: {
+          id: true,
+          title: true,
+          trashedAt: true,
+          calendar: {
+            select: {
+              name: true,
+              members: {
+                where: { userId },
+                select: { role: true }
+              }
+            }
+          }
+        },
+        orderBy: { trashedAt: 'desc' },
+      });
+    } catch (error) {
+      // Column may not exist yet - migration not run
+      console.warn('Events trash query failed (column may not exist):', error);
+    }
 
     // Transform all items to a consistent format
     const items = [
@@ -175,6 +247,38 @@ export async function listTrashedItems(req: Request, res: Response) {
           conversationId: message.conversationId,
           senderId: message.senderId,
           conversationName: message.conversation.name || 'Untitled Conversation',
+        },
+      })),
+      ...trashedAIConversations.map(conversation => ({
+        id: conversation.id,
+        name: conversation.title || 'Untitled AI Conversation',
+        type: 'ai_conversation' as const,
+        moduleId: 'ai-chat',
+        moduleName: 'AI Chat',
+        trashedAt: conversation.trashedAt,
+        metadata: {},
+      })),
+      ...trashedEvents.map(event => ({
+        id: event.id,
+        name: event.title,
+        type: 'event' as const,
+        moduleId: 'calendar',
+        moduleName: 'Calendar',
+        trashedAt: event.trashedAt,
+        metadata: {
+          calendarName: event.calendar.name,
+        },
+      })),
+      ...trashedProfilePhotos.map(photo => ({
+        id: photo.id,
+        name: 'Profile Photo',
+        type: 'profile_photo' as const,
+        moduleId: 'profile-photos',
+        moduleName: 'Profile Photos',
+        trashedAt: photo.trashedAt,
+        metadata: {
+          originalUrl: photo.originalUrl,
+          avatarUrl: photo.avatarUrl,
         },
       })),
     ];
@@ -307,6 +411,78 @@ export async function trashItem(req: Request, res: Response) {
         });
         break;
 
+      case 'ai_conversation':
+        result = await prisma.aIConversation.updateMany({
+          where: { id, userId, trashedAt: null },
+          data: { trashedAt: new Date() },
+        });
+        break;
+
+      case 'event':
+        // For events, we need to check if user has permission to delete
+        const event = await prisma.event.findFirst({
+          where: { id, trashedAt: null },
+          include: {
+            calendar: {
+              include: {
+                members: {
+                  where: {
+                    userId: userId,
+                    role: { in: ['OWNER', 'ADMIN', 'EDITOR'] }
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (!event) {
+          return res.status(404).json({ message: 'Event not found' });
+        }
+
+        if (event.calendar.members.length === 0) {
+          return res.status(403).json({ message: 'Access denied' });
+        }
+
+        result = await prisma.event.updateMany({
+          where: { 
+            id, 
+            trashedAt: null,
+            calendar: {
+              members: {
+                some: {
+                  userId: userId,
+                  role: { in: ['OWNER', 'ADMIN', 'EDITOR'] }
+                }
+              }
+            }
+          },
+          data: { trashedAt: new Date() },
+        });
+        break;
+
+      case 'profile_photo': {
+        // Only allow trashing photos owned by the user
+        const now = new Date();
+        result = await prisma.userProfilePhoto.updateMany({
+          where: { id, userId, trashedAt: null },
+          data: { trashedAt: now },
+        });
+
+        if (result.count > 0) {
+          // Unassign if this photo was assigned as personal or business
+          await prisma.user.updateMany({
+            where: { id: userId, OR: [{ personalPhotoId: id }, { businessPhotoId: id }] },
+            data: {
+              personalPhotoId: null,
+              businessPhotoId: null,
+              // Backward compat URLs cleared only if they match the trashed photo urls is handled elsewhere
+            },
+          });
+        }
+        break;
+      }
+
       default:
         return res.status(400).json({ message: 'Invalid item type' });
     }
@@ -391,6 +567,38 @@ export async function restoreItem(req: Request, res: Response) {
     }
 
     if (result.count === 0) {
+      result = await prisma.aIConversation.updateMany({
+        where: { id, userId, trashedAt: { not: null } },
+        data: { trashedAt: null },
+      });
+    }
+
+    if (result.count === 0) {
+      result = await prisma.event.updateMany({
+        where: { 
+          id,
+          trashedAt: { not: null },
+          calendar: {
+            members: {
+              some: {
+                userId: userId,
+                role: { in: ['OWNER', 'ADMIN', 'EDITOR'] }
+              }
+            }
+          }
+        },
+        data: { trashedAt: null },
+      });
+    }
+
+    if (result.count === 0) {
+      result = await prisma.userProfilePhoto.updateMany({
+        where: { id, userId, trashedAt: { not: null } },
+        data: { trashedAt: null },
+      });
+    }
+
+    if (result.count === 0) {
       return res.status(404).json({ message: 'Item not found in trash' });
     }
 
@@ -465,6 +673,35 @@ export async function deleteItem(req: Request, res: Response) {
     }
 
     if (result.count === 0) {
+      result = await prisma.aIConversation.deleteMany({
+        where: { id, userId, trashedAt: { not: null } },
+      });
+    }
+
+    if (result.count === 0) {
+      result = await prisma.event.deleteMany({
+        where: { 
+          id,
+          trashedAt: { not: null },
+          calendar: {
+            members: {
+              some: {
+                userId: userId,
+                role: { in: ['OWNER', 'ADMIN', 'EDITOR'] }
+              }
+            }
+          }
+        },
+      });
+    }
+
+    if (result.count === 0) {
+      result = await prisma.userProfilePhoto.deleteMany({
+        where: { id, userId, trashedAt: { not: null } },
+      });
+    }
+
+    if (result.count === 0) {
       return res.status(404).json({ message: 'Item not found in trash' });
     }
 
@@ -522,6 +759,25 @@ export async function emptyTrash(req: Request, res: Response) {
           ],
           deletedAt: { not: null } 
         },
+      }),
+      prisma.aIConversation.deleteMany({
+        where: { userId, trashedAt: { not: null } },
+      }),
+      prisma.event.deleteMany({
+        where: { 
+          trashedAt: { not: null },
+          calendar: {
+            members: {
+              some: {
+                userId: userId,
+                role: { in: ['OWNER', 'ADMIN', 'EDITOR'] }
+              }
+            }
+          }
+        },
+      }),
+      prisma.userProfilePhoto.deleteMany({
+        where: { userId, trashedAt: { not: null } },
       }),
     ]);
 

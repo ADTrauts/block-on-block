@@ -57,6 +57,7 @@ export const getConversations = async (req: Request, res: Response) => {
     const where: Record<string, unknown> = {
       userId: userId,
       isArchived: archived === 'true',
+      trashedAt: null, // Exclude trashed conversations
     };
 
     if (dashboardId) {
@@ -136,6 +137,7 @@ export const getConversation = async (req: Request, res: Response) => {
       where: {
         id,
         userId: userId,
+        trashedAt: null, // Exclude trashed conversations
       },
       include: {
         messages: {
@@ -246,6 +248,7 @@ export const updateConversation = async (req: Request, res: Response) => {
       where: {
         id,
         userId: userId,
+        trashedAt: null, // Exclude trashed conversations
       },
     });
 
@@ -311,24 +314,26 @@ export const deleteConversation = async (req: Request, res: Response) => {
       where: {
         id,
         userId: userId,
+        trashedAt: null, // Only allow trashing non-trashed conversations
       },
     });
 
     if (!existingConversation) {
       return res.status(404).json({ 
         success: false, 
-        error: 'Conversation not found' 
+        error: 'Conversation not found or already trashed' 
       });
     }
 
-    // Delete conversation (messages will be cascade deleted)
-    await prisma.aIConversation.delete({
+    // Move conversation to trash instead of hard delete
+    await prisma.aIConversation.update({
       where: { id },
+      data: { trashedAt: new Date() },
     });
 
     res.json({
       success: true,
-      message: 'Conversation deleted successfully',
+      message: 'Conversation moved to trash successfully',
     });
   } catch (error) {
     console.error('Error deleting AI conversation:', error);
@@ -355,6 +360,7 @@ export const addMessage = async (req: Request, res: Response) => {
       where: {
         id,
         userId: userId,
+        trashedAt: null, // Exclude trashed conversations
       },
     });
 
@@ -432,6 +438,7 @@ export const getMessages = async (req: Request, res: Response) => {
       where: {
         id,
         userId: userId,
+        trashedAt: null, // Exclude trashed conversations
       },
     });
 

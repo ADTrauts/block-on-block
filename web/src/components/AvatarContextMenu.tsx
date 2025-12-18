@@ -28,11 +28,12 @@ import { useSafeSession } from '../lib/useSafeSession';
 import AccountSwitcher from './AccountSwitcher';
 import BillingModal from './BillingModal';
 import DeveloperPortal from './DeveloperPortal';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { useTheme } from '../hooks/useTheme';
 import { getProfilePhotos } from '../api/profilePhotos';
 import { ProfilePhotos, UserProfile } from '../api/profilePhotos';
+import { useWorkAuth } from '../contexts/WorkAuthContext';
 
 interface AvatarContextMenuProps {
   className?: string;
@@ -41,6 +42,8 @@ interface AvatarContextMenuProps {
 export default function AvatarContextMenu({ className }: AvatarContextMenuProps) {
   const { session, status, mounted } = useSafeSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const { isWorkAuthenticated } = useWorkAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -51,27 +54,141 @@ export default function AvatarContextMenu({ className }: AvatarContextMenuProps)
   const { theme, isDark } = useTheme();
   const [profilePhotos, setProfilePhotos] = useState<ProfilePhotos | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isWorkUIActive, setIsWorkUIActive] = useState(false);
+  const profilePhotosFetchInFlight = useRef<Promise<void> | null>(null);
+
+  const PROFILE_PHOTOS_CACHE_KEY = 'vssyl_profile_photos_cache_v1';
+  const PROFILE_PHOTOS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
   useEffect(() => {
     setHydrated(true);
     if (session?.user) {
-      loadProfilePhotos();
+      // Load cached photos immediately (fast UI), then refresh in background.
+      loadProfilePhotos({ allowCache: true, backgroundRefresh: true });
     }
   }, [session]);
 
-  const loadProfilePhotos = async () => {
+  // Track whether the in-dashboard Work UI (BrandedWorkDashboard) is currently active.
+  // This is stored by `WorkTab` and avoids treating a persisted work token as "always business".
+  useEffect(() => {
+    const readFlag = () => {
+      try {
+        setIsWorkUIActive(localStorage.getItem('vssyl_work_ui_active') === 'true');
+      } catch {
+        setIsWorkUIActive(false);
+      }
+    };
+
+    readFlag();
+    const onWorkUIEvent = (e: Event) => {
+      const evt = e as CustomEvent<{ active?: boolean }>;
+      if (typeof evt.detail?.active === 'boolean') {
+        setIsWorkUIActive(evt.detail.active);
+      } else {
+        readFlag();
+      }
+    };
+
+    // Cross-tab updates
+    window.addEventListener('storage', readFlag);
+    // Same-tab updates (WorkTab dispatches this)
+    window.addEventListener('vssyl:work-ui-active', onWorkUIEvent);
+
+    return () => {
+      window.removeEventListener('storage', readFlag);
+      window.removeEventListener('vssyl:work-ui-active', onWorkUIEvent);
+    };
+  }, []);
+
+  // Refresh profile photos whenever the menu is opened.
+  // This ensures profile photo uploads/removals (done elsewhere) show up immediately without a full refresh.
+  useEffect(() => {
+    if (isOpen && session?.user) {
+      // On open, refresh if cache is stale; otherwise use cache.
+      loadProfilePhotos({ allowCache: true, backgroundRefresh: true });
+    }
+  }, [isOpen, session]);
+
+  const readCachedProfilePhotos = (): ProfilePhotos | null => {
     try {
+      const raw = localStorage.getItem(PROFILE_PHOTOS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { ts?: number; photos?: ProfilePhotos };
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (typeof parsed.ts !== 'number' || !parsed.photos) return null;
+      const age = Date.now() - parsed.ts;
+      if (age > PROFILE_PHOTOS_CACHE_TTL_MS) return null;
+      return parsed.photos;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeCachedProfilePhotos = (photos: ProfilePhotos) => {
+    try {
+      localStorage.setItem(
+        PROFILE_PHOTOS_CACHE_KEY,
+        JSON.stringify({ ts: Date.now(), photos })
+      );
+    } catch {
+      // ignore (storage full / disabled)
+    }
+  };
+
+  const loadProfilePhotos = async (opts?: { allowCache?: boolean; backgroundRefresh?: boolean }) => {
+    try {
+      const allowCache = opts?.allowCache === true;
+      const backgroundRefresh = opts?.backgroundRefresh === true;
+
+      if (allowCache) {
+        const cached = readCachedProfilePhotos();
+        if (cached) {
+          // Fast path: show cached immediately.
+          setProfilePhotos(cached);
+          // If we don't want background refresh, stop here.
+          if (!backgroundRefresh) return;
+        }
+      }
+
+      // Dedupe in-flight requests.
+      if (profilePhotosFetchInFlight.current) {
+        await profilePhotosFetchInFlight.current;
+        return;
+      }
+
+      profilePhotosFetchInFlight.current = (async () => {
       const response = await getProfilePhotos();
       setProfilePhotos(response.photos);
       setUserProfile(response.user);
+      writeCachedProfilePhotos(response.photos);
+      })();
+      await profilePhotosFetchInFlight.current;
     } catch (err) {
       console.error('Error loading profile photos:', err);
+    } finally {
+      profilePhotosFetchInFlight.current = null;
     }
   };
 
   // Don't render while loading, not mounted, or not hydrated
   if (!hydrated || !mounted || status === "loading") return null;
   if (!session?.user) return null;
+
+  // Determine whether we're in a business (work) context based on route.
+  // Business pages live under /business/*, and the in-dashboard Work experience
+  // (BrandedWorkDashboard) keeps you on /dashboard/*. We gate that using a UI flag,
+  // not just isWorkAuthenticated, since the work token can persist across personal pages.
+  const avatarContext: 'personal' | 'business' =
+    pathname?.startsWith('/business/') || (isWorkAuthenticated && isWorkUIActive)
+      ? 'business'
+      : 'personal';
+
+  // IMPORTANT: Avoid cross-context fallback. If the user set only a business photo, we should not
+  // show it on personal pages. Use default photo (NextAuth image) if present, otherwise initials.
+  const avatarSrc =
+    avatarContext === 'business'
+      ? (profilePhotos?.business || profilePhotos?.default || undefined)
+      : (profilePhotos?.personal || profilePhotos?.default || undefined);
 
   const name = session.user.name || session.user.email || "User";
   const initials = name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -309,13 +426,14 @@ export default function AvatarContextMenu({ className }: AvatarContextMenuProps)
           <Avatar
             alt={session.user.name || session.user.email || ''}
             nameOrEmail={session.user.name ? session.user.name : (session.user.email ? session.user.email : '')}
-            size={32}
-            context="personal"
+            size={44}
+            src={avatarSrc}
+            context={avatarContext}
             personalPhoto={profilePhotos?.personal}
             businessPhoto={profilePhotos?.business}
           />
           {/* Online status indicator for chat context */}
-          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+          <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
         </div>
         {/* Removed user name and chevron icon for minimalist avatar menu */}
       </div>

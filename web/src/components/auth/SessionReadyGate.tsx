@@ -15,12 +15,24 @@ interface SessionReadyGateProps {
  */
 export function SessionReadyGate({ children }: SessionReadyGateProps) {
   const { data: session, status } = useSession();
+  // usePathname may return null during SSR - handle gracefully
   const pathname = usePathname();
   const [timeoutReached, setTimeoutReached] = useState(false);
+  const [clientPathname, setClientPathname] = useState<string | null>(null);
+
+  // Get pathname from window on client side as fallback
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setClientPathname(window.location.pathname);
+    }
+  }, []);
+
+  // Use pathname from hook if available, otherwise use client pathname
+  const currentPathname = pathname || clientPathname || '/';
 
   // Public routes that don't need authentication
   const publicRoutes = ['/auth/login', '/auth/register', '/auth/forgot-password', '/auth/verify-email', '/landing', '/'];
-  const isPublicRoute = publicRoutes.some(route => pathname?.startsWith(route));
+  const isPublicRoute = publicRoutes.some(route => currentPathname?.startsWith(route));
 
   useEffect(() => {
     const timer = setTimeout(() => setTimeoutReached(true), 5000);
@@ -45,7 +57,7 @@ export function SessionReadyGate({ children }: SessionReadyGateProps) {
 
     // For authenticated state, wait until we have a token from NextAuth
     return Boolean(session?.accessToken);
-  }, [status, session?.accessToken, pathname, isPublicRoute]);
+  }, [status, session?.accessToken, currentPathname, isPublicRoute]);
 
   if (!isReady) {
     return (

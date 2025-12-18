@@ -121,7 +121,6 @@ async function setupFullAdminAccess(email: string) {
           tier: 'enterprise',
           status: 'active',
           stripeSubscriptionId: `admin_grant_${Date.now()}`,
-          stripePriceId: 'enterprise_complimentary',
           currentPeriodStart: new Date(),
           currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
         }

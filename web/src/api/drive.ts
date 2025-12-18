@@ -413,10 +413,10 @@ export async function hardDeleteFolder(token: string, id: string) {
   return true;
 }
 
-export async function moveFile(token: string, fileId: string, targetFolderId: string): Promise<void> {
+export async function moveFile(token: string, fileId: string, targetFolderId: string | null): Promise<void> {
   const response = await fetch(`/api/drive/files/${fileId}/move`, {
     method: 'POST',
-    body: JSON.stringify({ targetFolderId }),
+    body: JSON.stringify({ targetFolderId: targetFolderId || null }),
     headers: authHeaders(token, { 'Content-Type': 'application/json' }),
   });
 
@@ -428,10 +428,10 @@ export async function moveFile(token: string, fileId: string, targetFolderId: st
   return data;
 }
 
-export async function moveFolder(token: string, folderId: string, targetParentId: string): Promise<void> {
+export async function moveFolder(token: string, folderId: string, targetParentId: string | null): Promise<void> {
   const response = await fetch(`/api/drive/folders/${folderId}/move`, {
     method: 'POST',
-    body: JSON.stringify({ targetParentId }),
+    body: JSON.stringify({ targetParentId: targetParentId || null }),
     headers: authHeaders(token, { 'Content-Type': 'application/json' }),
   });
 

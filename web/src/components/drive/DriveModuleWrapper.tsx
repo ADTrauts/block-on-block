@@ -12,6 +12,9 @@ interface DriveModuleWrapperProps {
   refreshTrigger?: number;
   dashboardId?: string | null;
   businessId?: string;
+  selectedFolderId?: string | null;
+  onFolderSelect?: (folderId: string | null) => void;
+  onRegisterDragEndHandler?: (handler: (event: any) => Promise<void>) => void;
 }
 
 /**
@@ -25,7 +28,10 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   className = '',
   refreshTrigger,
   dashboardId,
-  businessId
+  businessId,
+  selectedFolderId,
+  onFolderSelect,
+  onRegisterDragEndHandler
 }) => {
   const { currentDashboard, getDashboardType } = useDashboard();
   const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
@@ -36,13 +42,7 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
   // Get business ID for enterprise feature checking
   const effectiveBusinessId = businessId ?? ((dashboardType === 'business' ? currentDashboard?.id : undefined));
   
-  console.log('🚀 DriveModuleWrapper:', {
-    dashboardId,
-    effectiveDashboardId,
-    businessId: effectiveBusinessId,
-    dashboardType,
-    currentDashboardId: currentDashboard?.id
-  });
+  // Removed debug log
   
   // Check if user has enterprise Drive features
   const { hasAccess: hasEnterpriseFeatures } = useFeature('drive_advanced_sharing', effectiveBusinessId);
@@ -65,6 +65,9 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
           dashboardId={effectiveDashboardId}
           className={className}
           refreshTrigger={refreshTrigger}
+          selectedFolderId={selectedFolderId}
+          onFolderSelect={onFolderSelect}
+          onRegisterDragEndHandler={onRegisterDragEndHandler}
         />
       </Suspense>
     );
@@ -76,6 +79,9 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
       dashboardId={effectiveDashboardId}
       className={className}
       refreshTrigger={refreshTrigger}
+      selectedFolderId={selectedFolderId}
+      onFolderSelect={onFolderSelect}
+      onRegisterDragEndHandler={onRegisterDragEndHandler}
     />
   );
 };

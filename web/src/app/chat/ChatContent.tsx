@@ -9,7 +9,16 @@ import ChatRightPanel from './ChatRightPanel';
 import { ChatPanelState, Conversation } from 'shared/types/chat';
 import { useChat } from '../../contexts/ChatContext';
 
-export default function ChatContent() {
+interface FileReference {
+  fileId: string;
+  fileName: string;
+}
+
+interface ChatContentProps {
+  fileReference?: FileReference;
+}
+
+export default function ChatContent({ fileReference }: ChatContentProps) {
   const { data: session, status } = useSession();
   const { setActiveConversation } = useChat();
   
@@ -186,6 +195,7 @@ export default function ChatContent() {
           panelState={panelState}
           onThreadSelect={updateActiveThread}
           onToggleRightPanel={toggleRightPanel}
+          fileReference={fileReference}
         />
       </div>
 

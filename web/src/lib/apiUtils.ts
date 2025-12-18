@@ -64,10 +64,25 @@ export async function authenticatedApiCall<T>(
   }
   
   const makeRequest = async (token: string): Promise<Response> => {
+    // IMPORTANT:
+    // - For JSON requests, we default Content-Type to application/json
+    // - For FormData (multipart), we MUST NOT set Content-Type manually because the browser
+    //   will add the required boundary. If we force application/json, Express will try to
+    //   parse the upload as JSON and can throw 413 PayloadTooLarge before multer runs.
+    const isFormDataBody =
+      typeof FormData !== 'undefined' && options.body instanceof FormData;
+
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
+
+    // Only set JSON Content-Type when caller didn't specify one and body isn't FormData.
+    const hasContentTypeHeader = Object.keys(headers).some(
+      (k) => k.toLowerCase() === 'content-type'
+    );
+    if (!hasContentTypeHeader && !isFormDataBody) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     headers.Authorization = `Bearer ${token}`;
 

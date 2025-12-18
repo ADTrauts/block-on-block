@@ -52,6 +52,18 @@ function authenticateJWT(req: express.Request, res: express.Response, next: expr
 // Apply authentication to all routes
 router.use(authenticateJWT);
 
+// Debug middleware to log all requests
+router.use((req, res, next) => {
+  console.log('BusinessAI - Request received:', {
+    method: req.method,
+    path: req.path,
+    url: req.url,
+    params: req.params,
+    query: req.query
+  });
+  next();
+});
+
 /**
  * Initialize Business AI Digital Twin
  * POST /api/business-ai/:businessId/initialize
@@ -222,9 +234,22 @@ router.post('/:businessId/interact', async (req: express.Request, res: express.R
  * GET /api/business-ai/:businessId/employee-access
  */
 router.get('/:businessId/employee-access', async (req: express.Request, res: express.Response) => {
+  console.log('BusinessAI - Employee access route hit:', {
+    businessId: req.params.businessId,
+    method: req.method,
+    path: req.path,
+    url: req.url
+  });
+  
   try {
     const { businessId } = req.params;
     const userId = (req as any).userId;
+    
+    console.log('BusinessAI - Employee access request:', {
+      businessId,
+      userId,
+      hasUserId: !!userId
+    });
 
     // Check if user is business member
     const member = await prisma.businessMember.findFirst({

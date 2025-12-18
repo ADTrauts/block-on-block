@@ -463,6 +463,69 @@ npx prisma generate   # Wrong!
 
 **Critical Rule**: ALWAYS use `pnpm prisma` commands. The project uses pnpm as the package manager, and using `npm run` or `npx prisma` may use incorrect versions from global installation instead of the locked version in `pnpm-lock.yaml`.
 
+### ⚠️ CRITICAL: Schema Changes REQUIRE Migrations (MANDATORY WORKFLOW)
+
+**NEVER add schema changes without creating a migration. This has caused data loss in the past.**
+
+#### Mandatory Workflow for ANY Schema Change
+
+```bash
+# 1. Make schema changes in prisma/modules/[module]/[file].prisma
+#    (NEVER edit prisma/schema.prisma directly)
+
+# 2. Rebuild schema from modules
+pnpm prisma:build
+
+# 3. CREATE MIGRATION (MANDATORY - DO NOT SKIP)
+pnpm prisma migrate dev --name descriptive_migration_name
+
+# 4. VERIFY migration file was created
+ls -la prisma/migrations/ | tail -5
+
+# 5. REVIEW migration SQL to ensure correctness
+cat prisma/migrations/[timestamp]_descriptive_migration_name/migration.sql
+
+# 6. Generate Prisma client
+pnpm prisma:generate
+
+# 7. Test that code works with new schema
+```
+
+#### What Happens If You Skip Migration Creation
+
+- ❌ Code will try to use database columns/tables that don't exist
+- ❌ Prisma will throw errors: "The column X does not exist"
+- ❌ Migration drift will be detected
+- ❌ Database becomes unusable
+- ❌ **Data loss may occur if database reset is required**
+
+#### Red Flags - STOP If You See These
+
+1. **Schema changes in code but no new migration file**: Migration is missing!
+2. **Prisma errors about missing columns/tables**: Schema and database are out of sync
+3. **Migration drift warnings from Prisma**: Don't ignore - fix immediately
+4. **Code using fields that don't exist in database**: Check if migration was created
+
+#### Example: Adding a New Model
+
+```bash
+# ✅ CORRECT workflow:
+# 1. Add model to prisma/modules/[module]/[file].prisma
+# 2. pnpm prisma:build
+# 3. pnpm prisma migrate dev --name add_new_model
+# 4. Verify migration file exists
+# 5. pnpm prisma:generate
+# 6. Test
+
+# ❌ WRONG - Missing migration:
+# 1. Add model to prisma/modules/[module]/[file].prisma
+# 2. pnpm prisma:build
+# 3. pnpm prisma:generate
+# 4. Start coding... (MIGRATION MISSING - WILL FAIL!)
+```
+
+**Remember**: Schema changes are not optional - they MUST have migrations. This is not "nice to have" - it's required for the database to work.
+
 ### Database Connection
 ```typescript
 // ✅ CORRECT: Production connection string
@@ -494,9 +557,14 @@ export const prisma = global.prisma || new PrismaClient(prismaConfig);
 ### Rules
 1. **NEVER edit `schema.prisma`**: Edit module files in `/prisma/modules/`
 2. **ALWAYS run `prisma:build`**: Before generating or migrating
-3. **USE connection pooling**: `connection_limit=20&pool_timeout=20` in production
-4. **ENCODE passwords**: Use `encodeURIComponent()` for special characters in DB URLs
-5. **SINGLETON pattern**: Use global.prisma to prevent multiple instances
+3. **⚠️ CRITICAL: ALWAYS create migration for schema changes**: Adding models, fields, or relations REQUIRES running `pnpm prisma migrate dev --name descriptive_name`. Skipping this causes database errors and potential data loss. See "Schema Changes REQUIRE Migrations" section above.
+4. **NEVER edit migration files after they've been applied**: Once a migration is applied to any database (dev, staging, or production), it becomes immutable. Editing migrations causes schema drift and requires database resets.
+   - ✅ **CORRECT**: Create a new migration for additional changes
+   - ❌ **WRONG**: Edit existing migration files in `prisma/migrations/`
+   - **Why**: Migrations are historical records. Changing them breaks the migration history and causes drift between environments.
+5. **USE connection pooling**: `connection_limit=20&pool_timeout=20` in production
+6. **ENCODE passwords**: Use `encodeURIComponent()` for special characters in DB URLs
+7. **SINGLETON pattern**: Use global.prisma to prevent multiple instances
 
 ---
 
@@ -1064,7 +1132,8 @@ pnpm prisma:generate
 ### ❌ NEVER Do These:
 1. **Hardcode localhost** in production code
 2. **Edit `prisma/schema.prisma`** directly (edit modules instead)
-3. **Use `any` types** (use proper TypeScript types)
+3. **Edit migration files after they've been applied** - Once a migration is applied to any database, it becomes immutable. Editing causes schema drift and requires database resets. Create a new migration instead.
+4. **Use `any` types** (use proper TypeScript types)
 4. **Create double `/api` paths** (use relative paths in API clients)
 5. **Bypass Next.js API proxy** (always use `/api/*` routes)
 6. **Skip connection pooling** in production Prisma config

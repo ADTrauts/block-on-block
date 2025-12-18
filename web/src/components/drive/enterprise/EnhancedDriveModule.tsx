@@ -55,9 +55,12 @@ interface EnhancedDriveModuleProps {
   dashboardId?: string;
   className?: string;
   refreshTrigger?: number;
+  selectedFolderId?: string | null;
+  onFolderSelect?: (folderId: string | null) => void;
+  onRegisterDragEndHandler?: (handler: (event: any) => Promise<void>) => void;
 }
 
-export default function EnhancedDriveModule({ businessId, dashboardId, className = '', refreshTrigger }: EnhancedDriveModuleProps) {
+export default function EnhancedDriveModule({ businessId, dashboardId, className = '', refreshTrigger, selectedFolderId, onFolderSelect, onRegisterDragEndHandler }: EnhancedDriveModuleProps) {
   const { data: session } = useSession();
   const { currentDashboard } = useDashboard();
   const { recordUsage } = useFeatureGating(businessId);
@@ -214,6 +217,21 @@ export default function EnhancedDriveModule({ businessId, dashboardId, className
       loadEnhancedFiles();
     }
   }, [refreshTrigger, loadEnhancedFiles]);
+
+  // Sync with sidebar folder selection
+  useEffect(() => {
+    if (selectedFolderId !== undefined) {
+      if (selectedFolderId === null) {
+        // Navigate to root
+        setCurrentFolder(null);
+        setBreadcrumbs([]);
+      } else if (selectedFolderId !== currentFolder) {
+        // Navigate to selected folder - need to build breadcrumbs
+        setCurrentFolder(selectedFolderId);
+        // Breadcrumbs will be updated when folder is loaded
+      }
+    }
+  }, [selectedFolderId, currentFolder]);
 
   const handleAdvancedShare = (item: DriveItem) => {
     setSelectedFile(item);

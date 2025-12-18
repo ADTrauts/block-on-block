@@ -160,6 +160,9 @@ export default function BrandedWorkDashboard({
     if (id === 'hr' || id.startsWith('hr-') || id.startsWith('hr_') || id.includes('hr') && id.includes('manage')) {
       return 'hr';
     }
+    if (id === 'scheduling' || id.startsWith('scheduling') || id.includes('schedule') || id.includes('schedule-builder')) {
+      return 'scheduling';
+    }
     if (id === 'calendar' || id.startsWith('cal')) return 'calendar';
     if (id === 'drive' || id.includes('drive')) return 'drive';
     if (id === 'chat' || id.includes('chat')) return 'chat';

@@ -4,10 +4,14 @@ export interface SearchFilters {
   moduleId?: string;
   type?: string;
   dateRange?: {
-    start: Date;
-    end: Date;
+    start: Date | string;
+    end: Date | string;
   };
   permissions?: string[];
+  // Optional: pinned results across modules (e.g. pinned files, chats)
+  pinned?: boolean;
+  // Optional Drive-specific mime category for file-type filters
+  driveMimeCategory?: 'documents' | 'spreadsheets' | 'images' | 'videos';
 }
 
 export interface SearchResult {
@@ -92,4 +96,4 @@ export const MODULE_IDS = {
   ADMIN: 'admin',
 } as const;
 
-export type ModuleId = typeof MODULE_IDS[keyof typeof MODULE_IDS]; 
+export type ModuleId = typeof MODULE_IDS[keyof typeof MODULE_IDS];

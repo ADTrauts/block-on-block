@@ -16,6 +16,7 @@ model AIConversation {
   isArchived      Boolean        @default(false)
   isPinned        Boolean        @default(false)
   messageCount    Int            @default(0)
+  trashedAt       DateTime?      // Global trash system support
   messages        AIMessage[]
   
   // Indexes for performance
@@ -23,6 +24,7 @@ model AIConversation {
   @@index([dashboardId])
   @@index([businessId])
   @@index([isArchived, lastMessageAt])
+  @@index([trashedAt])
   @@map("ai_conversations")
 }
 

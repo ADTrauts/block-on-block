@@ -1466,7 +1466,7 @@ export default function SchedulingAdminContent({
     const canNavigateNext = scheduleIndex >= 0 && scheduleIndex < schedules.length - 1;
     
     // If a schedule is selected, show visual builder with builder sidebar
-    if (selectedSchedule) {
+    if (selectedSchedule && selectedSchedule.id) {
       const scheduleShiftsForSidebar = shifts.filter(s => s.scheduleId === selectedSchedule.id);
       
       return (

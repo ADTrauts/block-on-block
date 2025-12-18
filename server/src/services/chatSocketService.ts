@@ -585,6 +585,31 @@ export class ChatSocketService {
   }
 
   // ============================================================================
+  // DRIVE MODULE BROADCASTS
+  // ============================================================================
+
+  /**
+   * Broadcast a drive event to a specific user.
+   * Used for real-time updates in the Drive module (file/folder changes).
+   */
+  public broadcastDriveEvent(
+    userId: string,
+    event: 'drive:item:created' | 'drive:item:updated' | 'drive:item:deleted' | 'drive:item:moved' | 'drive:item:pinned',
+    data: Record<string, unknown>
+  ) {
+    const payload = {
+      ...data,
+      timestamp: new Date().toISOString(),
+    };
+    this.broadcastToUser(userId, event, payload);
+    logger.debug('Drive event broadcasted to user', {
+      operation: 'socket_drive_broadcast',
+      userId,
+      event,
+    });
+  }
+
+  // ============================================================================
   // SCHEDULING MODULE BROADCASTS
   // ============================================================================
 

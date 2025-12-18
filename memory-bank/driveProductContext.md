@@ -82,7 +82,9 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 | Recent Page                             | ✅          | Implemented with activity tracking and UI |
 | Shared Page                             | ✅          | Implemented with API endpoint and UI |
 | Starred Page                            | ✅          | Implemented with star/unstar functionality |
-| Trash Page                              | ✅          | Implemented with restore and permanent delete |
+| Trash Page                              | ✅          | Unified with global trash system - uses GlobalTrashContext, shows Drive-filtered view |
+| **NEW**: Unified Trash System           | ✅          | Drive Trash page uses same API/context as global trash - single source of truth |
+| **NEW**: Module-Based Trash Organization| ✅          | Global trash bin organizes items by module with collapsible sections |
 | Design System Consistency               | ✅          | Centralized theme and consistent styling across all pages |
 | Empty States                            | ✅          | Reusable EmptyState component implemented |
 | Hover Effects                           | ✅          | Consistent hover states across all components |
@@ -102,7 +104,8 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 ### Layout Components
 - `DriveLayout.tsx`: Integration with global dashboard layout
 - `DrivePage.tsx`: Main drive content with separate folder and file sections
-- `DriveSidebar.tsx`: Folder navigation and quick access
+- `DriveSidebar.tsx`: Folder navigation, quick access, and expandable folder tree
+- `FolderTree.tsx`: Recursive folder tree component with expand/collapse functionality and `FolderItem` component for drag-and-drop support
 - `FolderCard.tsx`: Enhanced folder display with star indicators and interactions
 - `FileGrid.tsx`: File/folder grid and list views with view mode support
 - `FilePreview.tsx`: File preview and details panel
@@ -121,10 +124,12 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
 - Activity logging system
 - Search and filter system
 - File preview system
-- **NEW**: DndContext integration for drag-and-drop operations
+- **NEW**: Global DndContext integration for cross-component drag-and-drop (files to folders, sidebar folders, root drop zone, trash)
 - **NEW**: ShareModal integration for both files and folders
 - **NEW**: ShareLinkModal for non-user email sharing
 - **NEW**: Permission system integration (files and folders)
+- **NEW**: FolderTree component for sidebar navigation with recursive folder display
+- **NEW**: DriveModule folder selection sync with sidebar folder tree
 
 ## 6. Future Considerations
 - Advanced file previews
@@ -171,6 +176,54 @@ The Drive module uses a panel-based layout for file and folder navigation, previ
   - **Direct Link Access**: Share links (`/drive/shared?file=xxx` or `?folder=xxx`) display specific items
   - **Smart File Download**: Enhanced download logic to auto-detect GCS vs local storage from URL
   - **Frontend Integration**: Folder sharing enabled in DriveModule with ShareModal support
+- **2024-12:** **Sidebar Folder Tree & Navigation - Complete**
+  - **Folder Tree Component**: Implemented expandable folder tree in DriveSidebar showing all folders for each drive
+  - **Drive Expansion**: Click expand button (▶) to show/hide folder tree for each drive
+  - **Folder Navigation**: Clicking folders in sidebar navigates to that folder in main view
+  - **Subfolder Expansion**: Folders with children can be expanded to show nested structure
+  - **Root Folder Loading**: Fixed API query to properly load root folders (omitting `parentId` parameter instead of `parentId=null`)
+  - **Navigation Sync**: Sidebar folder selection syncs with DriveModule's current folder state
+  - **Empty State Handling**: FolderTree shows "No folders" message when folder list is empty
+  - **Auto-Expand**: Locked workspace drives auto-expand to show seeded folders immediately
+- **2024-12:** **Drive Module Bug Fixes & Improvements - Complete**
+  - **Drag-to-Trash Integration**: Fixed drag-and-drop to global trash bin by adding native HTML5 drag handlers
+  - **Type Safety**: Fixed `onFolderSelect` callback type mismatch (DriveSidebar now passes string instead of object)
+  - **Image URL Normalization**: Fixed image loading errors by normalizing URLs to handle localhost URLs correctly
+  - **Debug Cleanup**: Removed all debug console.log statements from DriveModule and DriveModuleWrapper
+  - **URL Handling**: Created `normalizeFileUrl()` function to filter localhost URLs and use download endpoint
+  - **Native Drag Support**: Added `handleNativeDragStart` to DraggableItem for GlobalTrashBin compatibility
+- **2024-12:** **Drive Module Drag-and-Drop & React Fixes - Complete**
+  - **React Hooks Violation Fixed**: Created separate `FolderItem` component to fix "Rendered more hooks" error
+  - **Render-Phase Updates Fixed**: Replaced state with refs for drag handler registration (no more render warnings)
+  - **Duplicate Keys Fixed**: Prefixed React keys with item type (`folder-${id}`, `file-${id}`) to ensure uniqueness
+  - **Global Drag Context**: Moved `DndContext` to `DrivePageContent` to enable cross-component drag-and-drop
+  - **Sidebar Folder Droppable**: Made sidebar folders valid drop targets using `useDroppable` hook
+  - **Root Drop Zone**: Enabled drag-and-drop to root drop zone from anywhere in main content
+  - **Null Event Handling**: Added proper null checks for drag events to prevent crashes
+  - **Handler Registration Pattern**: `DriveModule` registers `handleDragEnd` with parent via callback ref pattern
+- **2024-12:** **Trash System Unification & Organization - Complete**
+  - **Unified Trash System**: Drive Trash page now uses `GlobalTrashContext` and `/api/trash/*` endpoints - Drive trash and global trash are the same system
+  - **Infinite Loop Fix**: Memoized `refreshTrash` in `GlobalTrashContext` with `useCallback` to prevent infinite re-renders
+  - **UI Layering Fix**: Global trash panel renders via React portal to ensure it appears above all UI elements (z-index 9999)
+  - **Module Organization**: Global trash bin organizes items by module with collapsible sections (Drive, Chat, Calendar, etc.)
+  - **Expandable Panel**: Added expand/minimize toggle to switch between compact (320px) and expanded (600px) panel sizes
+  - **Improved Positioning**: Panel positioned above trash button with proper spacing and alignment (40px left offset)
+  - **Single Source of Truth**: Global trash is the canonical system - Drive Trash page is just a filtered view of global trash
+  - **Context Memoization**: All context functions used as `useEffect` dependencies are properly memoized
+- **2024-12:** **Pinned Page Functionality Parity - Complete**
+  - **Complete Refactor**: Refactored pinned page (`/drive/starred`) to use same components and handlers as DriveModule
+  - **Image Thumbnails**: Added image thumbnail previews using same `getFileIcon` logic as standard drive page
+  - **Details Panel**: Added right-side `DriveDetailsPanel` for file preview and information
+  - **Context Menu**: Implemented full context menu with pin/unpin, share, download, delete actions
+  - **Drag-and-Drop**: Integrated with global `DndContext` for moving items between folders and to trash
+  - **Share Modals**: Added `ShareModal` and `ShareLinkModal` for sharing functionality
+  - **Pin/Unpin**: Implemented toggle pin functionality that removes unpinned items from list
+  - **Download & Delete**: Added file download and global trash integration
+  - **Layout Parity**: Matched layout structure (folders on top, files on bottom) with same styling
+  - **View Modes**: Grid and list view toggle functionality
+  - **Fullscreen Permissions**: Fixed fullscreen permissions policy warnings by updating meta tag to `fullscreen=*`
+  - **Component Reuse**: Created `DraggableItem` component in pinned page matching DriveModule's implementation
+  - **Same Handlers**: All handlers (handleItemClick, handleDelete, handleShare, handleDownload, handleStar) match DriveModule
 
 ## 8. Recent Enhancements (December 2024)
 

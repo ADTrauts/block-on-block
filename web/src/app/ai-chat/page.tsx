@@ -16,6 +16,8 @@ import {
 } from '../../api/aiConversations';
 import { authenticatedApiCall } from '../../lib/apiUtils';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { useGlobalTrash } from '../../contexts/GlobalTrashContext';
+import { toast } from 'react-hot-toast';
 
 interface ConversationItem {
   id: string;
@@ -29,6 +31,7 @@ interface ConversationItem {
 export default function AIChat() {
   const { data: session } = useSession();
   const { currentDashboard } = useDashboard();
+  const { trashItem } = useGlobalTrash();
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationItem[]>([]);
@@ -350,16 +353,32 @@ export default function AIChat() {
 
   const handleDeleteConversation = async () => {
     if (!currentConversationId || !session?.accessToken) return;
-    if (!confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) return;
+    
+    const conversation = conversations.find(c => c.id === currentConversationId);
+    if (!conversation) return;
+    
+    if (!confirm(`Are you sure you want to move "${conversation.title || 'this conversation'}" to trash?`)) return;
 
     try {
-      await deleteConversation(currentConversationId, session.accessToken);
-      
+      // Use global trash API
+      await trashItem({
+        id: conversation.id,
+        name: conversation.title || 'Untitled Conversation',
+        type: 'ai_conversation',
+        moduleId: 'ai-chat',
+        moduleName: 'AI Chat',
+        metadata: {
+          dashboardId: currentDashboard?.id,
+        },
+      });
+
+      toast.success(`${conversation.title || 'Conversation'} moved to trash`);
       loadConversations();
       handleNewConversation();
       setShowMoreMenu(false);
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
+      console.error('Failed to move conversation to trash:', error);
+      toast.error('Failed to move conversation to trash');
     }
   };
 

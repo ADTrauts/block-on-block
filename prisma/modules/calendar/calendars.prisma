@@ -62,6 +62,7 @@ model Event {
   updatedById      String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+  trashedAt        DateTime?    // Global trash system support
 
   attendees        EventAttendee[]
   reminders        Reminder[]
@@ -71,6 +72,7 @@ model Event {
 
   @@index([calendarId])
   @@index([startAt, endAt])
+  @@index([trashedAt])
   @@map("events")
 }
 

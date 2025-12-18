@@ -3,87 +3,91 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { canReadFolder, canWriteFolder } from './folderPermissionController';
 import { AuthenticatedRequest } from '../middleware/auth';
+import { getChatSocketService } from '../services/chatSocketService';
+import { Prisma } from '@prisma/client';
 
 // List folders with dashboard context support
 export async function listFolders(req: Request, res: Response) {
   try {
-    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any).id || (req.user as any).sub;
+    const userId = (req as AuthenticatedRequest).user?.id || (req.user as any)?.id || (req.user as any)?.sub;
+    
+    // Validate userId exists
+    if (!userId) {
+      await logger.error('User ID not found in request', {
+        operation: 'listFolders',
+        user: (req as AuthenticatedRequest).user,
+        reqUser: (req as any).user
+      });
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    
     const parentId = req.query.parentId as string;
     const starred = req.query.starred as string;
     const dashboardId = req.query.dashboardId as string; // NEW: Dashboard context filtering
     
-    // Use raw SQL to include order field in sorting and hasChildren count
-    // Include both owned folders and folders shared with the user
-    let query = `
-      SELECT DISTINCT f.*, 
-             (SELECT COUNT(*) FROM "folders" f2 
-              WHERE f2."parentId" = f.id 
-              AND (f2."userId" = f."userId" OR EXISTS (
-                SELECT 1 FROM "folder_permissions" fp2 
-                WHERE fp2."folderId" = f2.id 
-                AND fp2."userId" = $1 
-                AND fp2."canRead" = true
-              ))
-              AND f2."trashedAt" IS NULL) as "hasChildren"
-      FROM "folders" f 
-      WHERE (f."userId" = $1 
-             OR EXISTS (
-               SELECT 1 FROM "folder_permissions" fp 
-               WHERE fp."folderId" = f.id 
-               AND fp."userId" = $1 
-               AND fp."canRead" = true
-             ))
-    `;
-    const params = [userId];
-    let paramIndex = 2;
-    
+    // Build where conditions for Prisma ORM query
+    // Start with folders owned by the user (we'll add shared folders later if needed)
+    const whereConditions: Prisma.FolderWhereInput = {
+      userId,
+      trashedAt: null,
+    };
+
     // Dashboard context filtering
-    // When fetching starred items, show across all dashboards (don't filter by dashboardId)
     if (starred === 'true') {
-      // Show starred items from all dashboards
-      await logger.debug('Starred folders requested - showing across all dashboards', {
-        operation: 'folder_list_starred_all_dashboards'
-      });
-    } else if (dashboardId) {
-      query += ` AND f."dashboardId" = $${paramIndex}`;
-      params.push(dashboardId);
-      paramIndex++;
-      await logger.debug('Dashboard context requested for folders', {
-        operation: 'folder_list_dashboard_context',
-        dashboardId
-      });
+      whereConditions.starred = true;
+      // Don't filter by dashboardId when fetching starred items - show across all dashboards
     } else {
-      query += ` AND f."dashboardId" IS NULL`;
+      if (dashboardId) {
+        whereConditions.dashboardId = dashboardId;
+        await logger.debug('Dashboard context requested for folders', {
+          operation: 'folder_list_dashboard_context',
+          dashboardId
+        });
+      } else {
+        // Only set to null if we're NOT fetching starred items
+        whereConditions.dashboardId = null;
+      }
     }
-    
+
+    // Parent folder filtering
     if (parentId) {
-      query += ` AND f."parentId" = $${paramIndex}`;
-      params.push(parentId);
-      paramIndex++;
+      whereConditions.parentId = parentId;
     } else {
-      query += ` AND f."parentId" IS NULL`;
+      // Root level folders have parentId = null
+      whereConditions.parentId = null;
     }
-    
-    if (starred === 'true') {
-      query += ` AND f."starred" = true`;
-    } else if (starred === 'false') {
-      query += ` AND f."starred" = false`;
+
+    if (starred === 'false') {
+      whereConditions.starred = false;
     }
+
+    // Fetch folders with Prisma ORM
+    const folders = await prisma.folder.findMany({
+      where: whereConditions,
+      orderBy: [
+        { order: 'asc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    // Add hasChildren count for each folder
+    const foldersWithChildren = await Promise.all(
+      folders.map(async (folder) => {
+        const childCount = await prisma.folder.count({
+          where: {
+            parentId: folder.id,
+            userId: folder.userId,
+            trashedAt: null,
+          },
+        });
+        return {
+          ...folder,
+          hasChildren: childCount,
+        };
+      })
+    );
     
-    // Exclude trashed folders
-    query += ` AND f."trashedAt" IS NULL`;
-    
-    query += ` ORDER BY f."order" ASC, f."createdAt" DESC`;
-    
-    const folders = await prisma.$queryRawUnsafe(query, ...params);
-    
-    // Convert BigInt to Number for JSON serialization
-    const serializedFolders = (folders as any[]).map(folder => ({
-      ...folder,
-      hasChildren: Number(folder.hasChildren)
-    }));
-    
-    res.json(serializedFolders);
+    res.json(foldersWithChildren);
     } catch (err: unknown) {
     const error = err as Error;
     await logger.error('Error in listFolders', {
@@ -117,6 +121,26 @@ export async function createFolder(req: Request, res: Response) {
     // or we could modify the schema to make fileId optional for folder activities
     // For now, we'll skip folder activities until the schema is updated
 
+    // Broadcast real-time drive event to owner
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(userId, 'drive:item:created', {
+        itemId: folder.id,
+        itemType: 'folder',
+        dashboardId: folder.dashboardId,
+        folderId: folder.parentId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:created event', {
+        operation: 'folder_create_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the operation if socket broadcast fails
+    }
+
     res.status(201).json({ folder });
   } catch (err: unknown) {
     const error = err as Error;
@@ -149,12 +173,49 @@ export async function updateFolder(req: Request, res: Response) {
       }
     }
     
+    // Get folder before update to check if parent changed
+    const folderBeforeUpdate = await prisma.folder.findUnique({ where: { id } });
+    if (!folderBeforeUpdate) return res.status(404).json({ message: 'Folder not found' });
+    
     const folder = await prisma.folder.updateMany({
       where: { id },
       data: { name, parentId },
     });
     if (folder.count === 0) return res.status(404).json({ message: 'Folder not found' });
     const updated = await prisma.folder.findUnique({ where: { id } });
+    
+    // Broadcast real-time drive event
+    try {
+      const socketService = getChatSocketService();
+      // If parent changed, it's a move operation
+      if (parentId !== undefined && parentId !== folderBeforeUpdate.parentId) {
+        socketService.broadcastDriveEvent(userId, 'drive:item:moved', {
+          itemId: updated!.id,
+          itemType: 'folder',
+          dashboardId: updated!.dashboardId,
+          folderId: updated!.parentId,
+          previousFolderId: folderBeforeUpdate.parentId,
+        });
+      } else {
+        // Otherwise it's just an update (rename)
+        socketService.broadcastDriveEvent(userId, 'drive:item:updated', {
+          itemId: updated!.id,
+          itemType: 'folder',
+          dashboardId: updated!.dashboardId,
+          folderId: updated!.parentId,
+        });
+      }
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive event', {
+        operation: 'folder_update_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the operation if socket broadcast fails
+    }
+    
     res.json({ folder: updated });
   } catch (err: unknown) {
     const error = err as Error;
@@ -177,11 +238,36 @@ export async function deleteFolder(req: Request, res: Response) {
       return res.status(403).json({ message: 'You do not have permission to delete this folder' });
     }
     
+    // Get folder before deleting to broadcast event
+    const folderToDelete = await prisma.folder.findUnique({ where: { id } });
+    if (!folderToDelete) return res.status(404).json({ message: 'Folder not found' });
+    
     const folder = await prisma.folder.updateMany({
       where: { id, trashedAt: null },
       data: { trashedAt: new Date() },
     });
     if (folder.count === 0) return res.status(404).json({ message: 'Folder not found' });
+    
+    // Broadcast real-time drive event
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(folderToDelete.userId, 'drive:item:deleted', {
+        itemId: folderToDelete.id,
+        itemType: 'folder',
+        dashboardId: folderToDelete.dashboardId,
+        folderId: folderToDelete.parentId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:deleted event', {
+        operation: 'folder_delete_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the operation if socket broadcast fails
+    }
+    
     res.json({ trashed: true });
   } catch (err: unknown) {
     const error = err as Error;
@@ -271,6 +357,28 @@ export async function toggleFolderStarred(req: Request, res: Response) {
       where: { id },
       data: { starred: !folder.starred },
     });
+    
+    // Broadcast real-time drive event
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(folder.userId, 'drive:item:pinned', {
+        itemId: updatedFolder.id,
+        itemType: 'folder',
+        dashboardId: updatedFolder.dashboardId,
+        folderId: updatedFolder.parentId,
+        starred: updatedFolder.starred,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:pinned event', {
+        operation: 'folder_pin_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the operation if socket broadcast fails
+    }
+    
     res.json(updatedFolder);
   } catch (err) {
     res.status(500).json({ message: 'Failed to toggle star on folder' });
@@ -359,7 +467,7 @@ export async function moveFolder(req: Request, res: Response) {
       }
     }
 
-    // Get the original parent details for activity tracking
+    // Get the original parent details for activity tracking and broadcasting
     const originalParentId = folder.parentId;
 
     // Move the folder
@@ -367,6 +475,27 @@ export async function moveFolder(req: Request, res: Response) {
       where: { id },
       data: { parentId: targetParentId || null },
     });
+
+    // Broadcast real-time drive event
+    try {
+      const socketService = getChatSocketService();
+      socketService.broadcastDriveEvent(folder.userId, 'drive:item:moved', {
+        itemId: updatedFolder.id,
+        itemType: 'folder',
+        dashboardId: updatedFolder.dashboardId,
+        folderId: updatedFolder.parentId,
+        previousFolderId: originalParentId,
+      });
+    } catch (socketError) {
+      await logger.error('Failed to broadcast drive:item:moved event', {
+        operation: 'folder_move_socket_broadcast',
+        error: {
+          message: socketError instanceof Error ? socketError.message : 'Unknown error',
+          stack: socketError instanceof Error ? socketError.stack : undefined
+        }
+      });
+      // Do not fail the operation if socket broadcast fails
+    }
 
     // Note: We could create activity records for folders if we extend the Activity model
     // For now, we'll skip folder activity tracking

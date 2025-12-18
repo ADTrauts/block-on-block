@@ -345,54 +345,122 @@ export class OrgChartService {
    * Get complete org chart structure for a business
    */
   async getOrgChartStructure(businessId: string): Promise<OrgChartStructure> {
-    const [business, tiers, departments, positions] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: businessId },
-      }),
-      this.getOrganizationalTiers(businessId),
-      this.getDepartments(businessId),
-      this.getPositions(businessId),
-    ]);
+    try {
+      const [business, tiers, departments, positions] = await Promise.all([
+        prisma.business.findUnique({
+          where: { id: businessId },
+        }),
+        this.getOrganizationalTiers(businessId).catch((err) => {
+          console.error('Error fetching organizational tiers:', err);
+          return [];
+        }),
+        this.getDepartments(businessId).catch((err) => {
+          console.error('Error fetching departments:', err);
+          return [];
+        }),
+        this.getPositions(businessId).catch((err) => {
+          console.error('Error fetching positions:', err);
+          return [];
+        }),
+      ]);
 
-    if (!business) {
-      throw new Error('Business not found');
+      if (!business) {
+        throw new Error(`Business not found: ${businessId}`);
+      }
+
+      return {
+        business,
+        tiers,
+        departments,
+        positions,
+      };
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error in getOrgChartStructure:', {
+        businessId,
+        error: err.message,
+        stack: err.stack
+      });
+      throw err;
     }
-
-    return {
-      business,
-      tiers,
-      departments,
-      positions,
-    };
   }
 
   /**
    * Create default org chart structure for a new business
    */
   async createDefaultOrgChart(businessId: string, industry?: string): Promise<void> {
-    // Create default organizational tiers
-    const defaultTiers = [
-      { name: 'C-Suite', level: 1, description: 'Executive leadership' },
-      { name: 'VP Level', level: 2, description: 'Vice Presidents and senior management' },
-      { name: 'Director', level: 3, description: 'Department directors and managers' },
-      { name: 'Manager', level: 4, description: 'Team managers and supervisors' },
-      { name: 'Employee', level: 5, description: 'Individual contributors' },
-    ];
-
-    for (const tier of defaultTiers) {
-      await this.createOrganizationalTier({
-        businessId,
-        ...tier,
+    try {
+      // Verify business exists
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
       });
-    }
 
-    // Create industry-specific departments
-    const departments = this.getIndustryDepartments(industry);
-    for (const dept of departments) {
-      await this.createDepartment({
+      if (!business) {
+        throw new Error(`Business not found: ${businessId}`);
+      }
+
+      // Check if org chart already exists
+      const existingTiers = await this.getOrganizationalTiers(businessId);
+      const existingDepartments = await this.getDepartments(businessId);
+
+      if (existingTiers.length > 0 || existingDepartments.length > 0) {
+        console.log(`Org chart structure already exists for business ${businessId}. Skipping creation.`);
+        return;
+      }
+
+      // Create default organizational tiers
+      const defaultTiers = [
+        { name: 'C-Suite', level: 1, description: 'Executive leadership' },
+        { name: 'VP Level', level: 2, description: 'Vice Presidents and senior management' },
+        { name: 'Director', level: 3, description: 'Department directors and managers' },
+        { name: 'Manager', level: 4, description: 'Team managers and supervisors' },
+        { name: 'Employee', level: 5, description: 'Individual contributors' },
+      ];
+
+      for (const tier of defaultTiers) {
+        // Check if tier already exists before creating
+        const existingTier = await prisma.organizationalTier.findFirst({
+          where: {
+            businessId,
+            name: tier.name,
+          },
+        });
+
+        if (!existingTier) {
+          await this.createOrganizationalTier({
+            businessId,
+            ...tier,
+          });
+        }
+      }
+
+      // Create industry-specific departments
+      const departments = this.getIndustryDepartments(industry);
+      for (const dept of departments) {
+        // Check if department already exists before creating
+        const existingDept = await prisma.department.findFirst({
+          where: {
+            businessId,
+            name: dept.name,
+          },
+        });
+
+        if (!existingDept) {
+          await this.createDepartment({
+            businessId,
+            ...dept,
+          });
+        }
+      }
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error in createDefaultOrgChart:', {
         businessId,
-        ...dept,
+        industry,
+        error: err.message,
+        stack: err.stack,
       });
+      throw err;
     }
   }
 

@@ -12,6 +12,12 @@ model User {
   image           String?
   personalPhoto   String?  // Personal profile photo
   businessPhoto   String?  // Professional/business profile photo
+  // Profile photo library + assignments (preferred; URLs above kept for backward compatibility)
+  personalPhotoId String? @unique
+  personalPhotoRef UserProfilePhoto? @relation("UserPersonalPhoto", fields: [personalPhotoId], references: [id])
+  businessPhotoId String? @unique
+  businessPhotoRef UserProfilePhoto? @relation("UserBusinessPhoto", fields: [businessPhotoId], references: [id])
+  profilePhotos   UserProfilePhoto[]
   stripeCustomerId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
