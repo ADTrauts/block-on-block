@@ -85,6 +85,7 @@ model User {
   aiLearningEvents AILearningEvent[]
   aiContextCache UserAIContextCache?
   aiConversations AIConversation[]
+  userAIContexts UserAIContext[]
 
   // Calendar relations
   calendarMemberships CalendarMember[]

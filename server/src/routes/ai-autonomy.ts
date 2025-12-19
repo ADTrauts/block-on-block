@@ -31,10 +31,16 @@ router.get('/settings', authenticateJWT, async (req, res) => {
       const defaultSettings = await prisma.aIAutonomySettings.create({
         data: { userId }
       });
-      return res.json(defaultSettings);
+      return res.json({
+        success: true,
+        data: defaultSettings
+      });
     }
 
-    res.json(settings);
+    res.json({
+      success: true,
+      data: settings
+    });
   } catch (error) {
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 
@@ -54,7 +60,10 @@ router.put('/settings', authenticateJWT, async (req, res) => {
     }
 
     const updatedSettings = await autonomyManager.updateAutonomySettings(userId, req.body);
-    res.json(updatedSettings);
+    res.json({
+      success: true,
+      data: updatedSettings
+    });
   } catch (error) {
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error occurred' 

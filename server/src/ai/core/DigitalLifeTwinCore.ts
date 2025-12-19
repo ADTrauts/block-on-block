@@ -163,6 +163,32 @@ export class DigitalLifeTwinCore {
         console.warn('Error getting personality profile:', error);
         personality = {};
       }
+
+      // 2a. Get user-defined context entries (with fallback)
+      let userDefinedContext: Array<Record<string, unknown>> = [];
+      try {
+        const contexts = await this.prisma.userAIContext.findMany({
+          where: {
+            userId: query.userId,
+            active: true
+          },
+          orderBy: [
+            { priority: 'desc' },
+            { updatedAt: 'desc' }
+          ],
+          take: 20 // Limit to top 20 most relevant contexts
+        });
+        userDefinedContext = contexts.map(ctx => ({
+          scope: ctx.scope,
+          moduleId: ctx.moduleId,
+          contextType: ctx.contextType,
+          title: ctx.title,
+          content: ctx.content,
+          tags: ctx.tags
+        }));
+      } catch (error) {
+        console.warn('Error getting user-defined context:', error);
+      }
       
       // 3. Get smart pattern analysis and predictions
       let smartAnalysis: Record<string, unknown> = { patterns: [], predictions: [], suggestions: [] };
@@ -194,7 +220,7 @@ export class DigitalLifeTwinCore {
       const queryAnalysis = await this.analyzeQuery(query, userContext, personality, smartAnalysis, semanticEnhancement);
       
       // 6. Generate Digital Life Twin response (enhanced with smart insights and semantics)
-      const response = await this.generateLifeTwinResponse(query, userContext, personality, queryAnalysis, smartAnalysis, semanticEnhancement);
+      const response = await this.generateLifeTwinResponse(query, userContext, personality, queryAnalysis, smartAnalysis, semanticEnhancement, userDefinedContext);
       
       // 5. Identify cross-module connections and opportunities (with error handling)
       let connections: CrossModuleConnection[] = [];
@@ -364,10 +390,11 @@ export class DigitalLifeTwinCore {
     personality: any, 
     analysis: any,
     smartAnalysis?: any,
-    semanticEnhancement?: any
+    semanticEnhancement?: any,
+    userDefinedContext?: Array<Record<string, unknown>>
   ) {
     // Build context-aware prompt (enhanced with smart patterns and semantics)
-    const prompt = this.buildDigitalTwinPrompt(query, userContext, personality, analysis, smartAnalysis, semanticEnhancement);
+    const prompt = this.buildDigitalTwinPrompt(query, userContext, personality, analysis, smartAnalysis, semanticEnhancement, userDefinedContext);
     
     // Use appropriate AI provider based on complexity and privacy
     const provider = this.selectAIProvider((analysis as any)?.complexity || 'medium', query.query);
@@ -398,8 +425,33 @@ export class DigitalLifeTwinCore {
    * Build comprehensive prompt for Digital Life Twin (enhanced with smart patterns and semantics)
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildDigitalTwinPrompt(query: LifeTwinQuery, userContext: UserContext, personality: any, analysis: any, smartAnalysis?: any, semanticEnhancement?: any): string {
+  private buildDigitalTwinPrompt(query: LifeTwinQuery, userContext: UserContext, personality: any, analysis: any, smartAnalysis?: any, semanticEnhancement?: any, userDefinedContext?: Array<Record<string, unknown>>): string {
     const currentTime = new Date().toLocaleString();
+    
+    // Build user-defined context section
+    let userContextSection = '';
+    if (userDefinedContext && userDefinedContext.length > 0) {
+      // Filter contexts relevant to current query/module
+      const relevantContexts = userDefinedContext.filter(ctx => {
+        const queryLower = query.query.toLowerCase();
+        const moduleMatch = !ctx.moduleId || ctx.moduleId === query.context.currentModule;
+        const contentMatch = ctx.content && typeof ctx.content === 'string' && 
+          (queryLower.includes(ctx.content.toLowerCase().substring(0, 20)) || 
+           ctx.content.toLowerCase().includes(queryLower.substring(0, 20)));
+        return moduleMatch || contentMatch;
+      }).slice(0, 5); // Top 5 most relevant
+
+      if (relevantContexts.length > 0) {
+        userContextSection = `\n\nUSER-DEFINED CONTEXT (IMPORTANT - Follow these instructions):
+${relevantContexts.map((ctx, idx) => {
+          const scope = ctx.scope ? `[${ctx.scope}]` : '';
+          const module = ctx.moduleId ? `[Module: ${ctx.moduleId}]` : '';
+          return `${idx + 1}. ${scope} ${module} ${ctx.title || 'Context'}:
+   ${ctx.content || ''}
+   Type: ${ctx.contextType || 'instruction'}`;
+        }).join('\n\n')}`;
+      }
+    }
     
     return `You are ${personality?.traits?.name || 'the user'}'s Digital Life Twin - an AI that understands and operates as their digital representation across their entire life ecosystem.
 
@@ -459,6 +511,7 @@ Your response should:
 - Suggest actions that align with their patterns and goals
 - Show awareness of their current context and priorities
 - Be helpful while respecting their autonomy preferences
+- CRITICALLY: Follow any user-defined context instructions above - these are explicit preferences and workflows the user has defined${userContextSection}
 
 Respond naturally as if you ARE them, making decisions and suggestions they would make.`;
   }

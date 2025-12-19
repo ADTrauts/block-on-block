@@ -1,0 +1,1 @@
+-- This migration resolves the drift by marking the current database state as baseline

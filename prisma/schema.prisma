@@ -290,6 +290,7 @@ model User {
   aiLearningEvents AILearningEvent[]
   aiContextCache UserAIContextCache?
   aiConversations AIConversation[]
+  userAIContexts UserAIContext[]
 
   // Calendar relations
   calendarMemberships CalendarMember[]
@@ -2163,6 +2164,33 @@ model ModelABTest {
   @@index([modelId])
   @@index([status])
   @@map("model_ab_tests")
+}
+
+// User-defined AI Context - Manual context entries for AI understanding
+model UserAIContext {
+  id              String   @id @default(uuid())
+  userId          String
+  scope           String   // "personal" | "business" | "module" | "folder" | "project"
+  scopeId         String?  // businessId, moduleId, folderId, projectId, etc.
+  moduleId        String?  // For module-scoped context (e.g., "drive", "chat")
+  contextType     String   // "instruction" | "fact" | "preference" | "workflow"
+  title           String   // User-friendly title
+  content         String   // The actual context to remember
+  tags            String[] // For organization and filtering
+  priority        Int      @default(50) // 0-100, affects when AI uses this
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relationships
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([scope, scopeId])
+  @@index([moduleId])
+  @@index([contextType])
+  @@index([active])
+  @@map("user_ai_context")
 }
 
 // AutoML Service

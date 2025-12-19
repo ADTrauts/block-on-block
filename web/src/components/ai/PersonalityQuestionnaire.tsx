@@ -417,18 +417,21 @@ export default function PersonalityQuestionnaire({ onComplete, onSkip }: Persona
 
       // Save personality profile
       await authenticatedApiCall(
-        '/api/ai/personality',
+        '/api/ai/personality/profile',
         {
-          method: 'PUT',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            interaction: {
-              context: 'personality_questionnaire',
-              personalityData,
+            personalityData: {
+              traits: personalityData.traits,
+              preferences: personalityData.preferences,
+              communicationStyle: personalityData.communicationStyle,
+              workStyle: personalityData.workStyle,
+              learningStyle: personalityData.learningStyle,
               answers: Object.values(answers),
-              query: 'Personality questionnaire completion',
-              timestamp: new Date().toISOString()
-            },
-            feedback: 'Initial personality questionnaire completed'
+              questionnaireCompleted: true,
+              completedAt: new Date().toISOString()
+            }
           })
         },
         session.accessToken

@@ -22,6 +22,117 @@ import {
   MessageSquare
 } from 'lucide-react';
 
+// 12-Hour Time Picker Component
+interface TimePicker12HourProps {
+  value: string; // 24-hour format (HH:MM)
+  onChange: (time24: string) => void;
+}
+
+const TimePicker12Hour: React.FC<TimePicker12HourProps> = ({ value, onChange }) => {
+  // Parse 24-hour format to 12-hour components
+  const parse24HourTo12Hour = (time24: string): { hour: number; minute: number; ampm: 'AM' | 'PM' } => {
+    try {
+      if (!time24) return { hour: 9, minute: 0, ampm: 'AM' };
+      const [hours, minutes] = time24.split(':').map(Number);
+      const hour24 = hours || 0;
+      const ampm: 'AM' | 'PM' = hour24 >= 12 ? 'PM' : 'AM';
+      const hour12 = hour24 % 12 || 12;
+      return { hour: hour12, minute: minutes || 0, ampm };
+    } catch {
+      return { hour: 9, minute: 0, ampm: 'AM' };
+    }
+  };
+
+  // Convert 12-hour format to 24-hour format
+  const convert12HourTo24Hour = (hour: number, minute: number, ampm: 'AM' | 'PM'): string => {
+    let hour24 = hour;
+    if (ampm === 'PM' && hour !== 12) {
+      hour24 = hour + 12;
+    } else if (ampm === 'AM' && hour === 12) {
+      hour24 = 0;
+    }
+    return `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  };
+
+  const { hour, minute, ampm } = parse24HourTo12Hour(value || '09:00');
+
+  const handleHourChange = (newHour: number) => {
+    onChange(convert12HourTo24Hour(newHour, minute, ampm));
+  };
+
+  const handleMinuteChange = (newMinute: number) => {
+    onChange(convert12HourTo24Hour(hour, newMinute, ampm));
+  };
+
+  const handleAmPmChange = (newAmPm: 'AM' | 'PM') => {
+    onChange(convert12HourTo24Hour(hour, minute, newAmPm));
+  };
+
+  // Generate hour options (1-12)
+  const hourOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+  
+  // Generate minute options (00, 15, 30, 45 for common times)
+  const minuteOptions = [0, 15, 30, 45];
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Hour Select */}
+      <select
+        value={hour}
+        onChange={(e) => handleHourChange(Number(e.target.value))}
+        className="px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring focus:border-blue-400"
+      >
+        {hourOptions.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+
+      <span className="text-gray-600 font-medium">:</span>
+
+      {/* Minute Select */}
+      <select
+        value={minute}
+        onChange={(e) => handleMinuteChange(Number(e.target.value))}
+        className="px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring focus:border-blue-400"
+      >
+        {minuteOptions.map((m) => (
+          <option key={m} value={m}>
+            {m.toString().padStart(2, '0')}
+          </option>
+        ))}
+      </select>
+
+      {/* AM/PM Toggle */}
+      <div className="flex border border-gray-300 rounded-md overflow-hidden">
+        <button
+          type="button"
+          onClick={() => handleAmPmChange('AM')}
+          className={`px-3 py-2 text-sm font-medium transition-colors ${
+            ampm === 'AM'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          AM
+        </button>
+        <button
+          type="button"
+          onClick={() => handleAmPmChange('PM')}
+          className={`px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300 ${
+            ampm === 'PM'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          PM
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface AutonomySettings {
   scheduling: number;
   communication: number;
@@ -30,8 +141,14 @@ interface AutonomySettings {
   dataAnalysis: number;
   crossModuleActions: number;
   workHoursOverride: boolean;
+  workHoursStart?: string | null;
+  workHoursEnd?: string | null;
   familyTimeOverride: boolean;
+  familyTimeStart?: string | null;
+  familyTimeEnd?: string | null;
   sleepHoursOverride: boolean;
+  sleepHoursStart?: string | null;
+  sleepHoursEnd?: string | null;
   financialThreshold: number;
   timeCommitmentThreshold: number;
   peopleAffectedThreshold: number;
@@ -54,8 +171,14 @@ export default function AutonomyControls() {
     dataAnalysis: 60,
     crossModuleActions: 20,
     workHoursOverride: false,
+    workHoursStart: '09:00',
+    workHoursEnd: '17:00',
     familyTimeOverride: false,
+    familyTimeStart: '18:00',
+    familyTimeEnd: '20:00',
     sleepHoursOverride: false,
+    sleepHoursStart: '22:00',
+    sleepHoursEnd: '07:00',
     financialThreshold: 0,
     timeCommitmentThreshold: 60,
     peopleAffectedThreshold: 1
@@ -76,17 +199,48 @@ export default function AutonomyControls() {
     try {
       setError(null);
       console.log('Loading autonomy settings...');
-      const response = await authenticatedApiCall<{ success: boolean; data: AutonomySettings }>('/api/ai/autonomy/settings', {}, session.accessToken);
+      const response = await authenticatedApiCall<AutonomySettings | { success: boolean; data: AutonomySettings }>('/api/ai/autonomy/settings', {}, session.accessToken);
       console.log('API response received:', response);
       
-      // Handle the wrapped response structure
-      if (response && response.success && response.data) {
-        console.log('Setting settings with data:', response.data);
-        setSettings(response.data);
-        console.log('Settings updated successfully');
+      // Handle both response formats (wrapped or direct)
+      if (response && typeof response === 'object') {
+        let loadedSettings: AutonomySettings;
+        if ('success' in response && response.success && response.data) {
+          // Wrapped response format
+          loadedSettings = response.data;
+        } else if ('scheduling' in response || 'communication' in response) {
+          // Direct response format (settings object)
+          loadedSettings = response as AutonomySettings;
+        } else {
+          console.warn('Invalid response structure from API:', response);
+          setError('Invalid response structure from API');
+          return;
+        }
+        
+        // Set default time values if not present
+        if (loadedSettings.workHoursOverride && !loadedSettings.workHoursStart) {
+          loadedSettings.workHoursStart = '09:00';
+        }
+        if (loadedSettings.workHoursOverride && !loadedSettings.workHoursEnd) {
+          loadedSettings.workHoursEnd = '17:00';
+        }
+        if (loadedSettings.familyTimeOverride && !loadedSettings.familyTimeStart) {
+          loadedSettings.familyTimeStart = '18:00';
+        }
+        if (loadedSettings.familyTimeOverride && !loadedSettings.familyTimeEnd) {
+          loadedSettings.familyTimeEnd = '20:00';
+        }
+        if (loadedSettings.sleepHoursOverride && !loadedSettings.sleepHoursStart) {
+          loadedSettings.sleepHoursStart = '22:00';
+        }
+        if (loadedSettings.sleepHoursOverride && !loadedSettings.sleepHoursEnd) {
+          loadedSettings.sleepHoursEnd = '07:00';
+        }
+        
+        setSettings(loadedSettings);
       } else {
-        console.warn('Invalid response structure from API:', response);
-        setError('Invalid response structure from API');
+        console.warn('Invalid response from API:', response);
+        setError('Invalid response from API');
       }
     } catch (error: unknown) {
       console.error('Failed to load autonomy settings:', error);
@@ -229,16 +383,27 @@ export default function AutonomyControls() {
     setLoading(true);
     setError(null);
     try {
-      const response = await authenticatedApiCall<{ success: boolean; data?: any }>('/api/ai/autonomy', {
+      const response = await authenticatedApiCall<AutonomySettings | { success: boolean; data?: AutonomySettings }>('/api/ai/autonomy/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       }, session.accessToken);
       
-      if (response && response.success) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-        setError(null); // Clear any previous errors
+      // Handle both response formats
+      if (response && typeof response === 'object') {
+        if ('success' in response && response.success) {
+          // Wrapped response
+          setSaved(true);
+          setTimeout(() => setSaved(false), 3000);
+          setError(null);
+        } else if ('scheduling' in response || 'communication' in response) {
+          // Direct response (settings object means success)
+          setSaved(true);
+          setTimeout(() => setSaved(false), 3000);
+          setError(null);
+        } else {
+          setError('Settings saved locally but failed to sync with server. Please try again later.');
+        }
       } else {
         setError('Settings saved locally but failed to sync with server. Please try again later.');
       }
@@ -406,49 +571,130 @@ export default function AutonomyControls() {
             </p>
             
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <label className="font-medium">Work Hours Override</label>
-                  <p className="text-sm text-gray-600">
-                    Prevent AI actions during your work hours
-                  </p>
+              {/* Work Hours Override */}
+              <div className="p-3 border rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="font-medium">Work Hours Override</label>
+                    <p className="text-sm text-gray-600">
+                      Prevent AI actions during your work hours
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.workHoursOverride}
+                    onChange={(e) => handleSwitchChange('workHoursOverride', e.target.checked)}
+                    className="w-4 h-4"
+                  />
                 </div>
-                <input
-                  type="checkbox"
-                  checked={settings.workHoursOverride}
-                  onChange={(e) => handleSwitchChange('workHoursOverride', e.target.checked)}
-                  className="w-4 h-4"
-                />
+                {settings.workHoursOverride && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Start Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.workHoursStart || '09:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, workHoursStart: time }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          End Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.workHoursEnd || '17:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, workHoursEnd: time }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <label className="font-medium">Family Time Override</label>
-                  <p className="text-sm text-gray-600">
-                    Prevent AI actions during family time
-                  </p>
+              {/* Family Time Override */}
+              <div className="p-3 border rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="font-medium">Family Time Override</label>
+                    <p className="text-sm text-gray-600">
+                      Prevent AI actions during family time
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.familyTimeOverride}
+                    onChange={(e) => handleSwitchChange('familyTimeOverride', e.target.checked)}
+                    className="w-4 h-4"
+                  />
                 </div>
-                <input
-                  type="checkbox"
-                  checked={settings.familyTimeOverride}
-                  onChange={(e) => handleSwitchChange('familyTimeOverride', e.target.checked)}
-                  className="w-4 h-4"
-                />
+                {settings.familyTimeOverride && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Start Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.familyTimeStart || '18:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, familyTimeStart: time }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          End Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.familyTimeEnd || '20:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, familyTimeEnd: time }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <label className="font-medium">Sleep Hours Override</label>
-                  <p className="text-sm text-gray-600">
-                    Prevent AI actions during your sleep hours
-                  </p>
+              {/* Sleep Hours Override */}
+              <div className="p-3 border rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="font-medium">Sleep Hours Override</label>
+                    <p className="text-sm text-gray-600">
+                      Prevent AI actions during your sleep hours
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.sleepHoursOverride}
+                    onChange={(e) => handleSwitchChange('sleepHoursOverride', e.target.checked)}
+                    className="w-4 h-4"
+                  />
                 </div>
-                <input
-                  type="checkbox"
-                  checked={settings.sleepHoursOverride}
-                  onChange={(e) => handleSwitchChange('sleepHoursOverride', e.target.checked)}
-                  className="w-4 h-4"
-                />
+                {settings.sleepHoursOverride && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Start Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.sleepHoursStart || '22:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, sleepHoursStart: time }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          End Time
+                        </label>
+                        <TimePicker12Hour
+                          value={settings.sleepHoursEnd || '07:00'}
+                          onChange={(time) => setSettings(prev => ({ ...prev, sleepHoursEnd: time }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

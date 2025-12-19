@@ -18,6 +18,7 @@ Update Rules for systemPatterns.md
 -->
 
 ## Summary of Major Changes / Update History
+- **2025-12-18: Added AI Control Center Enhancement Patterns (custom context system, contextual onboarding bubbles, time range pickers, module scoping patterns).**
 - **2025-12: Added Global Trash System Architecture Pattern (unified trash system, module organization, portal rendering, context memoization, single source of truth pattern).**
 - **2025-10-16: Added Codebase Architecture Overview (complete application flow, context provider hierarchy, data flow patterns, module architecture, component organization, API structure, deployment architecture, key architectural decisions).**
 - **2025-09-22: Added Google Cloud Storage Integration patterns (storage abstraction layer, profile photo upload system, trash integration, uniform bucket access handling, Application Default Credentials, context-aware avatars).**
@@ -3246,6 +3247,182 @@ if (error) {
 #### **Benefits of This Pattern**
 - **User Experience**: Clear error messages and recovery options
 - **System Stability**: Errors don't crash the entire application
+
+---
+
+## [2025-12-18] AI Control Center Enhancement Patterns ✅
+
+### **Custom Context System Architecture**
+
+The AI Control Center includes a comprehensive custom context system that allows users to provide specific instructions, facts, preferences, and workflows to their AI assistant.
+
+#### **Database Schema Pattern**
+
+```prisma
+model UserAIContext {
+  id          String   @id @default(uuid())
+  userId      String
+  scope       String   // "personal" | "business" | "module" | "folder" | "project"
+  scopeId     String?  // businessId, folderId, etc.
+  moduleId    String?  // For module-scoped context (e.g., "drive", "chat")
+  contextType String   // "instruction" | "fact" | "preference" | "workflow"
+  title       String
+  content     String
+  tags        String[]
+  priority    Int      @default(50) // 0-100, affects when AI uses this
+  active      Boolean  @default(true)
+  // ... timestamps
+}
+```
+
+#### **Module Scoping Pattern**
+
+**Critical Rule**: Always filter modules by installation scope (personal vs business).
+
+```typescript
+// ✅ CORRECT: Separate module loading by scope
+const personalModules = await getInstalledModules({ scope: 'personal' });
+const businessModulesMap: Record<string, Module[]> = {};
+await Promise.all(businesses.map(async (business) => {
+  businessModulesMap[business.id] = await getInstalledModules({ 
+    scope: 'business', 
+    businessId: business.id 
+  });
+}));
+
+// ❌ WRONG: Combining all modules regardless of scope
+const allModules = [...personalModules, ...businessModules]; // Shows modules user doesn't have!
+```
+
+#### **Contextual Onboarding Pattern**
+
+Use suggestion bubbles that appear when features are unused, disappear when used.
+
+```typescript
+// Suggestion bubbles appear when no contexts exist
+const shouldShowSuggestions = contexts.length === 0 && !dismissedSuggestions.has(section);
+
+// Auto-hide when first context is added
+useEffect(() => {
+  if (contexts.length > 0) {
+    // Suggestions automatically disappear
+  }
+}, [contexts.length]);
+
+// Dismissal stored in localStorage
+const dismissSuggestion = (section: string) => {
+  const newDismissed = new Set(dismissedSuggestions);
+  newDismissed.add(section);
+  setDismissedSuggestions(newDismissed);
+  localStorage.setItem('ai-context-dismissed-suggestions', JSON.stringify([...newDismissed]));
+};
+```
+
+#### **AI Integration Pattern**
+
+Custom contexts are fetched and included in AI prompts with relevance filtering.
+
+```typescript
+// Fetch user-defined contexts
+const contexts = await prisma.userAIContext.findMany({
+  where: {
+    userId: query.userId,
+    active: true
+  },
+  orderBy: [
+    { priority: 'desc' },
+    { updatedAt: 'desc' }
+  ],
+  take: 20 // Limit to top 20 most relevant
+});
+
+// Filter by relevance to current query
+const relevantContexts = contexts.filter(ctx => {
+  const moduleMatch = !ctx.moduleId || ctx.moduleId === query.context.currentModule;
+  const contentMatch = ctx.content.toLowerCase().includes(queryLower);
+  return moduleMatch || contentMatch;
+}).slice(0, 5); // Top 5 most relevant
+
+// Include in AI prompt
+const userContextSection = `
+USER-DEFINED CONTEXT (IMPORTANT - Follow these instructions):
+${relevantContexts.map((ctx, idx) => {
+  return `${idx + 1}. [${ctx.scope}] ${ctx.title}:
+     ${ctx.content}
+     Type: ${ctx.contextType}`;
+}).join('\n\n')}
+`;
+```
+
+### **Time Range Picker Pattern**
+
+The autonomy settings use 12-hour format time pickers that convert to 24-hour format for storage.
+
+#### **Component Structure**
+
+```typescript
+interface TimePicker12HourProps {
+  value: string; // 24-hour format (HH:MM)
+  onChange: (time24: string) => void;
+}
+
+// Convert 12-hour to 24-hour
+const convert12HourTo24Hour = (hour: number, minute: number, ampm: 'AM' | 'PM'): string => {
+  let hour24 = hour;
+  if (ampm === 'PM' && hour !== 12) hour24 = hour + 12;
+  else if (ampm === 'AM' && hour === 12) hour24 = 0;
+  return `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+};
+```
+
+#### **Conditional Display Pattern**
+
+Time pickers appear only when relevant checkboxes are checked.
+
+```typescript
+{settings.workHoursOverride && (
+  <div className="mt-3 pt-3 border-t border-gray-200">
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label>Start Time</label>
+        <TimePicker12Hour
+          value={settings.workHoursStart || '09:00'}
+          onChange={(time) => setSettings(prev => ({ ...prev, workHoursStart: time }))}
+        />
+      </div>
+      <div>
+        <label>End Time</label>
+        <TimePicker12Hour
+          value={settings.workHoursEnd || '17:00'}
+          onChange={(time) => setSettings(prev => ({ ...prev, workHoursEnd: time }))}
+        />
+      </div>
+    </div>
+  </div>
+)}
+```
+
+#### **Default Values Pattern**
+
+Set sensible defaults when loading settings if time ranges are missing.
+
+```typescript
+// Set defaults when loading
+if (loadedSettings.workHoursOverride && !loadedSettings.workHoursStart) {
+  loadedSettings.workHoursStart = '09:00';
+}
+if (loadedSettings.workHoursOverride && !loadedSettings.workHoursEnd) {
+  loadedSettings.workHoursEnd = '17:00';
+}
+```
+
+### **Benefits of These Patterns**
+
+- **User Control**: Users can provide specific context to improve AI responses
+- **Module Awareness**: Proper scoping prevents confusion about available modules
+- **Onboarding**: Contextual suggestions guide users without cluttering UI
+- **Time Management**: Clear time-based autonomy controls with user-friendly 12-hour format
+- **Data Consistency**: 24-hour format in database ensures reliable time comparisons
 - **Debugging**: Proper error logging for developers
 - **Recovery**: Users can retry failed operations
 - **Professional Feel**: Handles edge cases gracefully

@@ -1,6 +1,47 @@
 # Active Context - Vssyl Business Admin & AI Integration
 
-## Recent Enhancement: Scheduling Module Database Tables & Component Fixes — COMPLETE ✅
+## Current Focus: AI Control Center Enhancements — COMPLETE ✅
+
+### **AI Control Center Enhancements (December 18, 2025)**
+**Goal**: Enhance AI Control Center with Custom Context feature, contextual suggestions, and time range pickers for autonomy overrides
+
+**What Was Accomplished**:
+- ✅ **Custom Context Feature**: Complete implementation with full CRUD operations, proper module scoping, and AI integration
+- ✅ **Contextual Suggestion Bubbles**: Smart onboarding hints that appear when users have no contexts, disappear after first use
+- ✅ **Time Range Pickers**: 12-hour format time pickers for override settings (Work Hours, Family Time, Sleep Hours)
+- ✅ **Backend Fixes**: Resolved module import errors and validation bugs
+
+**Technical Implementation**:
+- **Custom Context**: Full database schema, API routes, controller, and frontend component with accordion UI
+- **Module Scoping**: Proper separation of personal vs business modules - users only see modules they have installed
+- **Suggestion System**: localStorage-based dismissal, contextual to each section, auto-hide when contexts exist
+- **Time Pickers**: 12-hour format UI component with 24-hour database storage, conditional display based on checkbox state
+
+**Key Files Modified**:
+- `web/src/components/ai/CustomContext.tsx` - Complete implementation with suggestions
+- `web/src/components/ai/AutonomyControls.tsx` - Added time range pickers
+- `server/src/controllers/userAIContextController.ts` - Fixed validation bug
+- `server/src/routes/ai-user-context.ts` - Fixed import path
+- `prisma/modules/ai/ai-models.prisma` - Added time range fields
+
+**Bugs Fixed**:
+1. **`contexts.filter is not a function`** - Added array validation and default empty array
+2. **Module filtering showing all modules** - Separated personal/business module loading
+3. **Backend validation blocking business module context** - Removed incorrect validation
+4. **Backend server startup error** - Fixed TypeScript import path
+
+**Architecture Decisions**:
+- **Contextual Onboarding**: Use suggestion bubbles for first-time user guidance, not permanent UI
+- **Module Scoping**: Always filter modules by installation scope (personal vs business)
+- **Time Format**: 12-hour UI with 24-hour database storage for consistency
+- **Conditional UI**: Show time pickers only when relevant (checkbox checked)
+
+**Next Steps**:
+- Run database migration for time range fields
+- Verify AutonomyManager enforces time ranges
+- Test end-to-end custom context flow
+
+## Previous Enhancement: Scheduling Module Database Tables & Component Fixes — COMPLETE ✅
 
 ### **Scheduling Module Database Tables & Component Fixes (December 2025)**
 **Goal**: Fix missing scheduling database tables and resolve undefined `scheduleId` prop warnings
