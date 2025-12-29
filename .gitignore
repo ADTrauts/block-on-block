@@ -20,9 +20,20 @@ playwright-report/
 .env.local
 .env.production
 .env.development
+.env.backup.*
 vssyl-storage-key.json
-.env
 
 # Documentation folders
 docs/
 memory-bank/
+
+# Upload files
+server/uploads/
+
+# Backup files
+*.backup*
+*.bak
+
+# Test and build output files
+test-upload.txt
+build-output.txt
