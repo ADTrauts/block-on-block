@@ -93,7 +93,13 @@ class Logger {
         }
       });
     } catch (error) {
-      // Don't throw - logging to database should not break the application
+      // Check if it's a database connection error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+        // Silently skip if database is not available - logs will still go to console
+        return;
+      }
+      // Only log non-connection errors (schema issues, etc.)
       console.error('Failed to log to database:', error);
     }
   }

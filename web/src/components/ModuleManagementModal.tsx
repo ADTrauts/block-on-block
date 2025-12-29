@@ -62,7 +62,7 @@ export default function ModuleManagementModal({
         const mockModules: Module[] = [
           {
             id: 'drive',
-            name: 'Drive',
+            name: 'File Hub',
             description: 'File storage and management system',
             version: '1.0.0',
             category: 'Core',
@@ -72,7 +72,7 @@ export default function ModuleManagementModal({
             downloads: 0,
             status: 'available',
             manifest: {
-              name: 'Drive',
+              name: 'File Hub',
               version: '1.0.0',
               description: 'File storage and management system',
               author: 'Vssyl',

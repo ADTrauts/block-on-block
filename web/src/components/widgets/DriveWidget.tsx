@@ -118,10 +118,13 @@ export default function DriveWidget({
 
   // Context-aware widget content
   const getContextSpecificContent = () => {
+    // Ensure dashboardName is always a string
+    const safeDashboardName = dashboardName || 'My Dashboard';
+    
     switch (dashboardType) {
       case 'household':
         return {
-          title: `${dashboardName} Family Drive`,
+          title: `${safeDashboardName} Family File Hub`,
           emptyMessage: "No family files yet. Share photos, documents, and memories!",
           sections: ['Family Photos', 'Shared Documents', 'Family Activity'],
           color: '#f59e0b', // Yellow theme
@@ -129,7 +132,7 @@ export default function DriveWidget({
         };
       case 'business':
         return {
-          title: `${dashboardName} Work Drive`,
+          title: `${safeDashboardName} Work File Hub`,
           emptyMessage: "No work files yet. Upload documents and collaborate with your team!",
           sections: ['Recent Projects', 'Team Documents', 'Business Files'],
           color: '#3b82f6', // Blue theme
@@ -137,7 +140,7 @@ export default function DriveWidget({
         };
       case 'educational':
         return {
-          title: `${dashboardName} School Drive`,
+          title: `${safeDashboardName} School File Hub`,
           emptyMessage: "No school files yet. Upload assignments and course materials!",
           sections: ['Assignments', 'Course Materials', 'Study Documents'],
           color: '#10b981', // Green theme
@@ -145,7 +148,7 @@ export default function DriveWidget({
         };
       default:
         return {
-          title: 'My Personal Drive',
+          title: 'My Personal File Hub',
           emptyMessage: "No personal files yet. Upload your first document!",
           sections: ['Recent Files', 'Personal Documents', 'My Activity'],
           color: '#6366f1', // Purple theme
@@ -240,8 +243,9 @@ export default function DriveWidget({
         });
 
       } catch (err) {
-        setError(`Failed to load ${dashboardName} Drive data`);
-        console.error(`Error loading ${dashboardType} drive data:`, err);
+        const safeDashboardName = dashboardName || 'dashboard';
+        setError(`Failed to load ${safeDashboardName} File Hub data`);
+        console.error(`Error loading ${dashboardType} File Hub data:`, err);
       } finally {
         setLoading(false);
       }
@@ -330,7 +334,7 @@ export default function DriveWidget({
         </div>
         <div className="flex items-center justify-center py-8">
           <Spinner size={24} />
-          <span className="ml-2 text-gray-600">Loading {dashboardName} files...</span>
+          <span className="ml-2 text-gray-600">Loading {dashboardName || 'File Hub'} files...</span>
         </div>
       </Card>
     );
@@ -367,7 +371,7 @@ export default function DriveWidget({
         <div className="flex items-center space-x-2">
           <Folder className="w-5 h-5 text-blue-600" />
           <h3 className="font-semibold text-gray-900">
-            {isHouseholdContext ? 'Family Drive' : 'Drive'}
+            {isHouseholdContext ? 'Family File Hub' : 'File Hub'}
           </h3>
           {isHouseholdContext && (
             <Badge size="sm" color="blue" className="flex items-center space-x-1">

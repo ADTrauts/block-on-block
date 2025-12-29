@@ -637,6 +637,13 @@ export class BehavioralMonitoringService extends EventEmitter {
       }
       
     } catch (error) {
+      // Check if it's a database connection error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+        // Silently skip if database is not available - will retry on next interval
+        return;
+      }
+      // Log other errors
       console.error('❌ Error in global security scan:', error);
     }
   }

@@ -51,7 +51,7 @@ type EditAction = 'create' | 'edit';
 
 const modulePermissions = {
   'drive': {
-    name: 'Drive',
+    name: 'File Hub',
     icon: '📁',
     permissions: [
       { id: 'drive_view', name: 'View Files', description: 'View files and folders' },

@@ -59,7 +59,7 @@ export default function DevelopmentHelper() {
   if (!isDevelopment) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-4 left-4 z-50">
       <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded text-xs">
         <button
           onClick={() => setShowDevTools(!showDevTools)}

@@ -24,6 +24,7 @@ import HouseholdMemberManager from '../../components/household/HouseholdMemberMa
 import DriveWidget from '../../components/widgets/DriveWidget';
 import ChatWidget from '../../components/widgets/ChatWidget';
 import CalendarWidget from '../../components/widgets/CalendarWidget';
+import TodoWidget from '../../components/widgets/TodoWidget';
 import DashboardBuildOutModal from '../../components/DashboardBuildOutModal';
 import ModuleManagementModal from '../../components/ModuleManagementModal';
 import { DashboardSkeleton } from '../../components/SkeletonComponents';
@@ -139,6 +140,19 @@ function WidgetContent({
   if (type === 'calendar') {
     return (
       <CalendarWidget
+        id={widget.id}
+        config={widget.config}
+        onConfigChange={(config) => {
+          // TODO: Implement widget config update
+        }}
+        onRemove={() => onRemoveWidget(widget.id)}
+        {...dashboardContext}
+      />
+    );
+  }
+  if (type === 'todo') {
+    return (
+      <TodoWidget
         id={widget.id}
         config={widget.config}
         onConfigChange={(config) => {
@@ -559,7 +573,7 @@ function DashboardContent({
                   fontSize: '14px'
                 }}
               >
-                Add Drive Widget
+                Add File Hub Widget
               </button>
             </div>
             

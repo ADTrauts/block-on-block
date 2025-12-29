@@ -27,14 +27,14 @@ const DRIVE_AI_CONTEXT: ModuleAIContext = {
   keywords: [
     "file", "files", "upload", "download", "document", "documents",
     "pdf", "image", "images", "photo", "photos", "video", "videos",
-    "storage", "drive", "folder", "folders", "archive", "attachment",
+    "storage", "drive", "file hub", "folder", "folders", "archive", "attachment",
     "doc", "docx", "sheet", "spreadsheet", "presentation", "picture"
   ],
   
   patterns: [
     "show my files",
     "show my * files",
-    "upload * to drive",
+    "upload * to (drive|file hub)",
     "upload file*",
     "find files *",
     "find * files",
@@ -71,12 +71,12 @@ const DRIVE_AI_CONTEXT: ModuleAIContext = {
   actions: [
     {
       name: "upload",
-      description: "Upload a file to Drive",
+      description: "Upload a file to File Hub",
       permissions: ["drive:write"]
     },
     {
       name: "download",
-      description: "Download a file from Drive",
+      description: "Download a file from File Hub",
       permissions: ["drive:read"]
     },
     {
@@ -572,7 +572,7 @@ async function main() {
   console.log('🤖 ============================================\n');
   
   console.log('📊 This script will register AI contexts for:');
-  console.log('   • Drive');
+  console.log('   • File Hub');
   console.log('   • Chat');
   console.log('   • Calendar');
   console.log('   • Household');
@@ -580,7 +580,7 @@ async function main() {
   
   try {
     // Register all built-in modules
-    await registerModuleContext('drive', 'Drive', DRIVE_AI_CONTEXT);
+    await registerModuleContext('drive', 'File Hub', DRIVE_AI_CONTEXT);
     await registerModuleContext('chat', 'Chat', CHAT_AI_CONTEXT);
     await registerModuleContext('calendar', 'Calendar', CALENDAR_AI_CONTEXT);
     await registerModuleContext('household', 'Household', HOUSEHOLD_AI_CONTEXT);

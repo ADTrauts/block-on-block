@@ -218,7 +218,7 @@ const DraggableItem = React.memo(function DraggableItem({
         name: item.name,
         type: item.type,
         moduleId: 'drive',
-        moduleName: 'Drive',
+        moduleName: 'File Hub',
         metadata: {
           dashboardId: dashboardId || undefined,
         },
@@ -230,7 +230,7 @@ const DraggableItem = React.memo(function DraggableItem({
       e.dataTransfer.setData('text/plain', jsonPayload);
     } catch (error) {
       // Non-critical: log and continue
-      console.error('Failed to set native drag data for Drive item:', error);
+      console.error('Failed to set native drag data for File Hub item:', error);
     }
   };
 
@@ -518,7 +518,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
   // Track pending operations to detect conflicts
   const pendingOperationsRef = useRef<Set<string>>(new Set());
 
-  // Real-time Drive updates via WebSocket: reload on relevant drive events
+  // Real-time File Hub updates via WebSocket: reload on relevant File Hub events
   useDriveWebSocket({
     enabled: true,
     events: {
@@ -575,7 +575,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
   });
 
 
-  // Keep global search filters in sync with Drive filters so AI/global search are Drive-aware
+  // Keep global search filters in sync with File Hub filters so AI/global search are File Hub-aware
   useEffect(() => {
     const now = new Date();
     let start: Date | string | undefined;
@@ -1085,7 +1085,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
         name: item.name,
         type: item.type,
         moduleId: 'drive',
-        moduleName: 'Drive',
+        moduleName: 'File Hub',
         metadata: {
           dashboardId: effectiveDashboardId || undefined,
         },
@@ -1213,7 +1213,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
             name: item.name,
             type: item.type,
             moduleId: 'drive',
-            moduleName: 'Drive',
+            moduleName: 'File Hub',
             metadata: {
               dashboardId: effectiveDashboardId || undefined,
             },
@@ -1331,7 +1331,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
           name: draggedItem.name,
           type: draggedItem.type,
           moduleId: 'drive',
-          moduleName: 'Drive',
+          moduleName: 'File Hub',
           metadata: {
             dashboardId: effectiveDashboardId || undefined,
           },

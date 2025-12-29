@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Folder, MessageSquare, Shield, Home, Briefcase, GraduationCap, Plus, Settings, Users, BarChart3, Lock, Puzzle, Brain, Calendar as CalendarIcon } from 'lucide-react';
+import { LayoutDashboard, Folder, MessageSquare, Shield, Home, Briefcase, GraduationCap, Plus, Settings, Users, BarChart3, Lock, Puzzle, Brain, Calendar as CalendarIcon, CheckSquare } from 'lucide-react';
 import GlobalTrashBin from '../../components/GlobalTrashBin';
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter } from 'next/navigation';
@@ -106,6 +106,7 @@ const MODULE_ICONS = {
   connections: Users,
   ai: Brain,
   calendar: CalendarIcon,
+  todo: CheckSquare,
 };
 
 // Helper function to get sidebar key

@@ -127,6 +127,13 @@ model User {
   shiftSwapRequestsTo ShiftSwapRequest[] @relation("SwapRequestedTo")
   shiftSwapApprovalsGiven ShiftSwapRequest[] @relation("SwapApprovedBy")
 
+  // Todo Module relations
+  createdTasks    Task[] @relation("TaskCreator")
+  assignedTasks   Task[] @relation("TaskAssignee")
+  taskComments    TaskComment[]
+  taskWatchers    TaskWatcher[]
+  taskTimeLogs    TaskTimeLog[]
+
   @@map("users")
   @@index([userNumber])
   @@index([countryId, regionId, townId])

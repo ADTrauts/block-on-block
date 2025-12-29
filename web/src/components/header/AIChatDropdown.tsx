@@ -2,12 +2,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, Send, X, Sparkles, Bot, User, Search, Plus, Settings, History, ExternalLink, Zap, Lightbulb, TrendingUp } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Brain, Send, X, Sparkles, Bot, User, Search, Plus, Settings, History, ExternalLink, Zap, Lightbulb, TrendingUp, Clock } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { authenticatedApiCall } from '../../lib/apiUtils';
 import { Button, Spinner } from 'shared/components';
 import { generateAISchedule } from '../../api/scheduling';
+import * as todoAPI from '../../api/todo';
 import { 
   getConversations, 
   getConversation,
@@ -65,6 +66,14 @@ const SCHEDULING_PROMPTS = [
   { icon: Sparkles, text: 'Find scheduling conflicts', action: 'conflicts' },
 ];
 
+// To-Do module-specific prompts
+const TODO_PROMPTS = [
+  { icon: Zap, text: 'Prioritize my tasks', action: 'prioritize' },
+  { icon: Clock, text: 'Optimize task scheduling', action: 'schedule' },
+  { icon: Lightbulb, text: 'What should I focus on today?', action: 'focus' },
+  { icon: Sparkles, text: 'Show overdue tasks', action: 'overdue' },
+];
+
 export default function AIChatDropdown({ 
   className = '', 
   dashboardId, 
@@ -77,6 +86,14 @@ export default function AIChatDropdown({
 }: AIChatDropdownProps) {
   const { data: session } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  
+  // Fallback: Detect module from pathname if moduleContext not provided
+  const effectiveModuleContext = moduleContext || (pathname?.includes('/todo') || pathname?.includes('/tasks') ? {
+    module: 'todo' as const,
+    dashboardId,
+    businessId: undefined,
+  } : undefined);
   const [conversation, setConversation] = useState<ConversationItem[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isAILoading, setIsAILoading] = useState(false);
@@ -95,6 +112,13 @@ export default function AIChatDropdown({
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Debug: Log moduleContext when it changes
+  useEffect(() => {
+    if (moduleContext) {
+      console.log('[AIChatDropdown] ModuleContext:', moduleContext);
+    }
+  }, [moduleContext]);
 
   // Auto-scroll to bottom of conversation
   useEffect(() => {
@@ -267,13 +291,13 @@ export default function AIChatDropdown({
           body: JSON.stringify({
             query: userQuery,
             context: {
-              currentModule: moduleContext?.module || 'search',
+              currentModule: effectiveModuleContext?.module || 'search',
               dashboardType,
               dashboardName,
-              moduleContext: moduleContext ? {
-                module: moduleContext.module,
-                businessId: moduleContext.businessId,
-                scheduleId: moduleContext.scheduleId,
+              moduleContext: effectiveModuleContext ? {
+                module: effectiveModuleContext.module,
+                businessId: effectiveModuleContext.businessId,
+                scheduleId: (effectiveModuleContext as any).scheduleId,
               } : undefined,
               urgency: userQuery.toLowerCase().includes('urgent') || userQuery.toLowerCase().includes('asap') ? 'high' : 'medium'
             }
@@ -404,6 +428,128 @@ export default function AIChatDropdown({
     } else {
       // For other prompts, use regular AI query with prompt text
       handleAIQuery(prompt.text);
+    }
+  };
+
+  const handleTodoPrompt = async (prompt: typeof TODO_PROMPTS[0]) => {
+    if (!session?.accessToken || !dashboardId) return;
+    
+    try {
+      setIsAILoading(true);
+      
+      // Add user message
+      const userItem: ConversationItem = {
+        id: `user_${Date.now()}`,
+        type: 'user',
+        content: prompt.text,
+        timestamp: new Date()
+      };
+      setConversation([userItem]);
+      
+      if (prompt.action === 'prioritize') {
+        // Fetch priority suggestions
+        const suggestions = await todoAPI.getPrioritySuggestions(
+          dashboardId || '',
+          effectiveModuleContext?.businessId || undefined,
+          session.accessToken
+        );
+        
+        if (suggestions.length === 0) {
+          const aiItem: ConversationItem = {
+            id: `ai_${Date.now()}`,
+            type: 'ai',
+            content: '✅ All your tasks are already well-prioritized! I don\'t have any priority suggestions at this time.',
+            timestamp: new Date(),
+          };
+          setConversation(prev => [...prev, aiItem]);
+        } else {
+          // Format suggestions for display
+          const suggestionsText = suggestions.map((s, idx) => 
+            `${idx + 1}. **${s.taskTitle}**\n   - Current: ${s.currentPriority}\n   - Suggested: ${s.suggestedPriority}\n   - Confidence: ${Math.round(s.confidence * 100)}%\n   - Reasoning: ${s.reasoning}`
+          ).join('\n\n');
+          
+          const aiItem: ConversationItem = {
+            id: `ai_${Date.now()}`,
+            type: 'ai',
+            content: `📊 **Priority Suggestions**\n\nI found ${suggestions.length} task${suggestions.length > 1 ? 's' : ''} that could benefit from priority adjustments:\n\n${suggestionsText}\n\nWould you like me to apply these suggestions?`,
+            timestamp: new Date(),
+            aiResponse: {
+              id: `ai-res-${Date.now()}`,
+              response: `Found ${suggestions.length} priority suggestions`,
+              confidence: 0.8,
+              actions: suggestions.map(s => ({
+                type: 'update_priority',
+                module: 'todo',
+                operation: `update_priority`,
+                requiresApproval: true,
+                reasoning: s.reasoning
+              }))
+            }
+          };
+          setConversation(prev => [...prev, aiItem]);
+        }
+      } else if (prompt.action === 'schedule') {
+        // Fetch scheduling suggestions
+        const result = await todoAPI.getSchedulingSuggestions(
+          session.accessToken,
+          dashboardId || '',
+          effectiveModuleContext?.businessId || undefined
+        );
+        
+        if (result.suggestions.length === 0) {
+          const aiItem: ConversationItem = {
+            id: `ai_${Date.now()}`,
+            type: 'ai',
+            content: '✅ All your tasks are already well-scheduled! I don\'t have any scheduling suggestions at this time.',
+            timestamp: new Date(),
+          };
+          setConversation(prev => [...prev, aiItem]);
+        } else {
+          // Format suggestions for display
+          const suggestionsText = result.suggestions.map((s, idx) => {
+            const currentDate = s.currentDueDate ? new Date(s.currentDueDate).toLocaleDateString() : 'No due date';
+            const suggestedDate = new Date(s.suggestedDueDate).toLocaleDateString();
+            const conflicts = s.conflicts && s.conflicts.length > 0 
+              ? `\n   - ⚠️ Conflicts: ${s.conflicts.map(c => c.title).join(', ')}`
+              : '';
+            return `${idx + 1}. **${s.taskTitle}**\n   - Current: ${currentDate}\n   - Suggested: ${suggestedDate}\n   - Confidence: ${Math.round(s.confidence * 100)}%\n   - Reasoning: ${s.reasoning}${conflicts}`;
+          }).join('\n\n');
+          
+          const aiItem: ConversationItem = {
+            id: `ai_${Date.now()}`,
+            type: 'ai',
+            content: `📅 **Scheduling Suggestions**\n\nI found ${result.suggestions.length} task${result.suggestions.length > 1 ? 's' : ''} that could benefit from better scheduling:\n\n${suggestionsText}\n\nWould you like me to apply these suggestions?`,
+            timestamp: new Date(),
+            aiResponse: {
+              id: `ai-res-${Date.now()}`,
+              response: `Found ${result.suggestions.length} scheduling suggestions`,
+              confidence: 0.8,
+              actions: result.suggestions.map(s => ({
+                type: 'update_schedule',
+                module: 'todo',
+                operation: `update_task_duedate`,
+                requiresApproval: true,
+                reasoning: s.reasoning
+              }))
+            }
+          };
+          setConversation(prev => [...prev, aiItem]);
+        }
+      } else {
+        // For other prompts (focus, overdue), use regular AI query
+        handleAIQuery(prompt.text);
+        return; // handleAIQuery manages its own loading state
+      }
+    } catch (error) {
+      const errorItem: ConversationItem = {
+        id: `error_${Date.now()}`,
+        type: 'ai',
+        content: `I'm sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+      };
+      setConversation(prev => [...prev, errorItem]);
+    } finally {
+      setIsAILoading(false);
     }
   };
 
@@ -556,6 +702,28 @@ export default function AIChatDropdown({
       <div className="flex h-full">
         {/* Main Chat Area */}
         <div className={`flex-1 flex flex-col ${showHistory ? 'w-3/5' : 'w-full'} transition-all duration-300`}>
+          {/* Quick Actions for To-Do Module - Always visible */}
+          {effectiveModuleContext?.module === 'todo' && conversation.length > 0 && (
+            <div className="px-4 pt-4 pb-2 border-b border-gray-100">
+              <p className="text-xs font-medium text-gray-700 mb-2">Quick actions:</p>
+              <div className="flex flex-wrap gap-2">
+                {TODO_PROMPTS.map((prompt, idx) => {
+                  const Icon = prompt.icon;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleTodoPrompt(prompt)}
+                      disabled={isAILoading}
+                      className="text-xs px-3 py-1.5 bg-white rounded-md border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-gray-900 flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Icon className="w-3 h-3 text-purple-500" />
+                      <span>{prompt.text}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {/* Conversation */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {isLoadingConversations ? (
@@ -583,6 +751,29 @@ export default function AIChatDropdown({
                         <button
                           key={idx}
                           onClick={() => handleSchedulingPrompt(prompt)}
+                          disabled={isAILoading}
+                          className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-sm text-gray-900 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Icon className="w-4 h-4 text-purple-500" />
+                          <span className="text-gray-900">{prompt.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* To-Do module-specific prompts */}
+                {effectiveModuleContext?.module === 'todo' && (
+                  <div className="mt-6 space-y-2">
+                    <p className="text-xs font-medium text-gray-700 mb-3">Quick actions for tasks:</p>
+                    {/* Debug: Uncomment to verify moduleContext */}
+                    {/* {console.log('TODO Module detected, showing prompts', moduleContext)} */}
+                    {TODO_PROMPTS.map((prompt, idx) => {
+                      const Icon = prompt.icon;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => handleTodoPrompt(prompt)}
                           disabled={isAILoading}
                           className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-sm text-gray-900 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >

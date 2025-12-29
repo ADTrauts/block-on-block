@@ -23,14 +23,14 @@ import { prisma } from '../lib/prisma';
 const BUILT_IN_MODULES: Array<{ moduleId: string; moduleName: string; aiContext: ModuleAIContext }> = [
   {
     moduleId: 'drive',
-    moduleName: 'Drive',
+    moduleName: 'File Hub',
     aiContext: {
       purpose: 'File and folder storage with organization, sharing, and versioning capabilities',
       category: 'PRODUCTIVITY',
-      keywords: ['file', 'folder', 'document', 'storage', 'drive', 'upload', 'download', 'share', 'organize'],
+      keywords: ['file', 'folder', 'document', 'storage', 'drive', 'file hub', 'upload', 'download', 'share', 'organize'],
       patterns: [
-        'files? (in|from|on) (my )?drive',
-        'folders? (in|from|on) (my )?drive',
+        'files? (in|from|on) (my )?(drive|file hub)',
+        'folders? (in|from|on) (my )?(drive|file hub)',
         'upload (a |the )?file',
         'create (a )?folder',
         'share (this |the )?file',
@@ -39,14 +39,14 @@ const BUILT_IN_MODULES: Array<{ moduleId: string; moduleName: string; aiContext:
       ],
       concepts: ['file management', 'cloud storage', 'document organization', 'sharing', 'collaboration'],
       entities: [
-        { name: 'File', pluralName: 'Files', description: 'A file stored in the drive' },
+        { name: 'File', pluralName: 'Files', description: 'A file stored in File Hub' },
         { name: 'Folder', pluralName: 'Folders', description: 'A folder for organizing files' },
-        { name: 'Drive', pluralName: 'Drives', description: 'Cloud storage space' },
+        { name: 'File Hub', pluralName: 'File Hubs', description: 'Cloud storage space' },
       ],
       actions: [
         { name: 'create_folder', description: 'Create a new folder', permissions: ['drive:write'] },
-        { name: 'upload_file', description: 'Upload a file to drive', permissions: ['drive:write'] },
-        { name: 'download_file', description: 'Download a file from drive', permissions: ['drive:read'] },
+        { name: 'upload_file', description: 'Upload a file to File Hub', permissions: ['drive:write'] },
+        { name: 'download_file', description: 'Download a file from File Hub', permissions: ['drive:read'] },
         { name: 'share_file', description: 'Share a file with others', permissions: ['drive:write', 'drive:share'] },
         { name: 'delete_file', description: 'Delete a file or folder', permissions: ['drive:delete'] },
       ],
@@ -393,6 +393,78 @@ const BUILT_IN_MODULES: Array<{ moduleId: string; moduleName: string; aiContext:
       ],
     },
   },
+  {
+    moduleId: 'todo',
+    moduleName: 'To-Do',
+    aiContext: {
+      purpose: 'Task and to-do management with AI-powered prioritization and scheduling',
+      category: 'PRODUCTIVITY',
+      keywords: [
+        'task', 'todo', 'to-do', 'item', 'action', 'reminder',
+        'deadline', 'due date', 'priority', 'urgent', 'important',
+        'complete', 'done', 'finished', 'pending', 'in progress',
+        'assign', 'assigned', 'my tasks', 'tasks due'
+      ],
+      patterns: [
+        'show (my )?tasks',
+        'what (tasks|todos) (do I have|are due) (today|tomorrow|this week)',
+        'create (a )?task',
+        'complete (the )?task',
+        'tasks? (assigned to|for) (me|user)',
+        'overdue tasks?',
+        'high priority tasks?',
+        'what (should I|can I) work on',
+        'tasks? due (today|tomorrow|this week)'
+      ],
+      concepts: [
+        'task management',
+        'to-do lists',
+        'task prioritization',
+        'deadline management',
+        'task assignment',
+        'productivity tracking'
+      ],
+      entities: [
+        { name: 'Task', pluralName: 'Tasks', description: 'A to-do item or task' },
+        { name: 'Todo', pluralName: 'Todos', description: 'A task or to-do item' },
+        { name: 'Subtask', pluralName: 'Subtasks', description: 'A sub-task within a parent task' },
+        { name: 'Project', pluralName: 'Projects', description: 'A group of related tasks' }
+      ],
+      actions: [
+        { name: 'create_task', description: 'Create a new task', permissions: ['todo:write'] },
+        { name: 'complete_task', description: 'Mark a task as complete', permissions: ['todo:write'] },
+        { name: 'list_tasks', description: 'List user tasks', permissions: ['todo:read'] },
+        { name: 'assign_task', description: 'Assign a task to a user', permissions: ['todo:assign'] },
+        { name: 'prioritize_tasks', description: 'Get AI-powered task prioritization', permissions: ['todo:read'] }
+      ],
+      contextProviders: [
+        {
+          name: 'task_overview',
+          description: 'Get overview of user tasks (counts, status breakdown)',
+          endpoint: '/api/todo/ai/context/overview',
+          cacheDuration: 300000, // 5 minutes
+        },
+        {
+          name: 'upcoming_tasks',
+          description: 'Get upcoming tasks due soon',
+          endpoint: '/api/todo/ai/context/upcoming',
+          cacheDuration: 300000, // 5 minutes
+        },
+        {
+          name: 'overdue_tasks',
+          description: 'Get overdue tasks',
+          endpoint: '/api/todo/ai/context/overdue',
+          cacheDuration: 120000, // 2 minutes
+        },
+        {
+          name: 'priority_tasks',
+          description: 'Get high priority tasks',
+          endpoint: '/api/todo/ai/context/priority',
+          cacheDuration: 300000, // 5 minutes
+        },
+      ],
+    },
+  },
 ];
 
 // ============================================================================
@@ -464,7 +536,21 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
     console.log('🤖 ============================================\n');
 
     // Check if registry is empty
-    const registryCount = await prisma.moduleAIContextRegistry.count();
+    let registryCount: number;
+    try {
+      registryCount = await prisma.moduleAIContextRegistry.count();
+    } catch (dbError) {
+      // Database might not be available during startup
+      const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
+      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+        console.log('⚠️  Database not available during startup');
+        console.log('   Module registration will be skipped');
+        console.log('   You can manually trigger registration via: POST /api/admin/modules/ai/register-built-ins\n');
+        return;
+      }
+      // Re-throw if it's a different database error
+      throw dbError;
+    }
 
     if (registryCount > 0) {
       console.log(`✅ Registry already populated (${registryCount} modules registered)`);
@@ -480,17 +566,45 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
     let errorCount = 0;
 
     for (const { moduleId, moduleName, aiContext } of BUILT_IN_MODULES) {
-      const success = await registerModule(moduleId, moduleName, aiContext);
-      if (success) {
-        successCount++;
-      } else {
-        // Check if it was skipped (module doesn't exist) or error
-        const moduleExists = await prisma.module.findUnique({ where: { id: moduleId } });
-        if (!moduleExists) {
-          skipCount++;
+      try {
+        const success = await registerModule(moduleId, moduleName, aiContext);
+        if (success) {
+          successCount++;
         } else {
-          errorCount++;
+          // Check if it was skipped (module doesn't exist) or error
+          try {
+            const moduleExists = await prisma.module.findUnique({ where: { id: moduleId } });
+            if (!moduleExists) {
+              skipCount++;
+            } else {
+              errorCount++;
+            }
+          } catch (dbError) {
+            // Database connection lost during registration
+            const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
+            if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+              console.log('\n⚠️  Database connection lost during registration');
+              console.log('   Partial registration completed');
+              console.log(`   ✅ Registered: ${successCount}`);
+              console.log(`   ⚠️  Skipped: ${skipCount}`);
+              console.log('   You can manually trigger registration via: POST /api/admin/modules/ai/register-built-ins\n');
+              return;
+            }
+            throw dbError;
+          }
         }
+      } catch (dbError) {
+        // Database connection lost during registration
+        const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
+        if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+          console.log('\n⚠️  Database connection lost during registration');
+          console.log('   Partial registration completed');
+          console.log(`   ✅ Registered: ${successCount}`);
+          console.log(`   ⚠️  Skipped: ${skipCount}`);
+          console.log('   You can manually trigger registration via: POST /api/admin/modules/ai/register-built-ins\n');
+          return;
+        }
+        throw dbError;
       }
     }
 
@@ -502,7 +616,7 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
 
     if (successCount > 0) {
       console.log('✅ Built-in modules registered successfully!');
-      console.log('   AI can now access Drive, Chat, and Calendar context.\n');
+      console.log('   AI can now access File Hub, Chat, and Calendar context.\n');
     } else {
       console.warn('⚠️  No modules were registered. Check database for module entries.\n');
     }

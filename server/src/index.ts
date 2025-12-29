@@ -16,6 +16,7 @@ import widgetRouter from './routes/widget';
 import fileRouter from './routes/file';
 import folderRouter from './routes/folder';
 import driveRouter from './routes/drive';
+import todoRouter from './routes/todo';
 import chatRouter from './routes/chat';
 import businessRouter from './routes/business';
 import educationalRouter from './routes/educational';
@@ -46,6 +47,7 @@ import { startCleanupJob } from './services/cleanupService';
 import { initializeChatSocketService } from './services/chatSocketService';
 import { registerBuiltInModulesOnStartup } from './startup/registerBuiltInModules';
 import { seedHRModuleOnStartup } from './startup/seedHRModule';
+import { seedTodoModuleOnStartup } from './startup/seedTodoModule';
 import cron from 'node-cron';
 import { dispatchDueReminders } from './services/reminderService';
 import type { JwtPayload } from 'jsonwebtoken';
@@ -285,9 +287,19 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
             members: { create: { userId: user.id, role: 'OWNER' } }
           }
         });
+        await logger.info('Created personal primary calendar during registration', {
+          operation: 'register_user',
+          context: { userId: user.id, email: user.email, calendarName: mainName },
+        });
       }
-    } catch (e) {
-      console.error('Failed to ensure personal main calendar on register:', e);
+    } catch (e: unknown) {
+      const err = e as Error;
+      await logger.error('Failed to ensure personal main calendar on register', {
+        operation: 'register_user',
+        error: { message: err.message, stack: err.stack },
+        context: { userId: user.id, email: user.email },
+      });
+      // Don't fail registration if calendar creation fails - it will be created when dashboard is created
     }
 
     res.status(201).json({ 
@@ -562,6 +574,7 @@ app.use('/api/dashboard', authenticateJWT, dashboardRouter);
 app.use('/api/widget', authenticateJWT, widgetRouter);
 console.log('[DEBUG] Registering /api/drive route');
 app.use('/api/drive', driveRouter);
+app.use('/api/todo', todoRouter);
 app.use('/api/folder', folderRouter);
 app.use('/api/chat', authenticateJWT, chatRouter);
 app.use('/api/business', authenticateJWT, businessRouter);
@@ -780,11 +793,12 @@ const server = httpServer.listen(port, () => {
     }
   }
   
-  // Seed HR module if it doesn't exist (non-blocking)
+  // Seed modules if they don't exist (non-blocking)
   try {
     await seedHRModuleOnStartup();
+    await seedTodoModuleOnStartup();
   } catch (e) {
-    console.error('HR module seed failed (non-critical):', e);
+    console.error('Module seed failed (non-critical):', e);
   }
   
   // Register built-in modules if registry is empty (non-blocking)

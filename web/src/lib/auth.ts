@@ -70,8 +70,17 @@ export const authOptions: NextAuthOptions = {
           });
 
           if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Invalid credentials');
+            let errorMessage = 'Invalid credentials';
+            try {
+              const error = await response.json();
+              errorMessage = error?.message && typeof error.message === 'string' && error.message.trim()
+                ? error.message
+                : 'Invalid credentials';
+            } catch (parseError) {
+              // If response is not JSON, use default message
+              errorMessage = `Login failed (${response.status})`;
+            }
+            throw new Error(errorMessage);
           }
 
           const data = await response.json();
@@ -103,52 +112,51 @@ export const authOptions: NextAuthOptions = {
             return user;
           }
           
-          console.log('NextAuth Authorize - No token in response, returning null');
-          return null;
+          console.log('NextAuth Authorize - No token in response');
+          throw new Error('Invalid credentials. Please check your email and password.');
         } catch (error: unknown) {
           console.error('Auth error:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Invalid credentials';
+          let errorMessage = 'Invalid credentials';
+          if (error instanceof Error) {
+            // Ensure we have a valid error message
+            const message = error.message;
+            if (message && typeof message === 'string' && message.trim() && message !== 'undefined' && message !== 'null') {
+              errorMessage = message.trim();
+            }
+          } else if (error && typeof error === 'object' && 'message' in error) {
+            const message = (error as { message?: unknown }).message;
+            if (message && typeof message === 'string' && message.trim() && message !== 'undefined' && message !== 'null') {
+              errorMessage = message.trim();
+            }
+          }
+          // Always throw a proper Error object with a valid message
           throw new Error(errorMessage);
         }
       }
     })
   ],
   callbacks: {
-    async jwt({ token, user }) {
-      // Only log in debug mode to reduce console noise
-      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
-        console.log('NextAuth JWT callback:', { hasUser: !!user, hasToken: !!token, tokenExp: token.exp });
-      }
-      
-      if (user) {
-        const u = user as any;
-        // Use the backend's JWT token directly without decoding
-        // Only log in debug mode to reduce console noise
-        if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
-          console.log('NextAuth JWT - User login:', { userId: u.id, email: u.email, hasAccessToken: !!u.accessToken });
+      async jwt({ token, user }) {
+        if (user) {
+          const u = user as any;
+          return {
+            ...token,
+            id: u.id,
+            role: u.role,
+            userNumber: u.userNumber,
+            accessToken: u.accessToken,
+            refreshToken: u.refreshToken,
+            exp: token.exp,
+          };
         }
-        return {
-          ...token,
-          id: u.id,
-          role: u.role,
-          userNumber: u.userNumber,
-          accessToken: u.accessToken,
-          refreshToken: u.refreshToken,
-          exp: token.exp,
-        };
-      }
 
-      // If the token expiration is unknown or it has expired, refresh it.
-      if (typeof token.exp !== 'number' || Date.now() >= token.exp * 1000) {
-        // Only log in debug mode to reduce console noise
-        if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {
-          console.log('NextAuth JWT - Token expired, refreshing...');
+        // If the token expiration is unknown or it has expired, refresh it.
+        if (typeof token.exp !== 'number' || Date.now() >= token.exp * 1000) {
+          return refreshAccessToken(token);
         }
-        return refreshAccessToken(token);
-      }
-      
-      return token;
-    },
+        
+        return token;
+      },
     async session({ session, token }) {
       // Only log in debug mode to reduce console noise
       if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_AUTH === 'true') {

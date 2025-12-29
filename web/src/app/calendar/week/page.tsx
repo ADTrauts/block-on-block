@@ -44,11 +44,21 @@ function WeekInner() {
     }
   };
 
+  // Backend expects dashboard IDs for contexts, not formatted strings
+  // It will look up the dashboard and determine context type automatically
+  // For personal dashboards, it resolves to PERSONAL:userId
+  // For business/household, it resolves to BUSINESS:businessId or HOUSEHOLD:householdId
   const contextFilter = useMemo(() => {
     if (!currentDashboard || overlayMode === 'ALL_TABS') return [] as string[];
     const type = getDashboardType(currentDashboard).toUpperCase();
-    const id = (currentDashboard as any).business?.id || (currentDashboard as any).household?.id || currentDashboard.id;
-    return [`${type}:${id}`];
+    if (type === 'PERSONAL') {
+      // Pass dashboard ID - backend will resolve to PERSONAL:userId
+      return [currentDashboard.id];
+    } else {
+      // For business/household, pass the businessId/householdId
+      const id = (currentDashboard as any).business?.id || (currentDashboard as any).household?.id;
+      return id ? [id] : [currentDashboard.id];
+    }
   }, [currentDashboard, getDashboardType, overlayMode]);
 
   useEffect(() => {

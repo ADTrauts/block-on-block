@@ -21,7 +21,7 @@ export const MODULES: ModuleConfig[] = [
   },
   {
     id: 'drive',
-    name: 'Drive',
+    name: 'File Hub',
     description: 'File and document management',
     icon: 'folder',
     path: '/drive',

@@ -326,6 +326,227 @@ async function registerModuleAIContext(
 
 ---
 
+## 🚨 MANDATORY: AI Action Executor Integration (NEW)
+
+### **Rule: Modules That Want AI to Execute Actions MUST Register Action Executors**
+
+**Why**: When users ask the AI to "create a task" or "schedule a meeting," the AI needs a way to actually execute these actions, not just describe them. Action executors allow the AI to perform real operations in your module.
+
+**Enforcement**: Modules without action executors:
+- AI can only **describe** what to do (not execute)
+- Users must manually perform actions after AI suggestions
+- Reduced user experience and AI value
+
+**When Required**: 
+- ✅ **Required** if your module has actions users might ask AI to perform
+- ✅ **Required** if your module supports CRUD operations (create, update, delete)
+- ⚠️ **Optional** if your module is read-only (viewing data only)
+
+---
+
+## 📋 AI Action Executor Requirements
+
+### 1. Define Supported Operations
+
+List all operations your module supports for AI execution:
+
+```typescript
+// In your module's action executor file
+export const SUPPORTED_OPERATIONS = [
+  'create_item',
+  'update_item',
+  'delete_item',
+  'update_priority',
+  'assign_to_user',
+  // ... list all operations AI can execute
+];
+```
+
+### 2. Implement Action Executor Function
+
+Create an executor function that handles AI actions:
+
+```typescript
+// server/src/modules/your-module/actionExecutor.ts
+// OR in your module's controller directory
+
+import { AIAction, UserContext } from '@/ai/core/DigitalLifeTwinService';
+import { ActionExecutionResult } from '@/ai/core/ActionExecutor';
+
+export async function executeAction(
+  action: AIAction,
+  userContext: UserContext
+): Promise<ActionExecutionResult> {
+  const { operation, parameters } = action;
+  const startTime = Date.now();
+
+  try {
+    switch (operation) {
+      case 'create_item': {
+        // Import your controller
+        const { createItem } = await import('../controllers/itemController');
+        
+        // Create mock request/response
+        const mockReq = {
+          user: { id: userContext.userId },
+          body: {
+            title: parameters.title,
+            description: parameters.description,
+            dashboardId: parameters.dashboardId,
+            businessId: parameters.businessId || null,
+          }
+        } as any;
+        
+        let result: any = {};
+        const mockRes = {
+          json: (data: any) => { result = data; },
+          status: (code: number) => ({ 
+            json: (data: any) => { result = { ...data, statusCode: code }; } 
+          })
+        } as any;
+        
+        // Execute controller
+        await createItem(mockReq, mockRes);
+        
+        return {
+          actionId: action.id,
+          success: !result.statusCode || result.statusCode === 200 || result.statusCode === 201,
+          result: result,
+          metadata: {
+            executionTime: Date.now() - startTime,
+            module: 'your-module',
+            operation: 'create_item',
+            affectedUsers: action.affectedUsers || [],
+            rollbackAvailable: true
+          }
+        };
+      }
+      
+      case 'update_item': {
+        // Similar pattern for update operations
+        const { updateItem } = await import('../controllers/itemController');
+        // ... implement update logic
+      }
+      
+      default:
+        return {
+          actionId: action.id,
+          success: false,
+          error: `Unknown operation: ${operation}`,
+          metadata: {
+            executionTime: Date.now() - startTime,
+            module: 'your-module',
+            operation,
+            affectedUsers: [],
+            rollbackAvailable: false
+          }
+        };
+    }
+  } catch (error) {
+    return {
+      actionId: action.id,
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      metadata: {
+        executionTime: Date.now() - startTime,
+        module: 'your-module',
+        operation: action.operation,
+        affectedUsers: [],
+        rollbackAvailable: false
+      }
+    };
+  }
+}
+```
+
+### 3. Register During Module Installation
+
+Register your executor when the module is installed:
+
+```typescript
+// During module installation/activation
+import { actionExecutorRegistry } from '@/ai/core/ActionExecutorRegistry';
+import { executeAction, SUPPORTED_OPERATIONS } from './actionExecutor';
+
+// Register the executor
+actionExecutorRegistry.register({
+  moduleId: 'your-module',
+  execute: executeAction,
+  supportedOperations: SUPPORTED_OPERATIONS
+});
+```
+
+### 4. Document Operations in AI Context
+
+Make sure your AI context includes the actions:
+
+```typescript
+const YOUR_MODULE_AI_CONTEXT: ModuleAIContext = {
+  // ... existing context ...
+  actions: [
+    {
+      name: 'create_item',
+      description: 'Creates a new item in the module',
+      permissions: ['module:write'],
+      // AI will use this to generate actions
+    },
+    {
+      name: 'update_item',
+      description: 'Updates an existing item',
+      permissions: ['module:write'],
+    }
+  ]
+};
+```
+
+### 5. Webhook Pattern (For External Modules)
+
+If your module is hosted externally, use webhook pattern:
+
+```typescript
+// Register webhook URL instead of function
+await prisma.module.update({
+  where: { id: 'your-module' },
+  data: {
+    manifest: {
+      ...module.manifest,
+      aiActionExecutor: {
+        executorUrl: 'https://your-module.com/api/ai/execute',
+        supportedOperations: ['create_item', 'update_item'],
+        registeredAt: new Date()
+      }
+    }
+  }
+});
+
+// Your webhook endpoint must accept:
+// POST /api/ai/execute
+// Body: { action: string, parameters: object, userId: string, context: object }
+// Return: ActionExecutionResult
+```
+
+### Implementation Checklist
+
+- [ ] **Define supported operations** - List all operations AI can execute
+- [ ] **Implement executor function** - Handle each operation type
+- [ ] **Import controllers directly** - Use same pattern as Tasks module
+- [ ] **Handle errors gracefully** - Return proper error responses
+- [ ] **Register during installation** - Call `actionExecutorRegistry.register()`
+- [ ] **Document in AI context** - Add actions to `ModuleAIContext`
+- [ ] **Test with AI queries** - Verify actions execute correctly
+- [ ] **Test error cases** - Missing parameters, invalid IDs, etc.
+
+### Code Quality Standards
+
+- ✅ **Direct controller imports** - Don't use API calls, import controllers directly
+- ✅ **Mock request/response** - Create proper Express request/response objects
+- ✅ **Error handling** - Always wrap in try/catch
+- ✅ **Consistent return format** - Use `ActionExecutionResult` interface
+- ✅ **Parameter validation** - Check required parameters before execution
+- ✅ **Type safety** - Avoid `any` types where possible
+
+---
+
 ## 🎯 Complete Implementation Checklist
 
 Use this checklist for every new module:
@@ -352,6 +573,8 @@ Use this checklist for every new module:
 - [ ] **Implement core API endpoints** - CRUD operations
 - [ ] **Add authentication** - Use `authenticateJWT` middleware
 - [ ] **Implement context providers** - AI data endpoints
+- [ ] **Implement action executor** - AI action execution (if module has actions)
+- [ ] **Register action executor** - During module installation
 - [ ] **Add permission checks** - Role-based access
 - [ ] **Write error handling** - Graceful failures
 
@@ -377,10 +600,12 @@ Use this checklist for every new module:
 
 ### Phase 5: Integration
 - [ ] **Register AI context** - POST to `/api/modules/:id/ai/context`
+- [ ] **Register action executor** - Call `actionExecutorRegistry.register()`
 - [ ] **Test AI detection** - Verify keywords trigger module
 - [ ] **Test context providers** - Verify data fetching works
-- [ ] **Test end-to-end** - AI queries return correct data
-- [ ] **Add to module manifest** - Include AI context in manifest
+- [ ] **Test action execution** - Verify AI can execute actions (if applicable)
+- [ ] **Test end-to-end** - AI queries return correct data and execute actions
+- [ ] **Add to module manifest** - Include AI context and executor config in manifest
 
 ### Phase 6: Testing & Quality
 - [ ] **Unit tests** - Test core functionality

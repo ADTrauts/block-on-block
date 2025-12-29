@@ -92,7 +92,7 @@ Every module (built-in or third-party) **MUST** have:
 
 ### Immediate Priority (Next 3-6 Months)
 
-1. **Smart To-Do Module** ⭐⭐⭐ (Dual-context, AI-powered)
+1. **To-Do Module** ⭐⭐⭐ (Dual-context, AI-powered)
 2. **HR Core Module** ⭐⭐⭐ (Business, leverages org chart)
 3. **Project Management** ⭐⭐ (Dual-context)
 4. **Notes Module** ⭐⭐ (Dual-context)
@@ -267,7 +267,7 @@ Modules must have:
 
 1. **Review brainstorming document**: Identify modules to build first
 2. **Read development standards**: Understand AI context requirements
-3. **Choose top module**: Start with Smart To-Do or HR Core
+3. **Choose top module**: Start with To-Do or HR Core
 4. **Follow checklist**: Complete all 8 phases
 5. **Test AI integration**: Verify keyword detection works
 

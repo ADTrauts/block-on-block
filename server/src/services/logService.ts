@@ -83,29 +83,58 @@ class LogService {
   }
 
   private async initializeAutoCleanup(): Promise<void> {
-    // Get or create retention policy
-    const policy = await this.getOrCreateRetentionPolicy();
-    
-    if (policy.autoCleanup) {
-      setInterval(async () => {
-        await this.cleanupOldLogs(policy.defaultRetentionDays);
-      }, 24 * 60 * 60 * 1000); // Run daily
+    try {
+      // Get or create retention policy
+      const policy = await this.getOrCreateRetentionPolicy();
+      
+      if (policy.autoCleanup) {
+        setInterval(async () => {
+          try {
+            await this.cleanupOldLogs(policy.defaultRetentionDays);
+          } catch (error) {
+            // Silently fail cleanup - database might be temporarily unavailable
+            console.error('[LogService] Auto-cleanup failed:', error instanceof Error ? error.message : 'Unknown error');
+          }
+        }, 24 * 60 * 60 * 1000); // Run daily
+      }
+    } catch (error) {
+      // Database might not be available during initialization
+      // Log error but don't crash the service
+      console.error('[LogService] Failed to initialize auto-cleanup:', error instanceof Error ? error.message : 'Unknown error');
+      console.log('[LogService] Auto-cleanup will be retried on next log operation');
     }
   }
 
   private async getOrCreateRetentionPolicy() {
-    let policy = await prisma.logRetentionPolicy.findFirst();
-    
-    if (!policy) {
-      policy = await prisma.logRetentionPolicy.create({
-        data: {
-          defaultRetentionDays: 30,
-          errorRetentionDays: 90,
-          auditRetentionDays: 365,
-          enabled: true,
-          autoCleanup: true
-        }
-      });
+    try {
+      let policy = await prisma.logRetentionPolicy.findFirst();
+      
+      if (!policy) {
+        policy = await prisma.logRetentionPolicy.create({
+          data: {
+            defaultRetentionDays: 30,
+            errorRetentionDays: 90,
+            auditRetentionDays: 365,
+            enabled: true,
+            autoCleanup: true
+          }
+        });
+      }
+      
+      return policy;
+    } catch (error) {
+      // If database is unavailable, return default policy
+      console.warn('[LogService] Database unavailable, using default retention policy');
+      return {
+        id: 'default',
+        defaultRetentionDays: 30,
+        errorRetentionDays: 90,
+        auditRetentionDays: 365,
+        enabled: true,
+        autoCleanup: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
     }
     
     return policy;

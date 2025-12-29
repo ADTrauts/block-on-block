@@ -1,4 +1,4 @@
-// Enterprise Drive Module Components
+// Enterprise File Hub Module Components
 export { default as EnhancedDriveModule } from './EnhancedDriveModule';
 export { default as AdvancedSharingModal } from './AdvancedSharingModal';
 export { default as AuditLogsPanel } from './AuditLogsPanel';

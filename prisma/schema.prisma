@@ -332,6 +332,13 @@ model User {
   shiftSwapRequestsTo ShiftSwapRequest[] @relation("SwapRequestedTo")
   shiftSwapApprovalsGiven ShiftSwapRequest[] @relation("SwapApprovedBy")
 
+  // Todo Module relations
+  createdTasks    Task[] @relation("TaskCreator")
+  assignedTasks   Task[] @relation("TaskAssignee")
+  taskComments    TaskComment[]
+  taskWatchers    TaskWatcher[]
+  taskTimeLogs    TaskTimeLog[]
+
   @@map("users")
   @@index([userNumber])
   @@index([countryId, regionId, townId])
@@ -1679,8 +1686,14 @@ model AIAutonomySettings {
   
   // Override settings
   workHoursOverride     Boolean @default(false)
+  workHoursStart        String?  // Time in 24-hour format (HH:MM), e.g., "09:00"
+  workHoursEnd          String?  // Time in 24-hour format (HH:MM), e.g., "17:00"
   familyTimeOverride    Boolean @default(false)
+  familyTimeStart       String?  // Time in 24-hour format (HH:MM)
+  familyTimeEnd         String?  // Time in 24-hour format (HH:MM)
   sleepHoursOverride    Boolean @default(false)
+  sleepHoursStart       String?  // Time in 24-hour format (HH:MM)
+  sleepHoursEnd         String?  // Time in 24-hour format (HH:MM)
   
   // Approval thresholds
   financialThreshold    Float   @default(0)      // Dollar amount requiring approval
@@ -5062,6 +5075,227 @@ model JobLocation {
   @@index([businessId])
   @@index([isActive])
   @@map("job_locations")
+}
+
+
+
+// ============================================================================
+// TODO MODULE
+// ============================================================================
+
+// ============================================================================
+// TODO & TASK MANAGEMENT MODELS
+// ============================================================================
+
+model Task {
+  id                String      @id @default(uuid())
+  title             String
+  description        String?
+  status            TaskStatus  @default(TODO)
+  priority          TaskPriority @default(MEDIUM)
+  
+  // Context & Scoping
+  dashboardId       String      // Personal or business dashboard
+  businessId        String?     // Null for personal, set for business
+  householdId       String?     // For household tasks
+  
+  // Ownership & Assignment
+  createdById      String
+  assignedToId     String?      // For business: assign to team member
+  createdBy        User         @relation("TaskCreator", fields: [createdById], references: [id])
+  assignedTo       User?        @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  
+  // Dates & Scheduling
+  dueDate          DateTime?
+  startDate        DateTime?
+  completedAt      DateTime?
+  snoozedUntil     DateTime?    // For deferred tasks
+  
+  // Organization
+  projectId        String?      // Link to project (future)
+  project           TaskProject? @relation(fields: [projectId], references: [id])
+  parentTaskId     String?      // For subtasks
+  parentTask       Task?        @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
+  subtasks         Task[]       @relation("TaskSubtasks")
+  
+  // Recurrence
+  recurrenceRule   String?      // RRULE format (like calendar events)
+  recurrenceEndAt  DateTime?
+  parentRecurringTaskId String?
+  parentRecurringTask Task? @relation("TaskRecurrence", fields: [parentRecurringTaskId], references: [id])
+  recurringInstances Task[] @relation("TaskRecurrence")
+  
+  // Metadata
+  tags             String[]
+  category         String?      // Personal: "errands", "health", etc. Business: "project", "support", etc.
+  timeEstimate     Int?         // Estimated minutes
+  actualTimeSpent  Int?         // Actual minutes (for analytics)
+  
+  // Dependencies
+  dependsOnTasks   TaskDependency[] @relation("TaskDependencies")
+  blockingTasks    TaskDependency[] @relation("BlockingTasks")
+  
+  // Attachments & Links
+  attachments      TaskAttachment[]
+  linkedFiles      TaskFileLink[]    // Links to Drive files
+  linkedEvents     TaskEventLink[]   // Links to Calendar events
+  
+  // Collaboration (Business)
+  comments         TaskComment[]
+  watchers         TaskWatcher[]     // Users watching this task
+  timeLogs         TaskTimeLog[]     // Time tracking logs
+  
+  // Soft Delete
+  trashedAt        DateTime?
+  
+  // Timestamps
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  
+  @@index([dashboardId, businessId])
+  @@index([assignedToId])
+  @@index([status, dueDate])
+  @@index([trashedAt])
+  @@index([parentTaskId])
+  @@index([createdById])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskDependency {
+  id          String   @id @default(uuid())
+  task        Task     @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  dependsOn   Task     @relation("BlockingTasks", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  dependsOnTaskId String
+  
+  @@unique([taskId, dependsOnTaskId])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  fileId    String?  // Drive file ID
+  url       String?  // External URL
+  name      String
+  size      Int?
+  mimeType  String?
+  
+  @@index([taskId])
+  @@map("task_attachments")
+}
+
+model TaskFileLink {
+  id        String   @id @default(uuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  fileId    String   // Drive file ID
+  
+  @@unique([taskId, fileId])
+  @@index([taskId])
+  @@index([fileId])
+  @@map("task_file_links")
+}
+
+model TaskEventLink {
+  id        String   @id @default(uuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  eventId   String   // Calendar event ID
+  
+  @@unique([taskId, eventId])
+  @@index([taskId])
+  @@index([eventId])
+  @@map("task_event_links")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_comments")
+}
+
+model TaskWatcher {
+  id        String   @id @default(uuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_watchers")
+}
+
+// Project grouping (future expansion)
+model TaskProject {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  dashboardId String
+  businessId  String?
+  color       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tasks       Task[]
+  
+  @@index([dashboardId, businessId])
+  @@map("task_projects")
+}
+
+// Time tracking logs
+model TaskTimeLog {
+  id          String   @id @default(uuid())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  startedAt   DateTime
+  stoppedAt   DateTime?
+  duration    Int?     // Duration in minutes (calculated if stoppedAt is set)
+  description String?  // Optional note about what was done
+  
+  isActive    Boolean  @default(false) // True if timer is currently running
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([taskId])
+  @@index([userId])
+  @@index([isActive])
+  @@index([startedAt])
+  @@map("task_time_logs")
 }
 
 

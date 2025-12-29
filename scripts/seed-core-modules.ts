@@ -18,7 +18,7 @@ const SYSTEM_USER_ID = 'system'; // You'll need to update this with actual user 
 const CORE_MODULES = [
   {
     id: 'drive',
-    name: 'Drive',
+    name: 'File Hub',
     description: 'File management and storage system with folder organization, sharing, and collaboration features',
     version: '1.0.0',
     category: 'PRODUCTIVITY',
@@ -26,7 +26,7 @@ const CORE_MODULES = [
     icon: 'folder',
     screenshots: [],
     manifest: {
-      name: 'Drive',
+      name: 'File Hub',
       version: '1.0.0',
       description: 'File management system',
       author: 'Vssyl',

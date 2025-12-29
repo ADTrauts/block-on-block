@@ -14,7 +14,6 @@ export default function ChatPage() {
     currentDashboardId, 
     allDashboards, 
     loading,
-    isModuleActiveOnDashboard,
     hasAnyModules
   } = useDashboard();
 
@@ -40,12 +39,7 @@ export default function ChatPage() {
     const dashboardParam = searchParams?.get('dashboard');
     
     if (dashboardParam) {
-      // Check if chat module is active on the target dashboard
-      if (!isModuleActiveOnDashboard('chat', dashboardParam)) {
-        // Chat module is not active on this dashboard, show module not available message
-        return;
-      }
-      
+      // Chat is always available - no need to check for widgets
       // If dashboard parameter is provided, ensure we're in the right context
       const targetDashboard = allDashboards.find(d => d.id === dashboardParam);
       if (targetDashboard && currentDashboardId !== dashboardParam) {
@@ -53,13 +47,13 @@ export default function ChatPage() {
         return;
       }
     } else if (allDashboards.length > 0 && !currentDashboardId) {
-      // No dashboard specified, find first dashboard with chat module
-      const dashboardWithChat = allDashboards.find(d => isModuleActiveOnDashboard('chat', d.id));
-      if (dashboardWithChat) {
-        router.replace(`/chat?dashboard=${dashboardWithChat.id}`);
+      // No dashboard specified, use first available dashboard (chat is always available)
+      const firstDashboard = allDashboards[0];
+      if (firstDashboard) {
+        router.replace(`/chat?dashboard=${firstDashboard.id}`);
         return;
       } else {
-        // No dashboard has chat module, redirect to dashboard management
+        // No dashboards available, redirect to dashboard management
         router.replace('/dashboard');
         return;
       }
@@ -68,7 +62,7 @@ export default function ChatPage() {
       router.replace('/dashboard');
       return;
     }
-  }, [searchParams, currentDashboardId, allDashboards, loading, router, isModuleActiveOnDashboard]);
+  }, [searchParams, currentDashboardId, allDashboards, loading, router]);
 
   // Show loading state while determining context
   if (loading) {
@@ -97,39 +91,7 @@ export default function ChatPage() {
     );
   }
 
-  // Check if chat module is active on current dashboard
-  if (currentDashboard && !isModuleActiveOnDashboard('chat', currentDashboard.id)) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center max-w-md">
-          <div className="mb-4">
-            <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
-              <span className="text-2xl">💬</span>
-            </div>
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Chat Module Not Available</h2>
-          <p className="text-gray-600 mb-4">
-            The chat module is not enabled on the current dashboard "{currentDashboard.name}". 
-            You can add it to this dashboard or switch to a dashboard that has chat enabled.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button
-              onClick={() => router.push(`/dashboard/${currentDashboard.id}`)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Add Chat to Dashboard
-            </button>
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-            >
-              Switch Dashboard
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Chat is always available - no need to check for widgets
 
   // Pass file reference to ChatContent if present in URL
   const fileId = searchParams?.get('fileId');

@@ -16,7 +16,8 @@
     "prisma:generate": "pnpm prisma:build && prisma generate --schema ../prisma/schema.prisma",
     "prisma:migrate": "pnpm prisma:build && prisma migrate deploy --schema ../prisma/schema.prisma",
     "seed:chat": "ts-node scripts/seed-chat.ts",
-    "seed:modules": "ts-node scripts/seed-modules.ts"
+    "seed:modules": "ts-node scripts/seed-modules.ts",
+    "ensure:calendars": "ts-node scripts/ensure-personal-calendars.ts"
   },
   "keywords": [],
   "author": "",

@@ -12,9 +12,23 @@ export async function seedHRModuleOnStartup(): Promise<void> {
     console.log('📦 Checking HR module registration...');
     
     // Check if HR module already exists
-    const existing = await prisma.module.findUnique({
-      where: { id: 'hr' }
-    });
+    let existing;
+    try {
+      existing = await prisma.module.findUnique({
+        where: { id: 'hr' }
+      });
+    } catch (dbError) {
+      // Database might not be available during startup
+      const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
+      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+        console.log('   ⚠️  Database not available during startup');
+        console.log('   HR module seed will be skipped');
+        console.log('   Server will continue, but HR module may not be available.\n');
+        return;
+      }
+      // Re-throw if it's a different database error
+      throw dbError;
+    }
     
     if (existing) {
       console.log('   ✅ HR module already registered');
@@ -24,9 +38,22 @@ export async function seedHRModuleOnStartup(): Promise<void> {
     console.log('   📝 Creating HR module record...');
     
     // Get a user to be the developer (first admin)
-    const systemUser = await prisma.user.findFirst({
-      where: { role: 'ADMIN' }
-    });
+    let systemUser;
+    try {
+      systemUser = await prisma.user.findFirst({
+        where: { role: 'ADMIN' }
+      });
+    } catch (dbError) {
+      // Database connection lost during seeding
+      const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
+      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+        console.log('   ⚠️  Database connection lost during seeding');
+        console.log('   HR module seed will be skipped');
+        console.log('   Server will continue, but HR module may not be available.\n');
+        return;
+      }
+      throw dbError;
+    }
     
     if (!systemUser) {
       console.warn('   ⚠️  No admin user found. HR module seed will retry on next startup.');

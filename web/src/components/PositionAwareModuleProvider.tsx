@@ -1,10 +1,11 @@
 'use client';
 
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { createContext, useContext, useMemo, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useWorkAuth } from '../contexts/WorkAuthContext';
 import { useBusinessConfiguration } from '../contexts/BusinessConfigurationContext';
 import { ModuleConfig } from '../config/modules';
+import { getInstalledModules } from '../api/modules';
 
 interface PositionAwareModule extends ModuleConfig {
   accessReason?: 'personal' | 'position' | 'department' | 'tier' | 'admin';
@@ -26,7 +27,7 @@ interface PositionAwareModuleProviderProps {
 // Default personal modules (always available)
 const DEFAULT_PERSONAL_MODULES: ModuleConfig[] = [
   { id: 'dashboard', name: 'Dashboard', description: 'Main personal dashboard', icon: 'dashboard', path: '/dashboard', permissions: ['view'], category: 'core' },
-  { id: 'drive', name: 'Drive', description: 'File management system', icon: 'folder', path: '/drive', permissions: ['view', 'upload', 'delete'], category: 'core' },
+  { id: 'drive', name: 'File Hub', description: 'File management system', icon: 'folder', path: '/drive', permissions: ['view', 'upload', 'delete'], category: 'core' },
   { id: 'chat', name: 'Chat', description: 'Team communication', icon: 'message-circle', path: '/chat', permissions: ['view', 'send'], category: 'core' },
   { id: 'calendar', name: 'Calendar', description: 'Schedule management', icon: 'calendar', path: '/calendar', permissions: ['view', 'create'], category: 'core' },
   { id: 'connections', name: 'Connections', description: 'Personal connections', icon: 'users', path: '/connections', permissions: ['view', 'manage'], category: 'core' },
@@ -36,6 +37,33 @@ export function PositionAwareModuleProvider({ children }: PositionAwareModulePro
   const { data: session } = useSession();
   const { isWorkAuthenticated, currentBusinessId, workCredentials } = useWorkAuth();
   const businessConfig = useBusinessConfiguration();
+  const [installedPersonalModules, setInstalledPersonalModules] = useState<ModuleConfig[]>([]);
+
+  // Load installed personal modules
+  useEffect(() => {
+    if (!session?.accessToken) return;
+
+    const loadInstalledModules = async () => {
+      try {
+        const installed = await getInstalledModules({ scope: 'personal' });
+        // Convert installed modules to ModuleConfig format
+        const moduleConfigs: ModuleConfig[] = installed.map(module => ({
+          id: module.id,
+          name: module.name,
+          description: module.description || '',
+          icon: module.icon || module.id,
+          path: `/${module.id}`,
+          permissions: module.permissions || ['view'],
+          category: 'core' as const
+        }));
+        setInstalledPersonalModules(moduleConfigs);
+      } catch (error) {
+        console.error('Error loading installed modules:', error);
+      }
+    };
+
+    loadInstalledModules();
+  }, [session?.accessToken]);
 
   const getFilteredModules = useMemo(() => {
     return (): PositionAwareModule[] => {
@@ -47,6 +75,17 @@ export function PositionAwareModuleProvider({ children }: PositionAwareModulePro
         accessReason: 'personal' as const,
         businessModule: false
       }));
+
+      // Add installed personal modules (avoid duplicates)
+      installedPersonalModules.forEach(module => {
+        if (!availableModules.some(m => m.id === module.id)) {
+          availableModules.push({
+            ...module,
+            accessReason: 'personal' as const,
+            businessModule: false
+          });
+        }
+      });
 
       // If user is authenticated in work context, add business modules based on position
       if (isWorkAuthenticated && currentBusinessId && session?.user?.id && businessConfig.configuration) {
@@ -131,7 +170,7 @@ export function PositionAwareModuleProvider({ children }: PositionAwareModulePro
 
       return availableModules;
     };
-  }, [isWorkAuthenticated, currentBusinessId, session?.user?.id, businessConfig.configuration, businessConfig.getModulesForUser, businessConfig.getUserPosition, businessConfig.getUserDepartment]);
+  }, [isWorkAuthenticated, currentBusinessId, session?.user?.id, businessConfig.configuration, businessConfig.getModulesForUser, businessConfig.getUserPosition, businessConfig.getUserDepartment, installedPersonalModules]);
 
   const hasModuleAccess = useMemo(() => {
     return (moduleId: string): boolean => {

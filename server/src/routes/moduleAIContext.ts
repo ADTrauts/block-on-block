@@ -434,10 +434,10 @@ router.post(
           aiContext: {
             purpose: 'File and folder storage with organization, sharing, and versioning capabilities',
             category: 'PRODUCTIVITY',
-            keywords: ['file', 'folder', 'document', 'storage', 'drive', 'upload', 'download', 'share', 'organize'],
+            keywords: ['file', 'folder', 'document', 'storage', 'drive', 'file hub', 'upload', 'download', 'share', 'organize'],
             patterns: [
-              'files? (in|from|on) (my )?drive',
-              'folders? (in|from|on) (my )?drive',
+              'files? (in|from|on) (my )?(drive|file hub)',
+              'folders? (in|from|on) (my )?(drive|file hub)',
               'upload (a |the )?file',
               'create (a )?folder',
               'share (this |the )?file',
@@ -446,14 +446,14 @@ router.post(
             ],
             concepts: ['file management', 'cloud storage', 'document organization', 'sharing', 'collaboration'],
             entities: [
-              { name: 'File', pluralName: 'Files', description: 'A file stored in the drive' },
+              { name: 'File', pluralName: 'Files', description: 'A file stored in File Hub' },
               { name: 'Folder', pluralName: 'Folders', description: 'A folder for organizing files' },
-              { name: 'Drive', pluralName: 'Drives', description: 'Cloud storage space' },
+              { name: 'File Hub', pluralName: 'File Hubs', description: 'Cloud storage space' },
             ],
             actions: [
               { name: 'create_folder', description: 'Create a new folder', permissions: ['drive:write'] },
-              { name: 'upload_file', description: 'Upload a file to drive', permissions: ['drive:write'] },
-              { name: 'download_file', description: 'Download a file from drive', permissions: ['drive:read'] },
+              { name: 'upload_file', description: 'Upload a file to File Hub', permissions: ['drive:write'] },
+              { name: 'download_file', description: 'Download a file from File Hub', permissions: ['drive:read'] },
               { name: 'share_file', description: 'Share a file with others', permissions: ['drive:write', 'drive:share'] },
               { name: 'delete_file', description: 'Delete a file or folder', permissions: ['drive:delete'] },
             ],

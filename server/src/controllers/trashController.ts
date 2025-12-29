@@ -10,7 +10,7 @@ function hasUserId(user: unknown): user is { id: string } | { sub: string } {
 interface TrashItemRequest {
   id: string;
   name: string;
-  type: 'file' | 'folder' | 'conversation' | 'dashboard_tab' | 'module' | 'message' | 'ai_conversation' | 'event' | 'profile_photo';
+  type: 'file' | 'folder' | 'conversation' | 'dashboard_tab' | 'module' | 'message' | 'ai_conversation' | 'event' | 'profile_photo' | 'task';
   moduleId: string;
   moduleName: string;
   metadata?: Record<string, unknown>;
@@ -168,8 +168,7 @@ export async function listTrashedItems(req: Request, res: Response) {
           calendar: {
             members: {
               some: {
-                userId: userId,
-                isActive: true
+                userId: userId
               }
             }
           }
@@ -195,6 +194,24 @@ export async function listTrashedItems(req: Request, res: Response) {
       console.warn('Events trash query failed (column may not exist):', error);
     }
 
+    // Get trashed tasks
+    const trashedTasks = await prisma.task.findMany({
+      where: { 
+        trashedAt: { not: null },
+        OR: [
+          { createdById: userId },
+          { assignedToId: userId },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        trashedAt: true,
+        dashboardId: true,
+      },
+      orderBy: { trashedAt: 'desc' },
+    });
+
     // Transform all items to a consistent format
     const items = [
       ...trashedFiles.map(file => ({
@@ -202,7 +219,7 @@ export async function listTrashedItems(req: Request, res: Response) {
         name: file.name,
         type: 'file' as const,
         moduleId: 'drive',
-        moduleName: 'Drive',
+        moduleName: 'File Hub',
         trashedAt: file.trashedAt,
         metadata: {
           size: file.size,
@@ -214,7 +231,7 @@ export async function listTrashedItems(req: Request, res: Response) {
         name: folder.name,
         type: 'folder' as const,
         moduleId: 'drive',
-        moduleName: 'Drive',
+        moduleName: 'File Hub',
         trashedAt: folder.trashedAt,
         metadata: {},
       })),
@@ -281,6 +298,18 @@ export async function listTrashedItems(req: Request, res: Response) {
           avatarUrl: photo.avatarUrl,
         },
       })),
+      ...trashedTasks.map(task => ({
+        id: task.id,
+        name: task.title,
+        type: 'task' as const,
+        moduleId: 'todo',
+        moduleName: 'To-Do',
+        trashedAt: task.trashedAt,
+        metadata: {
+          taskId: task.id,
+          dashboardId: task.dashboardId,
+        },
+      })),
     ];
 
     // Sort by trashed date (most recent first)
@@ -289,7 +318,15 @@ export async function listTrashedItems(req: Request, res: Response) {
     res.json({ items });
   } catch (error) {
     console.error('Error listing trashed items:', error);
-    res.status(500).json({ message: 'Failed to list trashed items' });
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: (req.user as any)?.id || (req.user as any)?.sub
+    });
+    res.status(500).json({ 
+      message: 'Failed to list trashed items',
+      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : undefined
+    });
   }
 }
 
@@ -480,6 +517,37 @@ export async function trashItem(req: Request, res: Response) {
             },
           });
         }
+        break;
+      }
+
+      case 'task': {
+        // For tasks, check if user has access (created or assigned)
+        const task = await prisma.task.findFirst({
+          where: {
+            id,
+            trashedAt: null,
+            OR: [
+              { createdById: userId },
+              { assignedToId: userId },
+            ],
+          },
+        });
+
+        if (!task) {
+          return res.status(404).json({ message: 'Task not found or access denied' });
+        }
+
+        result = await prisma.task.updateMany({
+          where: {
+            id,
+            trashedAt: null,
+            OR: [
+              { createdById: userId },
+              { assignedToId: userId },
+            ],
+          },
+          data: { trashedAt: new Date() },
+        });
         break;
       }
 

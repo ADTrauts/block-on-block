@@ -175,6 +175,9 @@ export class AutonomousActionExecutor {
         case 'create_task':
           result = await this.executeCreateTask(action, template);
           break;
+        case 'update_task_priority':
+          result = await this.executeUpdateTaskPriority(action, template);
+          break;
         case 'analyze_data':
           result = await this.executeAnalyzeData(action, template);
           break;
@@ -290,6 +293,72 @@ export class AutonomousActionExecutor {
       message: `Task "${title}" created successfully`,
       details: task
     };
+  }
+
+  /**
+   * Execute update task priority action
+   */
+  private async executeUpdateTaskPriority(action: AutonomousAction, template: ActionTemplate): Promise<unknown> {
+    const { taskId, newPriority, suggestions } = action.parameters;
+    
+    try {
+      // Import todoController to use the actual implementation
+      const { updateTask, executePriorityChanges } = await import('../../controllers/todoController');
+      
+      // If suggestions array is provided, use bulk update
+      if (Array.isArray(suggestions) && suggestions.length > 0) {
+        // Create mock request/response for executePriorityChanges
+        const mockReq = {
+          user: { id: action.userId },
+          body: { suggestions }
+        } as any;
+        
+        let result: any = {};
+        const mockRes = {
+          json: (data: any) => { result = data; },
+          status: (code: number) => ({ json: (data: any) => { result = { ...data, statusCode: code }; } })
+        } as any;
+
+        await executePriorityChanges(mockReq, mockRes);
+
+        return {
+          success: result.success || false,
+          updated: result.updated || 0,
+          total: result.total || suggestions.length,
+          message: `Updated priorities for ${result.updated || 0} task(s)`,
+        };
+      }
+      
+      // Single task update
+      if (taskId && newPriority) {
+        const mockReq = {
+          user: { id: action.userId },
+          params: { id: taskId },
+          body: { priority: newPriority }
+        } as any;
+        
+        let result: any = {};
+        const mockRes = {
+          json: (data: any) => { result = data; },
+          status: (code: number) => ({ json: (data: any) => { result = { ...data, statusCode: code }; } })
+        } as any;
+
+        await updateTask(mockReq, mockRes);
+
+        return {
+          success: !result.statusCode || result.statusCode === 200,
+          taskId,
+          newPriority,
+          message: `Task priority updated to ${newPriority}`,
+        };
+      }
+
+      throw new Error('Either taskId/newPriority or suggestions array is required');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error updating task priority:', errorMessage);
+      throw error;
+    }
   }
 
   /**

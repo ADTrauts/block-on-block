@@ -25,7 +25,17 @@ import {
   Clock,
   AlertCircle,
   BarChart3,
-  Lock
+  Lock,
+  CalendarClock,
+  CheckSquare,
+  Folder,
+  MessageSquare,
+  LayoutDashboard,
+  Brain,
+  Shield,
+  BarChart,
+  Briefcase,
+  UserCheck
 } from 'lucide-react';
 import { useFeatureGating } from '@/hooks/useFeatureGating';
 
@@ -171,20 +181,115 @@ export default function ModulesPage() {
     loadModules();
   }, [activeTab, searchTerm, selectedCategory, selectedPricingTier, scope, businessId]);
 
-  const getModuleIcon = (module: ApiModule) => {
-    if (module.icon) {
-      return <img src={module.icon} alt={module.name} className="w-6 h-6" />;
+  // Map icon name strings to lucide-react icon components
+  const getIconComponent = (iconName: string) => {
+    const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+      'users': Users,
+      'Users': Users,
+      'calendar-clock': CalendarClock,
+      'CalendarClock': CalendarClock,
+      'checksquare': CheckSquare,
+      'CheckSquare': CheckSquare,
+      'calendar': Calendar,
+      'Calendar': Calendar,
+      'drive': Folder,
+      'Drive': Folder,
+      'folder': Folder,
+      'Folder': Folder,
+      'chat': MessageSquare,
+      'Chat': MessageSquare,
+      'messagesquare': MessageSquare,
+      'MessageSquare': MessageSquare,
+      'dashboard': LayoutDashboard,
+      'Dashboard': LayoutDashboard,
+      'layoutdashboard': LayoutDashboard,
+      'LayoutDashboard': LayoutDashboard,
+      'ai': Brain,
+      'AI': Brain,
+      'brain': Brain,
+      'Brain': Brain,
+      'analytics': BarChart3,
+      'Analytics': BarChart3,
+      'barchart': BarChart3,
+      'BarChart': BarChart3,
+      'barchart3': BarChart3,
+      'BarChart3': BarChart3,
+      'admin': Settings,
+      'Admin': Settings,
+      'settings': Settings,
+      'Settings': Settings,
+      'members': Users,
+      'Members': Users,
+      'hr': UserCheck,
+      'HR': UserCheck,
+      'usercheck': UserCheck,
+      'UserCheck': UserCheck,
+      'scheduling': CalendarClock,
+      'Scheduling': CalendarClock,
+      'tasks': CheckSquare,
+      'Tasks': CheckSquare,
+      'todo': CheckSquare,
+      'Todo': CheckSquare,
+      'briefcase': Briefcase,
+      'Briefcase': Briefcase,
+    };
+
+    // Normalize icon name (lowercase, remove spaces/dashes)
+    const normalized = iconName.toLowerCase().replace(/[\s-]/g, '');
+    
+    // Try exact match first
+    if (iconMap[iconName]) {
+      const IconComponent = iconMap[iconName];
+      return <IconComponent className="w-6 h-6" />;
     }
     
+    // Try normalized match
+    if (iconMap[normalized]) {
+      const IconComponent = iconMap[normalized];
+      return <IconComponent className="w-6 h-6" />;
+    }
+    
+    return null;
+  };
+
+  const getModuleIcon = (module: ApiModule) => {
+    // If module.icon exists, try to map it to an icon component
+    if (module.icon) {
+      // Check if it's a URL (starts with http:// or https://)
+      if (module.icon.startsWith('http://') || module.icon.startsWith('https://') || module.icon.startsWith('/')) {
+        return <img src={module.icon} alt={module.name} className="w-6 h-6" />;
+      }
+      
+      // Otherwise, treat it as an icon name and map it
+      const iconComponent = getIconComponent(module.icon);
+      if (iconComponent) {
+        return iconComponent;
+      }
+    }
+    
+    // Fallback to name-based mapping
     switch (module.name.toLowerCase()) {
       case 'dashboard':
-        return <Puzzle className="w-6 h-6" />;
+        return <LayoutDashboard className="w-6 h-6" />;
       case 'drive':
-        return <FileText className="w-6 h-6" />;
+        return <Folder className="w-6 h-6" />;
       case 'chat':
-        return <Users className="w-6 h-6" />;
+        return <MessageSquare className="w-6 h-6" />;
       case 'calendar':
         return <Calendar className="w-6 h-6" />;
+      case 'members':
+        return <Users className="w-6 h-6" />;
+      case 'hr':
+        return <UserCheck className="w-6 h-6" />;
+      case 'scheduling':
+        return <CalendarClock className="w-6 h-6" />;
+      case 'tasks':
+      case 'todo':
+        return <CheckSquare className="w-6 h-6" />;
+      case 'analytics':
+        return <BarChart3 className="w-6 h-6" />;
+      case 'admin':
+        return <Settings className="w-6 h-6" />;
       default:
         return <Puzzle className="w-6 h-6" />;
     }

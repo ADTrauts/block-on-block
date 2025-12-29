@@ -33,12 +33,41 @@ export default function LoginPage() {
         redirect: false, // Prevent NextAuth from handling redirect automatically
       });
 
-      if (result?.error) {
-        setError(result.error);
+      // Debug: Always log the full result to understand what's happening
+      console.log('Login result:', {
+        ok: result?.ok,
+        error: result?.error,
+        url: result?.url,
+        status: result?.status,
+        fullResult: result
+      });
+
+      // Handle error case - but check if ok is also true (NextAuth quirk)
+      if (result?.error && !result?.ok) {
+        // Debug: Log what we're receiving
+        console.log('Login error received:', {
+          error: result.error,
+          errorType: typeof result.error,
+          isString: typeof result.error === 'string',
+          trimmed: typeof result.error === 'string' ? result.error.trim() : 'N/A',
+          fullResult: result
+        });
+        
+        // Handle the case where error is the string 'undefined' or other invalid values
+        let errorMsg = 'An error occurred during login';
+        if (typeof result.error === 'string' && result.error.trim()) {
+          const trimmedError = result.error.trim();
+          // Filter out invalid error strings
+          if (trimmedError !== 'undefined' && trimmedError !== 'null' && trimmedError !== '') {
+            errorMsg = trimmedError;
+          }
+        }
+        setError(errorMsg);
         setLoading(false);
         return;
       }
 
+      // Handle success case
       if (result?.ok) {
         // Successful login - wait for session to be fully established before redirecting
         console.log('Login successful, waiting for session to be established...');
@@ -52,9 +81,28 @@ export default function LoginPage() {
         router.push(returnUrl);
         return;
       }
-    } catch (err: any) {
+
+      // Handle case where result exists but neither ok nor error is set
+      if (result && !result.ok && !result.error) {
+        setError('Login failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // Handle case where result is null/undefined (shouldn't happen, but be safe)
+      if (!result) {
+        setError('No response from server. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // If we get here, something unexpected happened
+      setError('An unexpected error occurred. Please try again.');
+      setLoading(false);
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      setError(err?.message || 'An unexpected error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
       setLoading(false);
       setRedirecting(false);
     }
@@ -174,7 +222,7 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {error && (
+        {error && typeof error === 'string' && error.trim() && (
           <div className="text-red-500 text-sm text-center font-semibold mt-1">{error}</div>
         )}
 

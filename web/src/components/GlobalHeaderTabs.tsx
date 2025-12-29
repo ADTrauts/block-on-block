@@ -82,6 +82,7 @@ export default function GlobalHeaderTabs() {
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isInScheduling, setIsInScheduling] = useState(false);
   const [schedulingContext, setSchedulingContext] = useState<{ businessId?: string; scheduleId?: string } | null>(null);
+  const [isInTodo, setIsInTodo] = useState(false);
 
   useEffect(() => {
     setIsMobile(window.innerWidth < 700);
@@ -107,6 +108,10 @@ export default function GlobalHeaderTabs() {
       } else {
         setSchedulingContext(null);
       }
+
+      // Check for To-Do module in URL
+      const isTodo = pathname.includes('/todo') || pathname.includes('/tasks');
+      setIsInTodo(isTodo);
     }
   }, [pathname]);
 
@@ -126,6 +131,7 @@ export default function GlobalHeaderTabs() {
       window.removeEventListener('scheduleSelected', handleScheduleSelected as EventListener);
     };
   }, [isInScheduling, schedulingContext]);
+
 
   // Personal dashboards ordering
   const personalDashboards = allDashboards.filter(
@@ -357,7 +363,7 @@ export default function GlobalHeaderTabs() {
           }}
           title="AI Assistant"
         >
-          {/* Pulsing circle animation when in scheduling context */}
+          {/* Pulsing circle animation when in scheduling or To-Do context */}
           {isInScheduling && !isAIOpen && (
             <>
               {/* Outer pulsing ring with expanding glow */}
@@ -414,6 +420,10 @@ export default function GlobalHeaderTabs() {
           module: 'scheduling',
           businessId: schedulingContext?.businessId,
           scheduleId: schedulingContext?.scheduleId,
+        } : isInTodo ? {
+          module: 'todo',
+          dashboardId: currentDashboardId,
+          businessId: currentDashboard?.businessId || undefined,
         } : undefined}
       />
     </header>

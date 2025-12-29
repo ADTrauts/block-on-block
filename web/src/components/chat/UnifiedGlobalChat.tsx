@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSession, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Conversation, Message, Thread } from 'shared/types/chat';
@@ -26,6 +26,7 @@ import { useFeatureGating, useModuleFeatures } from '../../hooks/useFeatureGatin
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useChat } from '../../contexts/ChatContext';
 import { toast } from 'react-hot-toast';
+import { chatAPI } from '../../api/chat';
 
 interface UnifiedGlobalChatProps {
   className?: string;
@@ -123,12 +124,52 @@ UnifiedGlobalChatMessageItem.displayName = 'UnifiedGlobalChatMessageItem';
 
 export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatProps) {
   const { data: session, status } = useSession();
-  const { currentDashboard, getDashboardType } = useDashboard();
+  const { 
+    currentDashboard, 
+    currentDashboardId,
+    allDashboards,
+    dashboards,
+    getDashboardType,
+    getDashboardDisplayName
+  } = useDashboard();
   const router = useRouter();
   
-  // Get business ID for enterprise feature checking
-  const dashboardType = currentDashboard ? getDashboardType(currentDashboard) : 'personal';
-  const businessId = dashboardType === 'business' ? currentDashboard?.id : undefined;
+  // Get all dashboards including business (allDashboards doesn't include business by default)
+  const allDashboardsIncludingBusiness = useMemo(() => {
+    // Include all business dashboards
+    const businessDashboards = dashboards.business || [];
+    return [...allDashboards, ...businessDashboards];
+  }, [allDashboards, dashboards.business]);
+  
+  // Get dashboards with chat enabled, sorted: personal first, then business
+  // NOTE: Chat is a core module that's always available - we don't need to check for widgets
+  const chatDashboards = useMemo(() => {
+    // Chat is always available on all dashboards - it's a core module
+    const filtered = allDashboardsIncludingBusiness.filter(d => !!d.id);
+    
+    // Sort: personal first, then by type (business, educational, household)
+    return filtered.sort((a, b) => {
+      const typeA = getDashboardType(a);
+      const typeB = getDashboardType(b);
+      
+      // Personal always first
+      if (typeA === 'personal' && typeB !== 'personal') return -1;
+      if (typeA !== 'personal' && typeB === 'personal') return 1;
+      
+      // Within same type, maintain original order
+      return 0;
+    });
+  }, [allDashboardsIncludingBusiness, getDashboardType]);
+  
+  // Get business ID for enterprise feature checking (based on selected dashboard)
+  const [selectedDashboardId, setSelectedDashboardId] = useState<string | null>(null);
+  const effectiveDashboardId = selectedDashboardId || currentDashboardId;
+  const selectedDashboard = effectiveDashboardId 
+    ? chatDashboards.find(d => d.id === effectiveDashboardId) || currentDashboard
+    : currentDashboard;
+  
+  const dashboardType = selectedDashboard ? getDashboardType(selectedDashboard) : 'personal';
+  const businessId = dashboardType === 'business' ? (selectedDashboard as any)?.business?.id : undefined;
   
   // Check enterprise features
   const { hasBusiness: hasEnterprise } = useModuleFeatures('chat', businessId);
@@ -145,6 +186,9 @@ export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatP
     sendMessage: sendMessageViaContext,
     replyToMessage,
     setReplyToMessage,
+    setDashboardOverride,
+    clearDashboardOverride,
+    loadConversations,
   } = useChat();
   
   // UI state (local only)
@@ -153,13 +197,72 @@ export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatP
   const [chatSize, setChatSize] = useState<'small' | 'medium' | 'large'>('small');
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [dashboardUnreadCounts, setDashboardUnreadCounts] = useState<Record<string, number>>({});
   
-  // Context toggle state (Personal vs Work)
-  const [activeContext, setActiveContext] = useState<'personal' | 'work'>('personal');
-  
-  // Detect if user has work connection
-  const hasWorkConnection = conversations.some(conv => (conv as any).businessId);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Initialize selected dashboard to first personal dashboard
+  useEffect(() => {
+    if (chatDashboards.length > 0 && !selectedDashboardId) {
+      const firstPersonal = chatDashboards.find(d => getDashboardType(d) === 'personal');
+      if (firstPersonal) {
+        setSelectedDashboardId(firstPersonal.id);
+        setDashboardOverride(firstPersonal.id);
+        loadConversations();
+      }
+    }
+  }, [chatDashboards, selectedDashboardId, getDashboardType, setDashboardOverride, loadConversations]);
+  
+  // Calculate unread counts per dashboard
+  useEffect(() => {
+    const calculateUnreadCounts = async () => {
+      if (!session?.accessToken) return;
+      
+      const counts: Record<string, number> = {};
+      
+      for (const dashboard of chatDashboards) {
+        try {
+          const response = await chatAPI.getConversations(session.accessToken, dashboard.id);
+          const dashboardConversations = Array.isArray(response) ? response : [];
+          
+          const unread = dashboardConversations.reduce((count, conv) => {
+            const unreadMessages = conv.messages?.filter((msg: any) => 
+              msg.senderId !== session.user?.id && 
+              !msg.readReceipts?.some((receipt: any) => receipt.userId === session.user?.id)
+            ).length || 0;
+            return count + unreadMessages;
+          }, 0);
+          
+          counts[dashboard.id] = unread;
+        } catch (error) {
+          console.error(`Failed to load conversations for dashboard ${dashboard.id}:`, error);
+          counts[dashboard.id] = 0;
+        }
+      }
+      
+      setDashboardUnreadCounts(counts);
+    };
+    
+    calculateUnreadCounts();
+    // Recalculate periodically to catch new messages
+    const interval = setInterval(calculateUnreadCounts, 30000); // Update every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [chatDashboards, session?.accessToken, session?.user?.id]);
+  
+  // Handle dashboard tab click
+  const handleDashboardTabClick = (dashboardId: string | null) => {
+    if (dashboardId) {
+      setDashboardOverride(dashboardId);
+      setSelectedDashboardId(dashboardId);
+      // Reload conversations for selected dashboard
+      loadConversations();
+    } else {
+      clearDashboardOverride();
+      setSelectedDashboardId(null);
+      loadConversations();
+    }
+  };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -227,22 +330,22 @@ export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatP
     setActiveConversationInContext(conversation);
   };
 
-  // Filter conversations by context (Personal vs Work) AND search query
+  // Filter conversations by selected dashboard AND search query
   const filteredConversations = conversations.filter(conv => {
-    // First filter by context
-    const convBusinessId = (conv as any).businessId;
-    const matchesContext = activeContext === 'personal' 
-      ? !convBusinessId  // Personal: no businessId
-      : !!convBusinessId; // Work: has businessId
-    
-    if (!matchesContext) return false;
+    // Filter by dashboard - conversations belong to the selected dashboard
+    // This is handled by ChatContext's effectiveDashboardId, but we can also filter client-side
+    // The conversations from ChatContext are already filtered by effectiveDashboardId
     
     // Then filter by search query
-    return conv.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.participants?.some((p: Record<string, any>) => 
-        p.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+    if (searchQuery.trim()) {
+      return conv.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        conv.participants?.some((p: Record<string, any>) => 
+          p.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }
+    
+    return true;
   });
 
   if (status === 'loading') {
@@ -268,120 +371,138 @@ export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatP
         'w-[600px] h-[500px]'
       }`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-white rounded-t-lg">
-          <div className="flex items-center space-x-3">
-            <div className="relative">
-              <Avatar 
-                src={session?.user?.image || undefined} 
-                nameOrEmail={session?.user?.name || session?.user?.email || 'User'}
-                size={32}
-                className="w-8 h-8"
-              />
-              {/* Online status indicator */}
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+        <div className="flex flex-col border-b border-gray-200 bg-white rounded-t-lg">
+          {/* Top Row: Avatar, Status, Controls */}
+          <div className="flex items-center justify-between p-3">
+            <div className="flex items-center space-x-3">
+              <div className="relative">
+                <Avatar 
+                  src={session?.user?.image || undefined} 
+                  nameOrEmail={session?.user?.name || session?.user?.email || 'User'}
+                  size={32}
+                  className="w-8 h-8"
+                />
+                {/* Online status indicator */}
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+              </div>
+              <div>
+                <h3 className="font-medium text-gray-900">
+                  Messaging
+                  {hasEnterprise && (
+                    <span className="ml-2 text-xs text-purple-600">Enterprise</span>
+                  )}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {isConnected ? 'Online' : 'Connecting...'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-medium text-gray-900">
-                Messaging
-                {hasEnterprise && (
-                  <span className="ml-2 text-xs text-purple-600">Enterprise</span>
-                )}
-              </h3>
-              <p className="text-xs text-gray-500">
-                {isConnected ? 'Online' : 'Connecting...'}
-              </p>
+            <div className="flex items-center space-x-2">
+              {unreadCount > 0 && (
+                <Badge color="blue" className="text-xs">
+                  {unreadCount}
+                </Badge>
+              )}
+              {/* Size controls */}
+              <div className="flex items-center space-x-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSizeChange('small')}
+                  className={`p-1 ${chatSize === 'small' ? 'bg-blue-100 text-blue-600' : ''}`}
+                  title="Small"
+                >
+                  <div className="w-3 h-3 border border-current rounded"></div>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSizeChange('medium')}
+                  className={`p-1 ${chatSize === 'medium' ? 'bg-blue-100 text-blue-600' : ''}`}
+                  title="Medium"
+                >
+                  <div className="w-4 h-3 border border-current rounded"></div>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSizeChange('large')}
+                  className={`p-1 ${chatSize === 'large' ? 'bg-blue-100 text-blue-600' : ''}`}
+                  title="Large (Go to Chat Page)"
+                >
+                  <div className="w-5 h-3 border border-current rounded"></div>
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsMinimized(!isMinimized)}
+                className="p-1"
+              >
+                {isMinimized ? <ChevronUp className="w-4 h-4" /> : <X className="w-4 h-4" />}
+              </Button>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            {unreadCount > 0 && (
-              <Badge color="blue" className="text-xs">
-                {unreadCount}
-              </Badge>
-            )}
-            {/* Size controls */}
-            <div className="flex items-center space-x-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSizeChange('small')}
-                className={`p-1 ${chatSize === 'small' ? 'bg-blue-100 text-blue-600' : ''}`}
-                title="Small"
+          
+          {/* Dashboard Tabs Row */}
+          {chatDashboards.length > 0 && (
+            <div className="px-3 pb-2 border-t border-gray-100">
+              <div 
+                className="flex items-center space-x-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
               >
-                <div className="w-3 h-3 border border-current rounded"></div>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSizeChange('medium')}
-                className={`p-1 ${chatSize === 'medium' ? 'bg-blue-100 text-blue-600' : ''}`}
-                title="Medium"
-              >
-                <div className="w-4 h-3 border border-current rounded"></div>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSizeChange('large')}
-                className={`p-1 ${chatSize === 'large' ? 'bg-blue-100 text-blue-600' : ''}`}
-                title="Large (Go to Chat Page)"
-              >
-                <div className="w-5 h-3 border border-current rounded"></div>
-              </Button>
+                {chatDashboards.map((dashboard) => {
+                  const isActive = effectiveDashboardId === dashboard.id;
+                  const dashboardType = getDashboardType(dashboard);
+                  const displayName = getDashboardDisplayName(dashboard);
+                  const unreadCount = dashboardUnreadCounts[dashboard.id] || 0;
+                  const isBusiness = dashboardType === 'business';
+                  
+                  return (
+                    <button
+                      key={dashboard.id}
+                      onClick={() => handleDashboardTabClick(dashboard.id)}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex-shrink-0 ${
+                        isActive
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                      title={displayName}
+                    >
+                      <span className="truncate max-w-[100px]">{displayName}</span>
+                      {isBusiness && hasEnterprise && (
+                        <Shield className="w-3 h-3 flex-shrink-0" />
+                      )}
+                      {unreadCount > 0 && (
+                        <span 
+                          className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full font-medium ${
+                            isActive 
+                              ? 'bg-white/20 text-white border border-white/30' 
+                              : 'bg-blue-100 text-blue-700 border border-blue-200'
+                          }`}
+                        >
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsMinimized(!isMinimized)}
-              className="p-1"
-            >
-              {isMinimized ? <ChevronUp className="w-4 h-4" /> : <X className="w-4 h-4" />}
-            </Button>
-          </div>
+          )}
         </div>
 
         {/* Content */}
         {!isMinimized && (
-          <div className="flex h-[calc(100%-60px)]">
+          <div className="flex h-[calc(100%-100px)]">
             {/* Left Panel - Conversations */}
             <div className="w-64 border-r border-gray-200 flex flex-col">
-              {/* Context Toggle (Personal/Work) - Only show if user has work connection */}
-              {hasWorkConnection && (
-                <div className="p-2 border-b border-gray-200 bg-gray-50">
-                  <div className="flex rounded-lg bg-white border border-gray-200 p-0.5">
-                    <button
-                      onClick={() => setActiveContext('personal')}
-                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                        activeContext === 'personal'
-                          ? 'bg-blue-500 text-white'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      Personal
-                    </button>
-                    <button
-                      onClick={() => setActiveContext('work')}
-                      className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                        activeContext === 'work'
-                          ? 'bg-blue-500 text-white'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      Work
-                      {hasEnterprise && activeContext === 'work' && (
-                        <Shield className="w-3 h-3 inline ml-1" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-              
               {/* Search */}
               <div className="p-3 border-b border-gray-200">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type="text"
-                    placeholder={`Search ${activeContext} conversations...`}
+                    placeholder={`Search conversations...`}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -395,7 +516,9 @@ export default function UnifiedGlobalChat({ className = '' }: UnifiedGlobalChatP
                   <div className="p-6 text-center">
                     <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-sm text-gray-500">
-                      No {activeContext} conversations yet
+                      {selectedDashboard 
+                        ? `No conversations in ${getDashboardDisplayName(selectedDashboard)} yet`
+                        : 'No conversations yet'}
                     </p>
                   </div>
                 ) : (

@@ -3,8 +3,11 @@
 import React from 'react';
 import { Conversation } from 'shared/types/chat';
 import { Avatar, Badge } from 'shared/components';
-import { Search, MessageSquare, Filter, ChevronLeft, MoreHorizontal, Plus, ChevronUp } from 'lucide-react';
+import { Search, MessageSquare, Filter, ChevronLeft, MoreHorizontal, Plus, ChevronUp, Shield } from 'lucide-react';
 import { useSession } from 'next-auth/react';
+import { useModuleFeatures } from '../../hooks/useFeatureGating';
+import { useThemeColors } from '../../hooks/useThemeColors';
+import { useGlobalBranding } from '../../contexts/GlobalBrandingContext';
 
 interface ChatSidebarProps {
   conversations: Conversation[];
@@ -14,8 +17,13 @@ interface ChatSidebarProps {
   width: 'thin' | 'expanded';
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  activeTab: 'focused' | 'other';
-  onTabChange: (tab: 'focused' | 'other') => void;
+  selectedDashboardId: string | null;
+  currentDashboardId: string | null;
+  chatDashboards: Array<{ id: string; [key: string]: unknown }>;
+  dashboardUnreadCounts: Record<string, number>;
+  onDashboardTabClick: (dashboardId: string | null) => void;
+  getDashboardType: (dashboard: { id: string; [key: string]: unknown }) => string;
+  getDashboardDisplayName: (dashboard: { id: string; [key: string]: unknown }) => string;
   isDocked?: boolean;
   isExpanded?: boolean;
   onToggleExpanded?: () => void;
@@ -113,7 +121,7 @@ const ChatSidebarItem: React.FC<ChatSidebarItemProps> = ({
       className={`w-full p-3 rounded-lg transition-all duration-200 text-left ${
         isActive 
           ? 'bg-blue-900/20 border-l-4 border-blue-400' 
-          : 'hover:bg-gray-700'
+          : 'hover:bg-white/10'
       }`}
     >
       <div className="flex items-center space-x-3">
@@ -171,13 +179,37 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   width,
   searchQuery,
   onSearchChange,
-  activeTab,
-  onTabChange,
+  selectedDashboardId,
+  currentDashboardId,
+  chatDashboards,
+  dashboardUnreadCounts,
+  onDashboardTabClick,
+  getDashboardType,
+  getDashboardDisplayName,
   isDocked = false,
   isExpanded = false,
   onToggleExpanded
 }) => {
   const { data: session } = useSession();
+  const { getSidebarStyle } = useThemeColors();
+  const { isBusinessContext, getSidebarStyles } = useGlobalBranding();
+  
+  const effectiveDashboardId = selectedDashboardId || currentDashboardId;
+  
+  // Get business ID for enterprise feature checking
+  const selectedDashboard = effectiveDashboardId 
+    ? chatDashboards.find(d => d.id === effectiveDashboardId)
+    : null;
+  const dashboardType = selectedDashboard ? getDashboardType(selectedDashboard) : 'personal';
+  const businessId = dashboardType === 'business' ? (selectedDashboard as any)?.business?.id : undefined;
+  const { hasBusiness: hasEnterprise } = useModuleFeatures('chat', businessId);
+  
+  // Get sidebar color for chat (matches sidebar styling)
+  const sidebarColorStyle = getSidebarStyle(
+    isBusinessContext && dashboardType === 'business',
+    isBusinessContext && dashboardType === 'business' ? getSidebarStyles().backgroundColor : undefined
+  );
+  const sidebarBackgroundColor = sidebarColorStyle.backgroundColor;
   const filteredConversations = conversations.filter(conversation => {
     if (!searchQuery) return true;
     
@@ -198,8 +230,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // LinkedIn-style docked chat - unified minimized/expanded
   if (isDocked) {
     return (
-      <div className="fixed bottom-0 z-30" style={{ width: '320px', right: '32px' }}>
-        <div className={`bg-gray-700 shadow-lg transition-all duration-300 ${isExpanded ? 'rounded-tl-lg' : 'rounded-tl-lg'}`}>
+      <div className="fixed bottom-0 z-30" style={{ width: '320px', right: '40px' }}>
+        <div className="shadow-lg transition-all duration-300 rounded-tl-lg" style={{ backgroundColor: sidebarBackgroundColor }}>
           {/* Minimized Bar - Always visible */}
           <div className="flex items-center justify-between p-3">
             <div className="flex items-center space-x-3">
@@ -263,13 +295,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             </div>
             <div className="flex items-center space-x-2">
               <button 
-                className="p-1 hover:bg-gray-700 rounded transition-colors"
+                className="p-1 rounded transition-colors hover:opacity-80"
+                style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }}
                 title="More options"
               >
                 <MoreHorizontal className="w-4 h-4 text-gray-300" />
               </button>
               <button 
-                className="p-1 hover:bg-gray-700 rounded transition-colors"
+                className="p-1 rounded transition-colors hover:opacity-80"
+                style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }}
                 title="New chat"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -282,7 +316,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 </div>
               </button>
               <button 
-                className="p-1 hover:bg-gray-700 rounded transition-colors"
+                className="p-1 rounded transition-colors hover:opacity-80"
+                style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }}
                 title={isExpanded ? "Minimize messaging" : "Expand messaging"}
                 onClick={onToggleExpanded}
               >
@@ -293,7 +328,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
           {/* Expanded Content - Grows upward from minimized bar */}
           {isExpanded && (
-            <div className="border-t border-gray-600 bg-gray-700 max-h-96 overflow-hidden">
+            <div className="border-t border-gray-600 max-h-96 overflow-hidden" style={{ backgroundColor: sidebarBackgroundColor }}>
               <div className="p-4 flex flex-col">
                 {/* Search */}
                 <div className="relative mb-4">
@@ -310,29 +345,51 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   </button>
                 </div>
 
-                {/* Tabs */}
-                    <div className="flex border-b border-gray-600 mb-4">
-                  <button
-                    onClick={() => onTabChange('focused')}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                      activeTab === 'focused'
-                        ? 'text-blue-400 border-b-2 border-blue-400'
-                        : 'text-gray-400 hover:text-gray-300'
-                    }`}
-                  >
-                    Focused
-                  </button>
-                  <button
-                    onClick={() => onTabChange('other')}
-                    className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                      activeTab === 'other'
-                        ? 'text-blue-400 border-b-2 border-blue-400'
-                        : 'text-gray-400 hover:text-gray-300'
-                    }`}
-                  >
-                    Other
-                  </button>
-                </div>
+                {/* Dashboard Tabs */}
+                {chatDashboards.length > 0 && (
+                  <div className="mb-4">
+                    <div 
+                      className="flex items-center space-x-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                    >
+                      {chatDashboards.map((dashboard) => {
+                        const isActive = effectiveDashboardId === dashboard.id;
+                        const dashboardType = getDashboardType(dashboard);
+                        const displayName = getDashboardDisplayName(dashboard);
+                        const unreadCount = dashboardUnreadCounts[dashboard.id] || 0;
+                        const isBusiness = dashboardType === 'business';
+                        
+                        return (
+                          <button
+                            key={dashboard.id}
+                            onClick={() => onDashboardTabClick(dashboard.id)}
+                            className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex-shrink-0 ${
+                              isActive
+                                ? 'bg-blue-500 text-white'
+                                : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                            }`}
+                            title={displayName}
+                          >
+                            <span className="truncate max-w-[80px]">{displayName}</span>
+                            {isBusiness && hasEnterprise && (
+                              <Shield className="w-3 h-3 flex-shrink-0" />
+                            )}
+                            {unreadCount > 0 && (
+                              <span 
+                                className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full font-medium ${
+                                  isActive 
+                                    ? 'bg-white/20 text-white border border-white/30' 
+                                    : 'bg-blue-500 text-white border border-blue-400'
+                                }`}
+                              >
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Conversations */}
                 <div className="flex-1 overflow-y-auto">
@@ -420,29 +477,51 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-4">
-          <button
-            onClick={() => onTabChange('focused')}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'focused'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Focused
-          </button>
-          <button
-            onClick={() => onTabChange('other')}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'other'
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Other
-          </button>
-        </div>
+        {/* Dashboard Tabs */}
+        {chatDashboards.length > 0 && (
+          <div className="mb-4">
+            <div 
+              className="flex items-center space-x-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+            >
+              {chatDashboards.map((dashboard) => {
+                const isActive = effectiveDashboardId === dashboard.id;
+                const dashboardType = getDashboardType(dashboard);
+                const displayName = getDashboardDisplayName(dashboard);
+                const unreadCount = dashboardUnreadCounts[dashboard.id] || 0;
+                const isBusiness = dashboardType === 'business';
+                
+                return (
+                  <button
+                    key={dashboard.id}
+                    onClick={() => onDashboardTabClick(dashboard.id)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex-shrink-0 ${
+                      isActive
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    title={displayName}
+                  >
+                    <span className="truncate max-w-[100px]">{displayName}</span>
+                    {isBusiness && hasEnterprise && (
+                      <Shield className="w-3 h-3 flex-shrink-0" />
+                    )}
+                    {unreadCount > 0 && (
+                      <span 
+                        className={`text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full font-medium ${
+                          isActive 
+                            ? 'bg-white/20 text-white border border-white/30' 
+                            : 'bg-blue-100 text-blue-700 border border-blue-200'
+                        }`}
+                      >
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Conversations */}
         <div className="flex-1 overflow-y-auto">

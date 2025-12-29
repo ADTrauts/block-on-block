@@ -265,7 +265,7 @@ export default function CustomContext() {
       },
       personalModules: {
         title: 'Module-Specific Instructions',
-        content: 'Give your AI specific instructions for how to work with your personal modules. For example, "Always organize Drive files by project name."',
+        content: 'Give your AI specific instructions for how to work with your personal modules. For example, "Always organize File Hub files by project name."',
         action: 'Add module context'
       },
       businessModules: {
@@ -470,7 +470,7 @@ export default function CustomContext() {
           {shouldShowSuggestions && !dismissedSuggestions.has('personalModules') && expandedSections.has('personal-modules') && (
             <SuggestionBubble
               title="Module-Specific Instructions"
-              content="Give your AI specific instructions for how to work with your personal modules. For example, 'Always organize Drive files by project name.'"
+              content="Give your AI specific instructions for how to work with your personal modules. For example, 'Always organize File Hub files by project name.'"
               action="Add module context"
               onDismiss={() => dismissSuggestion('personalModules')}
               onAction={() => {

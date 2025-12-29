@@ -179,6 +179,51 @@ export async function createDashboard(userId: string, data: { name: string; layo
   // Frontend DashboardBuildOutModal will prompt user to select modules
   // This allows for customizable dashboard creation experience
 
+  // Auto-provision personal primary calendar if this is a personal dashboard
+  if (!data.businessId && !data.institutionId && !data.householdId) {
+    try {
+      const existingCalendar = await prisma.calendar.findFirst({
+        where: {
+          contextType: 'PERSONAL',
+          contextId: userId,
+          isPrimary: true,
+        },
+      });
+
+      if (!existingCalendar) {
+        const createdCalendar = await prisma.calendar.create({
+          data: {
+            name: data.name,
+            contextType: 'PERSONAL',
+            contextId: userId,
+            isPrimary: true,
+            isSystem: true,
+            isDeletable: false,
+            defaultReminderMinutes: 10,
+            members: {
+              create: {
+                userId,
+                role: 'OWNER',
+              },
+            },
+          },
+        });
+        await logger.info('Auto-provisioned personal primary calendar on dashboard creation', {
+          operation: 'auto_provision_personal_calendar',
+          context: { userId, dashboardId: dashboard.id, calendarId: createdCalendar.id, calendarName: data.name },
+        });
+      }
+    } catch (error: unknown) {
+      const err = error as Error;
+      await logger.error('Failed to auto-provision personal calendar on dashboard creation', {
+        operation: 'auto_provision_personal_calendar',
+        error: { message: err.message, stack: err.stack },
+        context: { userId, dashboardId: dashboard.id },
+      });
+      // Don't fail dashboard creation if calendar creation fails
+    }
+  }
+
   const dashboardWithWidgets = await prisma.dashboard.findUnique({
     where: { id: dashboard.id },
     include: { widgets: true },

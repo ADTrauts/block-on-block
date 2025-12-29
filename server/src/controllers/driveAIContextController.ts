@@ -1,7 +1,7 @@
 /**
- * Drive AI Context Provider Controller
+ * File Hub AI Context Provider Controller
  * 
- * Provides context data about a user's Drive usage to the AI system.
+ * Provides context data about a user's File Hub usage to the AI system.
  * These endpoints are called by the CrossModuleContextEngine when processing AI queries.
  */
 

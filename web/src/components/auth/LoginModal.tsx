@@ -72,8 +72,27 @@ export function LoginModal() {
         redirect: false,
       });
 
-      if (result?.error) {
-        setError(result.error);
+      // Debug: Always log the full result to understand what's happening
+      console.log('LoginModal - Login result:', {
+        ok: result?.ok,
+        error: result?.error,
+        url: result?.url,
+        status: result?.status,
+        fullResult: result
+      });
+
+      // Handle error case - but check if ok is also true (NextAuth quirk)
+      if (result?.error && !result?.ok) {
+        // Handle the case where error is the string 'undefined' or other invalid values
+        let errorMsg = 'An error occurred during login';
+        if (typeof result.error === 'string' && result.error.trim()) {
+          const trimmedError = result.error.trim();
+          // Filter out invalid error strings
+          if (trimmedError !== 'undefined' && trimmedError !== 'null' && trimmedError !== '') {
+            errorMsg = trimmedError;
+          }
+        }
+        setError(errorMsg);
         setLoading(false);
         return;
       }
@@ -222,7 +241,7 @@ export function LoginModal() {
             </Link>
           </div>
 
-          {error && (
+          {error && typeof error === 'string' && error.trim() && error !== 'undefined' && (
             <div className="text-red-600 text-sm font-medium text-center bg-red-50 border border-red-200 rounded-md p-2">
               {error}
             </div>

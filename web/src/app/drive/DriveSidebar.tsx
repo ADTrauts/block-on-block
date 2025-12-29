@@ -239,7 +239,7 @@ export default function DriveSidebar({
     if (filteredDashboards.length === 0) {
       return [{
         id: lockedDashboardId ? `${lockedDashboardId}-drive` : 'my-drive',
-        name: lockedDashboardId ? 'Workspace Drive' : 'My Drive',
+        name: lockedDashboardId ? 'Workspace File Hub' : 'My File Hub',
         icon: FolderIcon,
         dashboardId: lockedDashboardId ?? 'personal',
         type: lockedDashboardId ? 'business' : 'personal',
@@ -250,14 +250,14 @@ export default function DriveSidebar({
 
     return filteredDashboards.map(dashboard => {
       const dashboardType = getDashboardType(dashboard);
-      const dashboardDisplayName = getDashboardDisplayName(dashboard);
+      const dashboardDisplayName = getDashboardDisplayName(dashboard) || 'Dashboard';
       const isActive = lockedDashboardId
         ? dashboard.id === lockedDashboardId
         : currentDashboard?.id === dashboard.id;
 
       return {
         id: `${dashboard.id}-drive`,
-        name: `${dashboardDisplayName} Drive`,
+        name: `${dashboardDisplayName} File Hub`,
         icon: getContextIcon(dashboardType),
         dashboardId: dashboard.id,
         type: dashboardType as 'personal' | 'business' | 'educational' | 'household',
@@ -662,7 +662,7 @@ export default function DriveSidebar({
 
       {/* Context Drives Section */}
       <section style={styles.driveSection}>
-        <h3 style={styles.sectionHeader}>Your Drives</h3>
+        <h3 style={styles.sectionHeader}>Your File Hubs</h3>
         {contextDrives.map((drive) => {
           const colorScheme = getContextColor(drive.type, drive.active);
           const isExpanded = expandedDrives.has(drive.dashboardId);

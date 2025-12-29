@@ -14,8 +14,9 @@ export function useThemeColors() {
       };
     }
     
+    // Use same color as sidebar for consistency
     return {
-      backgroundColor: isDark ? '#1f2937' : COLORS.neutralDark, // gray-800 in dark mode
+      backgroundColor: isDark ? '#374151' : COLORS.neutralMid, // gray-700 in dark mode, matches sidebar
       color: '#ffffff',
     };
   };

@@ -55,7 +55,7 @@ export const DriveModuleWrapper: React.FC<DriveModuleWrapperProps> = ({
           <div className="flex items-center justify-center bg-gray-50 h-full">
             <div className="text-center">
               <Spinner size={32} />
-              <p className="mt-4 text-sm text-gray-600">Loading enterprise drive...</p>
+              <p className="mt-4 text-sm text-gray-600">Loading enterprise File Hub...</p>
             </div>
           </div>
         }

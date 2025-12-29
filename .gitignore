@@ -22,3 +22,7 @@ playwright-report/
 .env.development
 vssyl-storage-key.json
 .env
+
+# Documentation folders
+docs/
+memory-bank/

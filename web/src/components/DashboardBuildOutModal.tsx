@@ -145,7 +145,7 @@ export default function DashboardBuildOutModal({
           const mockModules: Module[] = [
             {
               id: 'drive',
-              name: 'Drive',
+              name: 'File Hub',
               description: scope === 'business' ? 'Enterprise file storage and management' : 'File storage and management',
               version: '1.0.0',
               category: 'Core',
@@ -156,7 +156,7 @@ export default function DashboardBuildOutModal({
               status: 'available',
               pricingTier: scope === 'business' ? 'enterprise' : 'free',
               manifest: {
-                name: 'Drive',
+                name: 'File Hub',
                 version: '1.0.0',
                 description: 'File storage and management',
                 author: 'Vssyl',

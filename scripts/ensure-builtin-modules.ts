@@ -1,7 +1,7 @@
 /**
  * Ensure Built-in Modules Script
  * 
- * Ensures that Drive, Chat, Calendar, HR, and Scheduling Module records exist in the database
+ * Ensures that File Hub, Chat, Calendar, HR, and Scheduling Module records exist in the database
  * This follows the same pattern as business module auto-installation
  * 
  * Run from server directory with: cd server && npx ts-node ../scripts/ensure-builtin-modules.ts
@@ -20,7 +20,7 @@ const SYSTEM_USER_ID = 'system'; // You'll need to update this with actual user 
 const BUILT_IN_MODULES = [
   {
     id: 'drive',
-    name: 'Drive',
+    name: 'File Hub',
     description: 'File management and storage system with folder organization, sharing, and collaboration features',
     version: '1.0.0',
     category: 'PRODUCTIVITY',
@@ -28,7 +28,7 @@ const BUILT_IN_MODULES = [
     icon: 'folder',
     screenshots: [],
     manifest: {
-      name: 'Drive',
+      name: 'File Hub',
       version: '1.0.0',
       description: 'File management system',
       author: 'Vssyl',
@@ -254,7 +254,7 @@ async function ensureBuiltInModules() {
     
     if (createdCount > 0) {
       console.log('\n✅ Built-in modules ensured successfully!');
-      console.log('   Drive, Chat, Calendar, HR, and Scheduling are now available in the database.');
+      console.log('   File Hub, Chat, Calendar, HR, and Scheduling are now available in the database.');
     } else {
       console.log('\n✅ All built-in modules already exist in the database.');
     }

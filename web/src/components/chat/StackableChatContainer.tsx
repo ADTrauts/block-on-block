@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Conversation, Message } from 'shared/types/chat';
 import { useChat } from '../../contexts/ChatContext';
+import { useDashboard } from '../../contexts/DashboardContext';
 import { useSession } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import ChatSidebar from './ChatSidebar';
 import ChatWindow from './ChatWindow';
+import { chatAPI } from '../../api/chat';
 
 interface ChatWindowState {
   activeChat: Conversation | null;
@@ -15,7 +17,7 @@ interface ChatWindowState {
   isSidebarOpen: boolean;
   sidebarWidth: 'thin' | 'expanded';
   searchQuery: string;
-  activeTab: 'focused' | 'other';
+  selectedDashboardId: string | null;
   isDocked: boolean;
   isDockedExpanded: boolean;
 }
@@ -23,6 +25,77 @@ interface ChatWindowState {
 const StackableChatContainer: React.FC = () => {
   const { data: session, status } = useSession();
   const pathname = usePathname();
+  
+  const { 
+    currentDashboardId,
+    allDashboards,
+    dashboards,
+    getDashboardType,
+    getDashboardDisplayName,
+    isModuleActiveOnDashboard
+  } = useDashboard();
+  
+  // Get all dashboards including business (allDashboards doesn't include business by default)
+  const allDashboardsIncludingBusiness = useMemo(() => {
+    // Include all business dashboards (they are already deduplicated in DashboardContext)
+    const businessDashboards = dashboards.business || [];
+    const combined = [...allDashboards, ...businessDashboards];
+    
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('All dashboards including business:', {
+        allDashboards: allDashboards.length,
+        businessDashboards: businessDashboards.length,
+        combined: combined.length,
+        businessDashboardsList: businessDashboards.map(d => ({
+          id: d.id,
+          name: d.name,
+          businessId: (d as any).business?.id,
+          businessName: (d as any).business?.name,
+          widgets: d.widgets?.map(w => w.type)
+        }))
+      });
+    }
+    
+    return combined;
+  }, [allDashboards, dashboards.business]);
+  
+  // Get dashboards with chat enabled, sorted: personal first, then business
+  // NOTE: Chat is a core module that's always available - we don't need to check for widgets
+  const chatDashboards = useMemo(() => {
+    // Chat is always available on all dashboards - it's a core module
+    // We just need to filter out any invalid dashboards
+    const filtered = allDashboardsIncludingBusiness.filter(d => {
+      // All dashboards have chat available - it's a core module
+      return !!d.id;
+    });
+    
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Chat] All dashboards (chat always available):', {
+        total: filtered.length,
+        dashboards: filtered.map(d => ({
+          id: d.id,
+          name: d.name,
+          type: getDashboardType(d),
+          businessId: (d as any).business?.id
+        }))
+      });
+    }
+    
+    // Sort: personal first, then by type (business, educational, household)
+    return filtered.sort((a, b) => {
+      const typeA = getDashboardType(a);
+      const typeB = getDashboardType(b);
+      
+      // Personal always first
+      if (typeA === 'personal' && typeB !== 'personal') return -1;
+      if (typeA !== 'personal' && typeB === 'personal') return 1;
+      
+      // Within same type, maintain original order
+      return 0;
+    });
+  }, [allDashboardsIncludingBusiness, getDashboardType]);
   
   // Use shared ChatContext for data
   const {
@@ -36,6 +109,9 @@ const StackableChatContainer: React.FC = () => {
     sendMessage: sendMessageViaContext,
     addReaction,
     removeReaction,
+    setDashboardOverride,
+    clearDashboardOverride,
+    loadConversations,
   } = useChat();
 
   // Local state for chat window management
@@ -45,10 +121,74 @@ const StackableChatContainer: React.FC = () => {
     isSidebarOpen: true,
     sidebarWidth: 'expanded',
     searchQuery: '',
-    activeTab: 'focused',
+    selectedDashboardId: null,
     isDocked: true, // Use docked mode by default
     isDockedExpanded: false
   });
+  
+  const [dashboardUnreadCounts, setDashboardUnreadCounts] = useState<Record<string, number>>({});
+  
+  // Initialize selected dashboard to first personal dashboard
+  useEffect(() => {
+    if (chatDashboards.length > 0 && !chatState.selectedDashboardId) {
+      const firstPersonal = chatDashboards.find(d => getDashboardType(d) === 'personal');
+      if (firstPersonal) {
+        setChatState(prev => ({ ...prev, selectedDashboardId: firstPersonal.id }));
+        setDashboardOverride(firstPersonal.id);
+        loadConversations();
+      }
+    }
+  }, [chatDashboards, chatState.selectedDashboardId, getDashboardType, setDashboardOverride, loadConversations]);
+  
+  // Calculate unread counts per dashboard
+  useEffect(() => {
+    const calculateUnreadCounts = async () => {
+      if (!session?.accessToken || chatDashboards.length === 0) return;
+      
+      const counts: Record<string, number> = {};
+      
+      for (const dashboard of chatDashboards) {
+        try {
+          const response = await chatAPI.getConversations(session.accessToken, dashboard.id);
+          const dashboardConversations = Array.isArray(response) ? response : [];
+          
+          const unread = dashboardConversations.reduce((count, conv) => {
+            const unreadMessages = conv.messages?.filter((msg: any) => 
+              msg.senderId !== session.user?.id && 
+              !msg.readReceipts?.some((receipt: any) => receipt.userId === session.user?.id)
+            ).length || 0;
+            return count + unreadMessages;
+          }, 0);
+          
+          counts[dashboard.id] = unread;
+        } catch (error) {
+          console.error(`Failed to load conversations for dashboard ${dashboard.id}:`, error);
+          counts[dashboard.id] = 0;
+        }
+      }
+      
+      setDashboardUnreadCounts(counts);
+    };
+    
+    calculateUnreadCounts();
+    // Recalculate periodically to catch new messages
+    const interval = setInterval(calculateUnreadCounts, 30000); // Update every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [chatDashboards, session?.accessToken, session?.user?.id]);
+  
+  // Handle dashboard tab click
+  const handleDashboardTabClick = (dashboardId: string | null) => {
+    if (dashboardId) {
+      setDashboardOverride(dashboardId);
+      setChatState(prev => ({ ...prev, selectedDashboardId: dashboardId }));
+      loadConversations();
+    } else {
+      clearDashboardOverride();
+      setChatState(prev => ({ ...prev, selectedDashboardId: null }));
+      loadConversations();
+    }
+  };
 
   // Don't render if user is not authenticated or on auth pages
   if (status === 'loading' || status === 'unauthenticated' || !session) {
@@ -188,8 +328,9 @@ const StackableChatContainer: React.FC = () => {
     console.log('Replying to message:', message.id);
   };
 
-  // Filter conversations by tab (focused vs other)
+  // Filter conversations by selected dashboard and search query
   const getFilteredConversations = () => {
+    // Conversations are already filtered by effectiveDashboardId in ChatContext
     let filtered = conversations;
 
     // Filter by search query
@@ -210,8 +351,6 @@ const StackableChatContainer: React.FC = () => {
       });
     }
 
-    // For now, all conversations are "focused"
-    // TODO: Implement proper focused/other logic based on user preferences
     return filtered;
   };
 
@@ -237,8 +376,13 @@ const StackableChatContainer: React.FC = () => {
         width={chatState.sidebarWidth}
         searchQuery={chatState.searchQuery}
         onSearchChange={(query) => setChatState(prev => ({ ...prev, searchQuery: query }))}
-        activeTab={chatState.activeTab}
-        onTabChange={(tab) => setChatState(prev => ({ ...prev, activeTab: tab }))}
+        selectedDashboardId={chatState.selectedDashboardId}
+        currentDashboardId={currentDashboardId}
+        chatDashboards={chatDashboards}
+        dashboardUnreadCounts={dashboardUnreadCounts}
+        onDashboardTabClick={handleDashboardTabClick}
+        getDashboardType={getDashboardType}
+        getDashboardDisplayName={getDashboardDisplayName}
         isDocked={chatState.isDocked}
         isExpanded={chatState.isDockedExpanded}
         onToggleExpanded={toggleDockedExpanded}

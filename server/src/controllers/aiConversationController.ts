@@ -36,16 +36,22 @@ function generateTitle(content: string): string {
 
 // GET /api/ai-conversations - Get user's AI conversations
 export const getConversations = async (req: Request, res: Response) => {
+  let userId: string | undefined;
+  let where: Record<string, unknown> | undefined;
+  
   try {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { 
       page = 1, 
       limit = 20, 
-      archived = false,
+      archived,
       dashboardId,
       businessId 
     } = req.query;
@@ -53,10 +59,13 @@ export const getConversations = async (req: Request, res: Response) => {
     const skip = (Number(page) - 1) * Number(limit);
     const take = Number(limit);
 
+    // Parse archived parameter (query params come as strings)
+    const isArchived = typeof archived === 'string' ? archived === 'true' : false;
+
     // Build where clause
-    const where: Record<string, unknown> = {
+    where = {
       userId: userId,
-      isArchived: archived === 'true',
+      isArchived: isArchived,
       trashedAt: null, // Exclude trashed conversations
     };
 
@@ -116,9 +125,16 @@ export const getConversations = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching AI conversations:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: userId || 'not yet assigned',
+      where: where || 'not yet assigned'
+    });
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to fetch conversations' 
+      error: 'Failed to fetch conversations',
+      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : undefined
     });
   }
 };
@@ -129,7 +145,10 @@ export const getConversation = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { id } = req.params;
 
@@ -184,7 +203,10 @@ export const createConversation = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const validatedData = createConversationSchema.parse(req.body);
 
@@ -238,7 +260,10 @@ export const updateConversation = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { id } = req.params;
     const validatedData = updateConversationSchema.parse(req.body);
@@ -305,7 +330,10 @@ export const deleteConversation = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { id } = req.params;
 
@@ -350,7 +378,10 @@ export const addMessage = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { id } = req.params;
     const validatedData = addMessageSchema.parse(req.body);
@@ -425,7 +456,10 @@ export const getMessages = async (req: Request, res: Response) => {
     if (!hasUserId(req.user)) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
-    const userId = req.user.id;
+    const userId = (req.user as { id?: string; sub?: string }).id || (req.user as { id?: string; sub?: string }).sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     const { id } = req.params;
     const { page = 1, limit = 50 } = req.query;

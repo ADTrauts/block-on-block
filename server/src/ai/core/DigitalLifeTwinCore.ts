@@ -609,8 +609,15 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
     
     // Task management actions
     if (queryLower.includes('task') || queryLower.includes('todo') || queryLower.includes('remind')) {
-      const taskAction = await this.createTaskAction(query, userContext, autonomySettings);
-      if (taskAction) actions.push(taskAction);
+      // Check if this is a priority-related query
+      if (queryLower.includes('priorit') || queryLower.includes('focus') || 
+          queryLower.includes('what should i') || queryLower.includes('optimize')) {
+        const priorityAction = await this.createPriorityAction(query, userContext, autonomySettings);
+        if (priorityAction) actions.push(priorityAction);
+      } else {
+        const taskAction = await this.createTaskAction(query, userContext, autonomySettings);
+        if (taskAction) actions.push(taskAction);
+      }
     }
     
     // Analysis actions
@@ -699,7 +706,7 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
     return {
       id: `task_${Date.now()}`,
       type: 'create',
-      module: 'household',
+      module: 'todo',
       description: 'Create task based on request',
       data: {
         title: this.extractTaskTitle(query.query),
@@ -711,7 +718,42 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
       priority: 'medium',
       estimatedTime: 3,
       peopleAffected: [],
-      consequences: ['New task will be created', 'Task will appear in household module']
+      consequences: ['New task will be created', 'Task will appear in To-Do module']
+    };
+  }
+
+  /**
+   * Create priority action for task prioritization
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async createPriorityAction(query: LifeTwinQuery, userContext: UserContext, autonomySettings: any): Promise<LifeTwinAction | null> {
+    // Priority changes are lower risk, so allow with lower autonomy threshold
+    if (autonomySettings.taskCreation < 30) return null;
+    
+    const queryLower = query.query.toLowerCase();
+    const isBulk = queryLower.includes('all') || queryLower.includes('tasks') || queryLower.includes('my tasks');
+    
+    return {
+      id: `priority_${Date.now()}`,
+      type: 'prioritize',
+      module: 'todo',
+      description: isBulk 
+        ? 'Analyze and prioritize all tasks' 
+        : 'Analyze and suggest task priorities',
+      data: {
+        action: isBulk ? 'bulk_prioritize' : 'analyze_priorities',
+        dashboardId: userContext.currentFocus?.dashboardId,
+        businessId: userContext.currentFocus?.businessId,
+      },
+      requiresApproval: autonomySettings.taskCreation < 60, // Lower threshold for priority changes
+      approvalReason: autonomySettings.taskCreation < 60 
+        ? 'User prefers approval for priority changes' 
+        : undefined,
+      confidence: 0.75,
+      priority: 'medium',
+      estimatedTime: 5,
+      peopleAffected: [],
+      consequences: ['Task priorities will be analyzed', 'Priority suggestions will be generated']
     };
   }
 

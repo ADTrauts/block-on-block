@@ -185,7 +185,8 @@ function buildSchema() {
     'admin',
     'support',
     'hr',
-    'scheduling'
+    'scheduling',
+    'todo'
   ];
   
   for (const moduleName of moduleOrder) {

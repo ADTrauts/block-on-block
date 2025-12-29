@@ -95,15 +95,20 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
     if (!session?.accessToken) return;
     
     try {
-      if (!contextId) {
-        setError('Workspace context not initialized. Please refresh the page.');
-        setLoading(false);
-        return;
-      }
-      const response = await calendarAPI.listCalendars({
+      // For personal context, don't pass contextId - let backend find all personal calendars for user
+      // For business/household, pass the businessId/householdId
+      const calendarParams: { contextType?: string; contextId?: string } = {
         contextType: effectiveContextType,
-        contextId: contextId
-      });
+      };
+      
+      if (effectiveContextType === 'BUSINESS' || effectiveContextType === 'HOUSEHOLD') {
+        if (contextId) {
+          calendarParams.contextId = contextId;
+        }
+      }
+      // For PERSONAL, don't set contextId - backend will use userId from session
+      
+      const response = await calendarAPI.listCalendars(calendarParams);
       
       if (response?.success && response.data) {
         setCalendars(response.data);
@@ -150,14 +155,29 @@ export default function CalendarModule({ businessId, dashboardId, className = ''
         endDate.setHours(23, 59, 59, 999);
       }
       
+      // Backend expects dashboard IDs for contexts, not formatted strings
+      // It will look up the dashboard and determine context type automatically
+      // For personal dashboards, it resolves to PERSONAL:userId
+      // For business/household, it resolves to BUSINESS:businessId or HOUSEHOLD:householdId
       const response = await calendarAPI.listEvents({
         start: startDate.toISOString(),
         end: endDate.toISOString(),
-        contexts: [`${effectiveContextType}:${contextId}`]
+        contexts: contextId ? [contextId] : []
+      });
+      
+      console.log('📅 CalendarModule: Loaded events', {
+        success: response?.success,
+        eventCount: response?.data?.length || 0,
+        events: response?.data?.map(e => ({ id: e.id, title: e.title, startAt: e.startAt, calendarId: e.calendarId })),
+        contextId,
+        effectiveContextType,
+        dateRange: { start: startDate.toISOString(), end: endDate.toISOString() }
       });
       
       if (response?.success && response.data) {
         setEvents(response.data);
+      } else {
+        console.warn('📅 CalendarModule: Failed to load events or no events returned', response);
       }
     } catch (err: any) {
       console.error('Failed to load events:', err);

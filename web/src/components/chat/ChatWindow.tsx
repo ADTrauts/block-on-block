@@ -1,8 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { toast } from 'react-hot-toast';
 import { Conversation, Message } from 'shared/types/chat';
 import { Avatar, Button, Spinner } from 'shared/components';
+import { useDashboard } from '@/contexts/DashboardContext';
+import * as todoAPI from '@/api/todo';
 import { 
   X, 
   Minus, 
@@ -13,7 +17,8 @@ import {
   Reply,
   Trash2,
   Key,
-  BarChart3
+  BarChart3,
+  CheckSquare
 } from 'lucide-react';
 import { useFeatureGating } from '../../hooks/useFeatureGating';
 import ChatFileUpload from '../../app/chat/ChatFileUpload';
@@ -44,6 +49,9 @@ interface MessageItemProps {
   onAddReaction: (messageId: string, emoji: string) => void;
   onRemoveReaction: (messageId: string, emoji: string) => void;
   hasEnterprise: boolean;
+  conversationId?: string;
+  dashboardId?: string;
+  onCreateTask?: (messageId: string, conversationId: string) => void;
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -53,7 +61,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onDelete,
   onAddReaction,
   onRemoveReaction,
-  hasEnterprise
+  hasEnterprise,
+  conversationId,
+  dashboardId,
+  onCreateTask
 }) => {
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
@@ -172,6 +183,18 @@ const MessageItem: React.FC<MessageItemProps> = ({
               <Smile className="w-4 h-4" />
               <span>React</span>
             </button>
+            {onCreateTask && conversationId && dashboardId && (
+              <button
+                onClick={() => {
+                  onCreateTask(message.id, conversationId);
+                  setShowContextMenu(false);
+                }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center space-x-2"
+              >
+                <CheckSquare className="w-4 h-4" />
+                <span>Create Task</span>
+              </button>
+            )}
             <button
               onClick={handleDelete}
               className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center space-x-2 text-red-600"
@@ -234,6 +257,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Check enterprise features
   const { hasBusiness: hasEnterprise } = useFeatureGating('chat') as any;
+  const { data: session } = useSession();
+  const { currentDashboardId } = useDashboard();
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -296,6 +321,41 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
     onSendMessage(newMessage.trim());
     setNewMessage('');
     setReplyToMessage(null);
+  };
+
+  const handleCreateTask = async (messageId: string, conversationId: string) => {
+    if (!session?.accessToken || !currentDashboardId) {
+      toast.error('Unable to create task. Please ensure you are logged in and have a dashboard selected.');
+      return;
+    }
+
+    try {
+      // Find the message to get its content
+      const message = messages.find(m => m.id === messageId);
+      if (!message) {
+        toast.error('Message not found');
+        return;
+      }
+
+      // Parse the message to extract task details
+      const parsed = await todoAPI.parseMessageForTask(message.content, session.accessToken);
+
+      // Create the task
+      await todoAPI.createTaskFromMessage({
+        messageId,
+        conversationId,
+        dashboardId: currentDashboardId,
+        title: parsed.parsed.title,
+        description: parsed.parsed.description,
+        priority: parsed.parsed.priority,
+        dueDate: parsed.parsed.dueDate,
+      }, session.accessToken);
+
+      toast.success('Task created from message');
+    } catch (error) {
+      console.error('Failed to create task from message:', error);
+      toast.error('Failed to create task from message');
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -564,6 +624,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   onAddReaction={onAddReaction}
                   onRemoveReaction={onRemoveReaction}
                   hasEnterprise={hasEnterprise}
+                  conversationId={conversation.id}
+                  dashboardId={currentDashboardId || undefined}
+                  onCreateTask={handleCreateTask}
                 />
               ))}
             <div ref={messagesEndRef} />

@@ -48,7 +48,7 @@ interface BusinessModule {
 
 const BUSINESS_MODULES: Module[] = [
   { id: 'dashboard', name: 'Dashboard' },
-  { id: 'drive', name: 'Drive' },
+  { id: 'drive', name: 'File Hub' },
   { id: 'chat', name: 'Chat' },
   { id: 'ai', name: 'AI Assistant' },
   { id: 'members', name: 'Members' },

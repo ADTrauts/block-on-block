@@ -129,7 +129,7 @@ export const DriveEnterpriseShowcase: React.FC<DriveEnterpriseShowcaseProps> = (
             <Shield className="w-8 h-8 text-purple-600" />
           </div>
           <div>
-            <h2 className="text-3xl font-bold text-gray-900">Enterprise Drive Features</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Enterprise File Hub Features</h2>
             <p className="text-gray-600 mt-2">
               Professional-grade file management with advanced security and compliance
             </p>
@@ -235,7 +235,7 @@ export const DriveEnterpriseShowcase: React.FC<DriveEnterpriseShowcaseProps> = (
             Complete Enterprise File Management
           </h3>
           <p className="text-gray-600 mb-6 max-w-2xl mx-auto">
-            Get all enterprise Drive features plus advanced analytics, compliance reporting, 
+            Get all enterprise File Hub features plus advanced analytics, compliance reporting, 
             and AI-powered insights to protect your business data and meet regulatory requirements.
           </p>
           

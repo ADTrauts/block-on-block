@@ -19,6 +19,7 @@ export async function getDashboards(req: Request, res: Response, next: NextFunct
     const allDashboards = await dashboardService.getAllUserDashboards(userId);
     
     // If no personal dashboards exist, create a default one
+    // Note: dashboardService.createDashboard will auto-provision a personal primary calendar
     if (!allDashboards.personal || allDashboards.personal.length === 0) {
       await dashboardService.createDashboard(userId, { name: 'My Dashboard' });
       const updatedDashboards = await dashboardService.getAllUserDashboards(userId);
