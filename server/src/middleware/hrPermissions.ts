@@ -32,7 +32,22 @@ export async function checkHRAdmin(
 ) {
   try {
     const user = req.user;
-    const businessId = req.query.businessId as string || req.body.businessId;
+    // Validate businessId from query or body
+    const businessIdParam = req.query.businessId;
+    const businessIdBody = req.body?.businessId;
+    
+    let businessId: string | undefined;
+    if (businessIdParam) {
+      if (typeof businessIdParam !== 'string') {
+        return res.status(400).json({ error: 'businessId query parameter must be a string' });
+      }
+      businessId = businessIdParam;
+    } else if (businessIdBody) {
+      if (typeof businessIdBody !== 'string') {
+        return res.status(400).json({ error: 'businessId body parameter must be a string' });
+      }
+      businessId = businessIdBody;
+    }
     
     if (!user || !businessId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -87,7 +102,22 @@ export async function checkManagerAccess(
 ) {
   try {
     const user = req.user;
-    const businessId = req.query.businessId as string || req.body.businessId;
+    // Validate businessId from query or body
+    const businessIdParam = req.query.businessId;
+    const businessIdBody = req.body?.businessId;
+    
+    let businessId: string | undefined;
+    if (businessIdParam) {
+      if (typeof businessIdParam !== 'string') {
+        return res.status(400).json({ error: 'businessId query parameter must be a string' });
+      }
+      businessId = businessIdParam;
+    } else if (businessIdBody) {
+      if (typeof businessIdBody !== 'string') {
+        return res.status(400).json({ error: 'businessId body parameter must be a string' });
+      }
+      businessId = businessIdBody;
+    }
     
     if (!user || !businessId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -144,7 +174,22 @@ export async function checkEmployeeAccess(
 ) {
   try {
     const user = req.user;
-    const businessId = req.query.businessId as string || req.body.businessId;
+    // Validate businessId from query or body
+    const businessIdParam = req.query.businessId;
+    const businessIdBody = req.body?.businessId;
+    
+    let businessId: string | undefined;
+    if (businessIdParam) {
+      if (typeof businessIdParam !== 'string') {
+        return res.status(400).json({ error: 'businessId query parameter must be a string' });
+      }
+      businessId = businessIdParam;
+    } else if (businessIdBody) {
+      if (typeof businessIdBody !== 'string') {
+        return res.status(400).json({ error: 'businessId body parameter must be a string' });
+      }
+      businessId = businessIdBody;
+    }
     
     if (!user || !businessId) {
       return res.status(401).json({ error: 'Authentication required' });

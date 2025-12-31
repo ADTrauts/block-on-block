@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { redirect } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Shield, LayoutDashboard, Users, BarChart3, CreditCard, Code, Lock, Settings, Activity, LogOut, User, Eye, Home, DollarSign, Package, UserCheck, Key, Bug, Brain, MessageSquare, Search, FileText, Gauge } from 'lucide-react';
 import Link from 'next/link';
@@ -16,8 +16,45 @@ interface AdminPortalLayoutProps {
 
 const AdminPortalLayout = ({ children }: AdminPortalLayoutProps) => {
   const { data: session, status } = useSession();
-  const pathname = usePathname();
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [pathname, setPathname] = useState<string>('/admin-portal/dashboard');
+  
+  // Get pathname from Next.js hook - may return null during SSR
+  const nextPathname = usePathname();
+  
+  // Update pathname from window.location on client mount as fallback
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPathname(window.location.pathname);
+    }
+  }, []);
+
+  // Update pathname when Next.js pathname changes (only if valid)
+  useEffect(() => {
+    if (nextPathname && typeof window !== 'undefined') {
+      setPathname(nextPathname);
+    }
+  }, [nextPathname]);
+
+  // Handle redirects in useEffect to avoid issues during render
+  useEffect(() => {
+    if (status === 'loading') {
+      return; // Still loading, wait
+    }
+
+    if (!session) {
+      console.log('No session found, redirecting to login');
+      router.push('/auth/login');
+      return;
+    }
+
+    if (session.user.role !== 'ADMIN') {
+      console.log('User role is not ADMIN:', session.user.role);
+      router.push('/auth/login');
+      return;
+    }
+  }, [session, status, router]);
 
   if (status === 'loading') {
     return (
@@ -30,24 +67,17 @@ const AdminPortalLayout = ({ children }: AdminPortalLayoutProps) => {
     );
   }
 
-  // Debug logging
-  console.log('Admin Portal Debug:', {
-    status,
-    hasSession: !!session,
-    sessionUser: session?.user,
-    userRole: session?.user?.role,
-    isAdmin: session?.user?.role === 'ADMIN',
-    sessionKeys: session ? Object.keys(session) : []
-  });
-
-  if (!session) {
-    console.log('No session found, redirecting to login');
-    redirect('/auth/login');
-  }
-
-  if (session.user.role !== 'ADMIN') {
-    console.log('User role is not ADMIN:', session.user.role);
-    redirect('/auth/login');
+  // Don't render the layout if user is not authenticated or not admin
+  // (redirect will happen in useEffect)
+  if (!session || session.user.role !== 'ADMIN') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Redirecting...</p>
+        </div>
+      </div>
+    );
   }
 
   const adminNavigation = [
@@ -62,19 +92,17 @@ const AdminPortalLayout = ({ children }: AdminPortalLayoutProps) => {
     { id: 'system-logs', label: 'System Logs', icon: FileText, path: '/admin-portal/system-logs' },
     { id: 'system', label: 'System Administration', icon: Settings, path: '/admin-portal/system' },
     { id: 'modules', label: 'Modules', icon: Package, path: '/admin-portal/modules' },
-    { id: 'business-intelligence', label: 'Business Intelligence', icon: Brain, path: '/admin-portal/business-intelligence' },
-    { id: 'ai-learning', label: 'AI Learning', icon: Brain, path: '/admin-portal/ai-learning' },
-    { id: 'ai-context', label: 'AI Context Debug', icon: Search, path: '/admin-portal/ai-context' },
-    { id: 'business-ai', label: 'Business AI Global', icon: Brain, path: '/admin-portal/business-ai' },
+    { id: 'ai-system', label: 'AI System', icon: Brain, path: '/admin-portal/ai-system' },
     { id: 'support', label: 'Support', icon: MessageSquare, path: '/admin-portal/support' },
     { id: 'performance', label: 'Performance & Scalability', icon: Gauge, path: '/admin-portal/performance' },
+    { id: 'testing', label: 'Testing', icon: Activity, path: '/admin-portal/testing' },
     { id: 'impersonate', label: 'Impersonation Lab', icon: Eye, path: '/admin-portal/impersonate' },
     { id: 'test-auth', label: 'Test Auth', icon: Key, path: '/admin-portal/test-auth' },
     { id: 'debug-session', label: 'Debug Session', icon: Bug, path: '/admin-portal/debug-session' },
     { id: 'test-api', label: 'Test API', icon: Code, path: '/admin-portal/test-api' },
   ];
 
-  const currentSection = pathname?.split('/')[2] || 'dashboard';
+  const currentSection = (pathname || '').split('/')[2] || 'dashboard';
 
   return (
     <ImpersonationProvider>

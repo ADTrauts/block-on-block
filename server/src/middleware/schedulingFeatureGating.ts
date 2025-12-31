@@ -16,7 +16,24 @@ export const checkSchedulingModuleInstalled = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  const businessId = (req.query.businessId as string) || (req.body.businessId as string);
+  // Validate businessId from query or body
+  const businessIdParam = req.query.businessId;
+  const businessIdBody = req.body?.businessId;
+  
+  let businessId: string | undefined;
+  if (businessIdParam) {
+    if (typeof businessIdParam !== 'string') {
+      void res.status(400).json({ error: 'businessId query parameter must be a string' });
+      return;
+    }
+    businessId = businessIdParam;
+  } else if (businessIdBody) {
+    if (typeof businessIdBody !== 'string') {
+      void res.status(400).json({ error: 'businessId body parameter must be a string' });
+      return;
+    }
+    businessId = businessIdBody;
+  }
 
   // Enhanced logging for availability routes
   if (req.method === 'POST' && (req.path?.includes('/me/availability') || req.url?.includes('/me/availability'))) {

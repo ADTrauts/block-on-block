@@ -67,18 +67,98 @@ export const logController = {
   // Get logs with filtering
   async getLogs(req: express.Request, res: Response): Promise<void> {
     try {
+      // Validate query parameters
+      const levelParam = req.query.level;
+      const serviceParam = req.query.service;
+      const operationParam = req.query.operation;
+      const userIdParam = req.query.userId;
+      const businessIdParam = req.query.businessId;
+      const moduleParam = req.query.module;
+      const startDateParam = req.query.startDate;
+      const endDateParam = req.query.endDate;
+      const searchParam = req.query.search;
+      const limitParam = req.query.limit;
+      const offsetParam = req.query.offset;
+      
+      // Validate string parameters
+      if (levelParam && typeof levelParam !== 'string') {
+        res.status(400).json({ error: 'level must be a string' });
+        return;
+      }
+      if (serviceParam && typeof serviceParam !== 'string') {
+        res.status(400).json({ error: 'service must be a string' });
+        return;
+      }
+      if (operationParam && typeof operationParam !== 'string') {
+        res.status(400).json({ error: 'operation must be a string' });
+        return;
+      }
+      if (userIdParam && typeof userIdParam !== 'string') {
+        res.status(400).json({ error: 'userId must be a string' });
+        return;
+      }
+      if (businessIdParam && typeof businessIdParam !== 'string') {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+      if (moduleParam && typeof moduleParam !== 'string') {
+        res.status(400).json({ error: 'module must be a string' });
+        return;
+      }
+      if (startDateParam && typeof startDateParam !== 'string') {
+        res.status(400).json({ error: 'startDate must be a string' });
+        return;
+      }
+      if (endDateParam && typeof endDateParam !== 'string') {
+        res.status(400).json({ error: 'endDate must be a string' });
+        return;
+      }
+      if (searchParam && typeof searchParam !== 'string') {
+        res.status(400).json({ error: 'search must be a string' });
+        return;
+      }
+      
+      // Validate and parse numeric parameters
+      let limit = 100;
+      if (limitParam) {
+        if (typeof limitParam !== 'string') {
+          res.status(400).json({ error: 'limit must be a string' });
+          return;
+        }
+        const parsedLimit = parseInt(limitParam);
+        if (isNaN(parsedLimit)) {
+          res.status(400).json({ error: 'limit must be a valid number' });
+          return;
+        }
+        limit = parsedLimit;
+      }
+      
+      let offset = 0;
+      if (offsetParam) {
+        if (typeof offsetParam !== 'string') {
+          res.status(400).json({ error: 'offset must be a string' });
+          return;
+        }
+        const parsedOffset = parseInt(offsetParam);
+        if (isNaN(parsedOffset)) {
+          res.status(400).json({ error: 'offset must be a valid number' });
+          return;
+        }
+        offset = parsedOffset;
+      }
+      
       const filters: LogFilters = {
-        level: req.query.level as LogFilters['level'],
-        service: req.query.service as LogFilters['service'],
-        operation: req.query.operation as string,
-        userId: req.query.userId as string,
-        businessId: req.query.businessId as string,
-        module: req.query.module as string,
-        startDate: req.query.startDate as string,
-        endDate: req.query.endDate as string,
-        search: req.query.search as string,
-        limit: req.query.limit ? parseInt(req.query.limit as string) : 100,
-        offset: req.query.offset ? parseInt(req.query.offset as string) : 0
+        level: levelParam as LogFilters['level'],
+        service: serviceParam as LogFilters['service'],
+        operation: operationParam as string | undefined,
+        userId: userIdParam as string | undefined,
+        businessId: businessIdParam as string | undefined,
+        module: moduleParam as string | undefined,
+        startDate: startDateParam as string | undefined,
+        endDate: endDateParam as string | undefined,
+        search: searchParam as string | undefined,
+        limit,
+        offset
       };
 
       const logs = await logService.getLogs(filters);
@@ -104,19 +184,73 @@ export const logController = {
   // Export logs
   async exportLogs(req: express.Request, res: Response): Promise<void> {
     try {
+      // Validate query parameters
+      const levelParam = req.query.level;
+      const serviceParam = req.query.service;
+      const operationParam = req.query.operation;
+      const userIdParam = req.query.userId;
+      const businessIdParam = req.query.businessId;
+      const moduleParam = req.query.module;
+      const startDateParam = req.query.startDate;
+      const endDateParam = req.query.endDate;
+      const searchParam = req.query.search;
+      const formatParam = req.query.format;
+      
+      // Validate string parameters
+      if (levelParam && typeof levelParam !== 'string') {
+        res.status(400).json({ error: 'level must be a string' });
+        return;
+      }
+      if (serviceParam && typeof serviceParam !== 'string') {
+        res.status(400).json({ error: 'service must be a string' });
+        return;
+      }
+      if (operationParam && typeof operationParam !== 'string') {
+        res.status(400).json({ error: 'operation must be a string' });
+        return;
+      }
+      if (userIdParam && typeof userIdParam !== 'string') {
+        res.status(400).json({ error: 'userId must be a string' });
+        return;
+      }
+      if (businessIdParam && typeof businessIdParam !== 'string') {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+      if (moduleParam && typeof moduleParam !== 'string') {
+        res.status(400).json({ error: 'module must be a string' });
+        return;
+      }
+      if (startDateParam && typeof startDateParam !== 'string') {
+        res.status(400).json({ error: 'startDate must be a string' });
+        return;
+      }
+      if (endDateParam && typeof endDateParam !== 'string') {
+        res.status(400).json({ error: 'endDate must be a string' });
+        return;
+      }
+      if (searchParam && typeof searchParam !== 'string') {
+        res.status(400).json({ error: 'search must be a string' });
+        return;
+      }
+      if (formatParam && typeof formatParam !== 'string') {
+        res.status(400).json({ error: 'format must be a string' });
+        return;
+      }
+      
       const filters: LogFilters = {
-        level: req.query.level as LogFilters['level'],
-        service: req.query.service as LogFilters['service'],
-        operation: req.query.operation as string,
-        userId: req.query.userId as string,
-        businessId: req.query.businessId as string,
-        module: req.query.module as string,
-        startDate: req.query.startDate as string,
-        endDate: req.query.endDate as string,
-        search: req.query.search as string
+        level: levelParam as LogFilters['level'],
+        service: serviceParam as LogFilters['service'],
+        operation: operationParam as string | undefined,
+        userId: userIdParam as string | undefined,
+        businessId: businessIdParam as string | undefined,
+        module: moduleParam as string | undefined,
+        startDate: startDateParam as string | undefined,
+        endDate: endDateParam as string | undefined,
+        search: searchParam as string | undefined
       };
 
-      const format = req.query.format as string || 'json';
+      const format = (formatParam as string) || 'json';
       const exportData = await logService.exportLogs(filters, format);
       
       // Set appropriate headers for download
@@ -146,10 +280,28 @@ export const logController = {
   // Get log analytics
   async getLogAnalytics(req: express.Request, res: Response): Promise<void> {
     try {
+      // Validate query parameters
+      const startDateParam = req.query.startDate;
+      const endDateParam = req.query.endDate;
+      const businessIdParam = req.query.businessId;
+      
+      if (startDateParam && typeof startDateParam !== 'string') {
+        res.status(400).json({ error: 'startDate must be a string' });
+        return;
+      }
+      if (endDateParam && typeof endDateParam !== 'string') {
+        res.status(400).json({ error: 'endDate must be a string' });
+        return;
+      }
+      if (businessIdParam && typeof businessIdParam !== 'string') {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+      
       const filters: LogFilters = {
-        startDate: req.query.startDate as string,
-        endDate: req.query.endDate as string,
-        businessId: req.query.businessId as string
+        startDate: startDateParam as string | undefined,
+        endDate: endDateParam as string | undefined,
+        businessId: businessIdParam as string | undefined
       };
 
       const analytics = await logService.getLogAnalytics(filters);

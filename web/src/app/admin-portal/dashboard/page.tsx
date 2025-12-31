@@ -40,7 +40,7 @@ const StatCard = ({ title, value, trend, icon: Icon, color = 'blue' }: StatCardP
         <div>
           <p className="text-sm font-medium text-gray-600">{title}</p>
           <p className="text-2xl font-bold text-gray-900">{value}</p>
-          {trend !== undefined && (
+          {trend !== undefined && trend !== null && (
             <div className={`flex items-center mt-1 ${getTrendColor(trend)}`}>
               {React.createElement(getTrendIcon(trend), { className: 'w-4 h-4 mr-1' })}
               <span className="text-sm font-medium">{Math.abs(trend)}%</span>
@@ -62,10 +62,25 @@ interface SystemAlert {
   timestamp: string;
 }
 
+interface RecentActivity {
+  id: string;
+  action: string;
+  userId: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  details: string;
+  timestamp: string;
+  user?: {
+    email: string;
+    name: string | null;
+  };
+}
+
 export default function AdminDashboard() {
   const { data: session, status } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,6 +122,20 @@ export default function AdminDashboard() {
         console.error('Error loading system alerts:', alertError);
         // Set empty alerts array instead of mock data
         setAlerts([]);
+      }
+
+      // Load real recent activity from API
+      try {
+        const activityResponse = await adminApiService.getRecentActivity();
+        if (activityResponse.error) {
+          console.error('Error loading recent activity:', activityResponse.error);
+          setRecentActivity([]);
+        } else {
+          setRecentActivity((activityResponse.data as RecentActivity[]) || []);
+        }
+      } catch (activityError) {
+        console.error('Error loading recent activity:', activityError);
+        setRecentActivity([]);
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -182,28 +211,27 @@ export default function AdminDashboard() {
         <StatCard
           title="Total Users"
           value={stats?.totalUsers?.toLocaleString() || '0'}
-          trend={12}
+          trend={stats?.userGrowthTrend}
           icon={Users}
           color="blue"
         />
         <StatCard
           title="Active Businesses"
           value={stats?.totalBusinesses || 0}
-          trend={5}
+          trend={stats?.businessGrowthTrend}
           icon={Briefcase}
           color="green"
         />
         <StatCard
           title="Monthly Revenue"
           value={`$${(stats?.monthlyRevenue || 0).toLocaleString()}`}
-          trend={8}
+          trend={stats?.revenueGrowthTrend}
           icon={DollarSign}
           color="purple"
         />
         <StatCard
           title="System Health"
           value={`${stats?.systemHealth || 99.9}%`}
-          trend={0}
           icon={Activity}
           color="green"
         />
@@ -289,32 +317,69 @@ export default function AdminDashboard() {
       <div>
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Activity</h2>
         <Card className="p-6">
-          <div className="space-y-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">New user registered</p>
-                <p className="text-xs text-gray-500">john.doe@example.com</p>
-              </div>
-              <span className="text-xs text-gray-500">2 minutes ago</span>
+          {recentActivity.length > 0 ? (
+            <div className="space-y-4">
+              {recentActivity.map((activity) => {
+                const getActivityColor = (action: string) => {
+                  if (action.includes('CREATE') || action.includes('REGISTER')) return 'bg-blue-500';
+                  if (action.includes('DELETE') || action.includes('REMOVE')) return 'bg-red-500';
+                  if (action.includes('UPDATE') || action.includes('MODIFY')) return 'bg-yellow-500';
+                  return 'bg-green-500';
+                };
+
+                const formatAction = (action: string) => {
+                  return action
+                    .replace(/_/g, ' ')
+                    .toLowerCase()
+                    .replace(/\b\w/g, (l) => l.toUpperCase());
+                };
+
+                const formatTimestamp = (timestamp: string) => {
+                  const date = new Date(timestamp);
+                  const now = new Date();
+                  const diffMs = now.getTime() - date.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  const diffHours = Math.floor(diffMs / 3600000);
+                  const diffDays = Math.floor(diffMs / 86400000);
+
+                  if (diffMins < 1) return 'Just now';
+                  if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+                  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+                  return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+                };
+
+                let details: Record<string, unknown> = {};
+                try {
+                  details = JSON.parse(activity.details);
+                } catch {
+                  // If parsing fails, use the raw string
+                }
+
+                const userEmail = activity.user?.email || details.email || 'Unknown user';
+                const resourceInfo = activity.resourceType 
+                  ? `${activity.resourceType}${activity.resourceId ? ` #${activity.resourceId.substring(0, 8)}` : ''}`
+                  : '';
+
+                return (
+                  <div key={activity.id} className="flex items-center space-x-3">
+                    <div className={`w-2 h-2 ${getActivityColor(activity.action)} rounded-full`}></div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{formatAction(activity.action)}</p>
+                      <p className="text-xs text-gray-500">
+                        {userEmail}
+                        {resourceInfo && ` • ${resourceInfo}`}
+                      </p>
+                    </div>
+                    <span className="text-xs text-gray-500">{formatTimestamp(activity.timestamp)}</span>
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">Business workspace created</p>
-                <p className="text-xs text-gray-500">Acme Corp</p>
-              </div>
-              <span className="text-xs text-gray-500">15 minutes ago</span>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <p className="text-sm">No recent activity</p>
             </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">Content reported</p>
-                <p className="text-xs text-gray-500">Message in chat #general</p>
-              </div>
-              <span className="text-xs text-gray-500">1 hour ago</span>
-            </div>
-          </div>
+          )}
         </Card>
       </div>
     </div>

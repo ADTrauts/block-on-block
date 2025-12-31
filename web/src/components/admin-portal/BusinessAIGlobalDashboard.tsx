@@ -227,7 +227,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                   <Brain className="h-4 w-4 text-blue-500" />
                 </div>
                 <div className="text-2xl font-bold">{globalMetrics?.totalBusinessAIs || 0}</div>
-                <p className="text-xs text-gray-500">Across all businesses</p>
+                <p className="text-xs text-gray-700">Across all businesses</p>
               </div>
             </Card>
 
@@ -238,7 +238,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                   <Activity className="h-4 w-4 text-green-500" />
                 </div>
                 <div className="text-2xl font-bold">{globalMetrics?.activeBusinessAIs || 0}</div>
-                <p className="text-xs text-gray-500">Currently operational</p>
+                <p className="text-xs text-gray-700">Currently operational</p>
               </div>
             </Card>
 
@@ -249,7 +249,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                   <Users className="h-4 w-4 text-purple-500" />
                 </div>
                 <div className="text-2xl font-bold">{globalMetrics?.totalInteractions || 0}</div>
-                <p className="text-xs text-gray-500">All business AI conversations</p>
+                <p className="text-xs text-gray-700">All business AI conversations</p>
               </div>
             </Card>
 
@@ -260,7 +260,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                   <Zap className="h-4 w-4 text-yellow-500" />
                 </div>
                 <div className="text-2xl font-bold">{globalMetrics?.centralizedLearningEnabled || 0}</div>
-                <p className="text-xs text-gray-500">Contributing to global AI</p>
+                <p className="text-xs text-gray-700">Contributing to global AI</p>
               </div>
             </Card>
           </div>
@@ -272,7 +272,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {globalMetrics?.industryBreakdown && Object.entries(globalMetrics.industryBreakdown).map(([industry, count]) => (
                   <div key={industry} className="text-center">
-                    <p className="text-sm text-gray-500">{industry}</p>
+                    <p className="text-sm text-gray-700">{industry}</p>
                     <p className="text-xl font-bold">{count}</p>
                   </div>
                 ))}
@@ -289,13 +289,13 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                   <div key={businessAI.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="font-medium">{businessAI.business.name}</p>
-                      <p className="text-sm text-gray-500">{businessAI.business.industry} • {businessAI.business.size}</p>
+                      <p className="text-sm text-gray-700">{businessAI.business.industry} • {businessAI.business.size}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge className={businessAI.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
                         {businessAI.status}
                       </Badge>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-gray-700">
                         {businessAI.totalInteractions} interactions
                       </span>
                     </div>
@@ -319,7 +319,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="text-lg font-medium">{businessAI.business.name}</h4>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-700">
                           {businessAI.business.industry} • {businessAI.business.size} • {businessAI.name}
                         </p>
                       </div>
@@ -333,23 +333,23 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
                       <div>
-                        <p className="text-sm text-gray-500">Interactions</p>
+                        <p className="text-sm text-gray-700">Interactions</p>
                         <p className="font-medium">{businessAI.totalInteractions}</p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Last Active</p>
+                        <p className="text-sm text-gray-700">Last Active</p>
                         <p className="font-medium">
                           {businessAI.lastInteractionAt ? new Date(businessAI.lastInteractionAt).toLocaleDateString() : 'Never'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Centralized Learning</p>
+                        <p className="text-sm text-gray-700">Centralized Learning</p>
                         <p className="font-medium">
                           {businessAI.allowCentralizedLearning ? 'Enabled' : 'Disabled'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Last Contribution</p>
+                        <p className="text-sm text-gray-700">Last Contribution</p>
                         <p className="font-medium">
                           {businessAI.lastCentralizedLearningAt ? new Date(businessAI.lastCentralizedLearningAt).toLocaleDateString() : 'Never'}
                         </p>
@@ -405,7 +405,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                     Cross-Business AI Patterns
                   </h3>
                   {(crossBusinessPatterns?.patterns?.length || 0) === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No cross-business patterns discovered yet</p>
+                    <p className="text-gray-700 text-center py-4">No cross-business patterns discovered yet</p>
                   ) : (
                     <div className="space-y-3">
                       {(crossBusinessPatterns?.patterns || []).map((pattern: CrossBusinessPattern) => (
@@ -419,7 +419,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                           <p className="text-sm text-gray-600 mb-2">
                             Type: {pattern.patternType} • Impact: {pattern.impact} • Frequency: {pattern.frequency} businesses
                           </p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-700">
                             Modules: {pattern.modules.join(', ')}
                           </p>
                         </div>
@@ -437,7 +437,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                     Collective Business Insights
                   </h3>
                   {(crossBusinessPatterns?.insights?.length || 0) === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No collective insights available yet</p>
+                    <p className="text-gray-700 text-center py-4">No collective insights available yet</p>
                   ) : (
                     <div className="space-y-3">
                       {(crossBusinessPatterns?.insights || []).map((insight: CrossBusinessInsight) => (
@@ -453,7 +453,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                             </Badge>
                           </div>
                           <p className="text-sm text-gray-600 mb-2">{insight.description}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-sm text-gray-700">
                             Type: {insight.type} • Complexity: {insight.implementationComplexity}
                           </p>
                         </div>
@@ -466,7 +466,7 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
           ) : (
             <Card>
               <div className="p-4 text-center">
-                <p className="text-gray-500">Cross-business pattern data not available</p>
+                <p className="text-gray-700">Cross-business pattern data not available</p>
               </div>
             </Card>
           )}
@@ -488,15 +488,15 @@ export const BusinessAIGlobalDashboard: React.FC = () => {
                     <h4 className="font-medium mb-2">{industry}</h4>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Business AIs:</span>
+                        <span className="text-sm text-gray-700">Business AIs:</span>
                         <span className="font-medium">{count}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Avg Confidence:</span>
+                        <span className="text-sm text-gray-700">Avg Confidence:</span>
                         <span className="font-medium">85%</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Centralized Learning:</span>
+                        <span className="text-sm text-gray-700">Centralized Learning:</span>
                         <span className="font-medium">{Math.round(count * 0.7)}</span>
                       </div>
                     </div>

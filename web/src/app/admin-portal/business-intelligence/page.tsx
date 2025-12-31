@@ -181,7 +181,7 @@ export default function BusinessIntelligencePage() {
   const getGrowthIcon = (rate: number) => {
     if (rate > 0) return <ArrowUp className="w-4 h-4 text-green-500" />;
     if (rate < 0) return <ArrowDown className="w-4 h-4 text-red-500" />;
-    return <Minus className="w-4 h-4 text-gray-500" />;
+    return <Minus className="w-4 h-4 text-gray-700" />;
   };
 
   const getInsightIcon = (type: string) => {
@@ -218,7 +218,7 @@ export default function BusinessIntelligencePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Business Intelligence</h1>
-          <p className="text-gray-600">Advanced analytics, predictive insights, and strategic reporting</p>
+          <p className="text-gray-600">Business metrics, predictive insights, A/B testing, and strategic reporting</p>
         </div>
         <div className="flex items-center space-x-3">
           <Button
@@ -288,6 +288,18 @@ export default function BusinessIntelligencePage() {
           {error}
         </Alert>
       )}
+
+      {/* Separation Notice */}
+      <Alert>
+        <BarChart3 className="h-4 w-4" />
+        <AlertDescription>
+          <strong>Note:</strong> This page focuses on business and strategic metrics. For system performance, uptime, and technical metrics, see{' '}
+          <a href="/admin-portal/analytics" className="text-blue-600 hover:underline font-medium">
+            Platform Analytics
+          </a>
+          .
+        </AlertDescription>
+      </Alert>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -390,7 +402,7 @@ export default function BusinessIntelligencePage() {
                       <div className="flex-1">
                         <h3 className="font-medium text-gray-900">{insight.title}</h3>
                         <p className="text-sm text-gray-600 mt-1">{insight.description}</p>
-                        <p className="text-sm text-gray-500 mt-2">
+                        <p className="text-sm text-gray-700 mt-2">
                           <strong>Recommended Action:</strong> {insight.recommendedAction}
                         </p>
                       </div>
@@ -399,7 +411,7 @@ export default function BusinessIntelligencePage() {
                       <Badge color={getImpactColor(insight.impact)} size="sm">
                         {insight.impact} impact
                       </Badge>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-gray-700">
                         {insight.confidence}% confidence
                       </span>
                     </div>
@@ -547,9 +559,9 @@ export default function BusinessIntelligencePage() {
         </div>
       ) : (
         <div className="text-center py-12">
-          <BarChart3 className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+          <BarChart3 className="w-12 h-12 mx-auto text-gray-600 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No data available</h3>
-          <p className="text-gray-600">Business intelligence data will appear here once available.</p>
+          <p className="text-gray-700">Business intelligence data will appear here once available.</p>
         </div>
       )}
     </div>

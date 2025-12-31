@@ -175,8 +175,26 @@ export class ActionExecutor {
 
   /**
    * Execute action based on module
+   * 
+   * Priority:
+   * 1. Check ActionExecutorRegistry (third-party modules)
+   * 2. Fall back to built-in executors
    */
   private async executeByModule(action: AIAction, userContext: UserContext): Promise<ActionExecutionResult> {
+    // First, check if module has registered executor (third-party)
+    try {
+      const { actionExecutorRegistry } = await import('./ActionExecutorRegistry');
+      
+      if (actionExecutorRegistry.has(action.module)) {
+        // Third-party module - use registered executor
+        return await actionExecutorRegistry.execute(action, userContext);
+      }
+    } catch (error) {
+      // If registry import fails or execution fails, fall through to built-in
+      console.warn(`Failed to use registered executor for ${action.module}, falling back to built-in:`, error);
+    }
+
+    // Fall back to built-in executors
     const moduleExecutors = {
       drive: this.executeDriveAction.bind(this),
       chat: this.executeChatAction.bind(this),

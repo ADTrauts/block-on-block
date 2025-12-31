@@ -1,16 +1,20 @@
 import { Request, Response } from 'express';
 import { FeatureGatingService } from '../services/featureGatingService';
 import { SubscriptionMiddleware } from '../middleware/subscriptionMiddleware';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 export const checkFeatureAccess = async (req: Request, res: Response) => {
   try {
     const { featureName } = req.params;
-    const userId = (req as any).user?.id;
-    const businessId = (req.query.businessId as string) || undefined;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
+    
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
 
     const access = await FeatureGatingService.checkFeatureAccess(userId, featureName, businessId);
 
@@ -28,12 +32,15 @@ export const checkFeatureAccess = async (req: Request, res: Response) => {
 
 export const getUserFeatures = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    const businessId = (req.query.businessId as string) || undefined;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
+    
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
 
     const features = await FeatureGatingService.getUserFeatures(userId, businessId);
 
@@ -46,12 +53,15 @@ export const getUserFeatures = async (req: Request, res: Response) => {
 
 export const getUserUsage = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-    const businessId = (req.query.businessId as string) || undefined;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
+    
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
 
     const usage = await FeatureGatingService.getUserUsage(userId, businessId);
 
@@ -65,11 +75,11 @@ export const getUserUsage = async (req: Request, res: Response) => {
 export const recordUsage = async (req: Request, res: Response) => {
   try {
     const { metric, quantity = 1, cost = 0 } = req.body;
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     if (!metric) {
       return res.status(400).json({ error: 'Metric is required' });
@@ -86,11 +96,11 @@ export const recordUsage = async (req: Request, res: Response) => {
 
 export const getSubscriptionInfo = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     const subscription = await SubscriptionMiddleware.getUserSubscription(userId);
     const moduleAccess = await SubscriptionMiddleware.getUserModuleAccess(userId);

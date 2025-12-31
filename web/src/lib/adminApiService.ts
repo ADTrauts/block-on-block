@@ -277,7 +277,9 @@ class AdminApiService {
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
+      // Backend returns { success: true, data: { ... } }, extract the data property
+      const data = responseData.success && responseData.data ? responseData.data : responseData;
       return { data };
     } catch (error) {
       console.error(`API Error (${endpoint}):`, error);
@@ -1112,6 +1114,29 @@ class AdminApiService {
 
     return this.makeRequest(`/impersonation/history?${queryParams.toString()}`);
   }
+
+  // ============================================================================
+  // TESTING
+  // ============================================================================
+
+  async getTestFiles(): Promise<ApiResponse<{ testFiles: Array<{ path: string; relativePath: string; name: string }>; count: number }>> {
+    return this.makeRequest('/testing/list');
+  }
+
+  async getTestStatus(): Promise<ApiResponse<any>> {
+    return this.makeRequest('/testing/status');
+  }
+
+  async runTests(testFile?: string): Promise<ApiResponse<any>> {
+    return this.makeRequest('/testing/run', {
+      method: 'POST',
+      body: JSON.stringify({ testFile: testFile || null })
+    });
+  }
+
+  async getTestCoverage(): Promise<ApiResponse<any>> {
+    return this.makeRequest('/testing/coverage');
+  }
 }
 
 // Module stats interface
@@ -1133,6 +1158,9 @@ export interface DashboardStats {
   totalBusinesses: number;
   monthlyRevenue: number;
   systemHealth: number;
+  userGrowthTrend?: number;
+  businessGrowthTrend?: number;
+  revenueGrowthTrend?: number;
 }
 
 export interface User {

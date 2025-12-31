@@ -261,6 +261,80 @@ size?: 'sm' | 'md' | 'lg'
 
 ---
 
+## 🎨 UI/Design Standards
+
+### Text Color Contrast (CRITICAL - READABILITY)
+
+**NEVER use light text colors on light backgrounds.** This causes severe readability issues and makes text unreadable unless highlighted.
+
+```typescript
+// ❌ WRONG: Light text on light background (unreadable)
+<p className="text-gray-500">Label text</p>  // Too light on white/light gray
+<p className="text-gray-400">Description</p>  // Even worse
+<span className="text-gray-300">Metadata</span>  // Nearly invisible
+
+// ✅ CORRECT: Dark text on light background (readable)
+<p className="text-gray-700">Label text</p>  // Dark enough to read
+<p className="text-gray-600">Description</p>  // Still readable
+<span className="text-gray-900">Metadata</span>  // Maximum contrast
+
+// ✅ CORRECT: Light text on dark background (readable)
+<div className="bg-gray-900">
+  <p className="text-gray-300">Light text on dark</p>  // OK on dark backgrounds
+  <p className="text-white">Maximum contrast</p>
+</div>
+```
+
+**Minimum Text Color Standards:**
+- **Light backgrounds (white, gray-50, gray-100)**: Use `text-gray-700` or darker
+  - Labels: `text-gray-700` or `text-gray-900`
+  - Descriptions: `text-gray-600` or `text-gray-700`
+  - Secondary text: `text-gray-600` minimum
+- **Dark backgrounds (gray-800, gray-900)**: Use `text-gray-300` or lighter
+  - Primary text: `text-white` or `text-gray-100`
+  - Secondary text: `text-gray-300` or `text-gray-400`
+
+**Forbidden Combinations:**
+- ❌ `text-gray-500` on white/light backgrounds
+- ❌ `text-gray-400` on white/light backgrounds  
+- ❌ `text-gray-300` on white/light backgrounds
+- ❌ Any text color lighter than `text-gray-600` on backgrounds lighter than `bg-gray-200`
+
+**Acceptable Light Text Colors (ONLY on dark backgrounds):**
+- ✅ `text-gray-300` on `bg-gray-800` or darker
+- ✅ `text-gray-400` on `bg-gray-900`
+- ✅ `text-white` on any dark background
+
+**Rules:**
+1. **Always check contrast**: Text must be clearly readable without highlighting
+2. **Test on actual backgrounds**: Don't assume - verify text is readable
+3. **Use darker shades**: When in doubt, use `text-gray-700` or `text-gray-900` on light backgrounds
+4. **Consider accessibility**: WCAG AA requires 4.5:1 contrast ratio for normal text
+5. **Inactive states**: Even inactive tabs/buttons should use `text-gray-600` minimum (not `text-gray-500`)
+
+**Common Patterns:**
+```typescript
+// ✅ CORRECT: Metric labels
+<p className="text-xs text-gray-700 mb-1">Total Users</p>
+<p className="text-lg font-semibold text-gray-900">1,234</p>
+
+// ✅ CORRECT: Timestamps and metadata
+<span className="text-xs text-gray-700">2 min ago</span>
+<span className="text-sm text-gray-600">Last updated</span>
+
+// ✅ CORRECT: Empty states
+<div className="text-center py-8 text-gray-700">
+  <p>No data available</p>
+</div>
+
+// ❌ WRONG: All of these are too light
+<p className="text-gray-500">Label</p>  // Too light!
+<span className="text-gray-400">Info</span>  // Too light!
+<div className="text-gray-500">Empty</div>  // Too light!
+```
+
+---
+
 ## 📊 Backend Query Parameter Handling
 
 ### TypeScript-Safe Query Params
@@ -1134,21 +1208,22 @@ pnpm prisma:generate
 2. **Edit `prisma/schema.prisma`** directly (edit modules instead)
 3. **Edit migration files after they've been applied** - Once a migration is applied to any database, it becomes immutable. Editing causes schema drift and requires database resets. Create a new migration instead.
 4. **Use `any` types** (use proper TypeScript types)
-4. **Create double `/api` paths** (use relative paths in API clients)
-5. **Bypass Next.js API proxy** (always use `/api/*` routes)
-6. **Skip connection pooling** in production Prisma config
-7. **Use direct file system** access (use storageService)
-8. **Forget fallback URLs** in environment variable logic
-9. **Log sensitive data** (tokens, passwords, secrets)
-10. **Skip environment variable validation** at startup
-11. **Import from non-existent `apiClient`** (use native fetch with authHeaders)
-12. **Use wrong component import paths** (use `shared/components` not `@/components/ui`)
-13. **Use non-existent Button variants** (`primary`|`secondary`|`ghost` only)
-14. **Use Card subcomponents** (no CardHeader, CardTitle, CardContent)
-15. **Cast query params without validation** (always check `typeof param === 'string'`)
-16. **Mismatch controller/route names** (must match exactly)
-17. **Forget `.js` extension** on controller imports
-18. **Skip AI context implementation** (EVERY module MUST have AI context providers)
+5. **Use light text colors on light backgrounds** - NEVER use `text-gray-500`, `text-gray-400`, or `text-gray-300` on white/light backgrounds. Use `text-gray-700` or darker. This causes severe readability issues.
+6. **Create double `/api` paths** (use relative paths in API clients)
+7. **Bypass Next.js API proxy** (always use `/api/*` routes)
+8. **Skip connection pooling** in production Prisma config
+9. **Use direct file system** access (use storageService)
+10. **Forget fallback URLs** in environment variable logic
+11. **Log sensitive data** (tokens, passwords, secrets)
+12. **Skip environment variable validation** at startup
+13. **Import from non-existent `apiClient`** (use native fetch with authHeaders)
+14. **Use wrong component import paths** (use `shared/components` not `@/components/ui`)
+15. **Use non-existent Button variants** (`primary`|`secondary`|`ghost` only)
+16. **Use Card subcomponents** (no CardHeader, CardTitle, CardContent)
+17. **Cast query params without validation** (always check `typeof param === 'string'`)
+18. **Mismatch controller/route names** (must match exactly)
+19. **Forget `.js` extension** on controller imports
+20. **Skip AI context implementation** (EVERY module MUST have AI context providers)
 
 ---
 
@@ -1158,11 +1233,12 @@ pnpm prisma:generate
 1. **Read memory bank** files first
 2. **Follow TypeScript** standards (zero `any` types)
 3. **Use environment variables** with fallbacks
-4. **Test both** local and production configurations
-5. **Update documentation** in memory bank
-6. **Run linter** before committing
-7. **Check build** completes successfully
-8. **Verify API routes** return correct status codes
+4. **Ensure text readability** - Use `text-gray-700` or darker on light backgrounds
+5. **Test both** local and production configurations
+6. **Update documentation** in memory bank
+7. **Run linter** before committing
+8. **Check build** completes successfully
+9. **Verify API routes** return correct status codes
 
 ### Every API Endpoint
 1. **Validate authentication** (check `req.user` exists)

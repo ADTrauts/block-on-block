@@ -431,17 +431,30 @@ const logEmployeeAudit = async ({ force = false, changes, ...payload }: Employee
  */
 export const getAdminEmployees = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    // Validate query parameters
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
     
-    const status = (req.query.status as string) || 'ACTIVE';
-    const q = (req.query.q as string) || '';
-    const departmentId = req.query.departmentId as string | undefined;
-    const positionId = req.query.positionId as string | undefined;
-    const sortBy = (req.query.sortBy as string) || 'createdAt';
-    const rawSortOrder = (req.query.sortOrder as string) || 'desc';
+    const statusParam = req.query.status;
+    const status = (statusParam && typeof statusParam === 'string') ? statusParam : 'ACTIVE';
+    
+    const qParam = req.query.q;
+    const q = (qParam && typeof qParam === 'string') ? qParam : '';
+    
+    const departmentIdParam = req.query.departmentId;
+    const departmentId = (departmentIdParam && typeof departmentIdParam === 'string') ? departmentIdParam : undefined;
+    
+    const positionIdParam = req.query.positionId;
+    const positionId = (positionIdParam && typeof positionIdParam === 'string') ? positionIdParam : undefined;
+    
+    const sortByParam = req.query.sortBy;
+    const sortBy = (sortByParam && typeof sortByParam === 'string') ? sortByParam : 'createdAt';
+    
+    const sortOrderParam = req.query.sortOrder;
+    const rawSortOrder = (sortOrderParam && typeof sortOrderParam === 'string') ? sortOrderParam : 'desc';
     const sortOrder: Prisma.SortOrder = rawSortOrder === 'asc' ? 'asc' : 'desc';
     const page = Number(req.query.page || 1);
     const pageSize = Math.min(100, Number(req.query.pageSize || 20));
@@ -600,10 +613,11 @@ export const getAdminEmployees = async (req: Request, res: Response) => {
  */
 export const getEmployeeFilterOptions = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
 
     const [departments, positions] = await Promise.all([
       prisma.department.findMany({
@@ -645,7 +659,11 @@ export const getEmployeeFilterOptions = async (req: Request, res: Response) => {
 export const getAdminEmployee = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     
     const employee = await prisma.employeePosition.findFirst({
       where: {
@@ -682,7 +700,11 @@ export const getAdminEmployee = async (req: Request, res: Response) => {
  */
 export const createEmployee = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const userId = (req.user as { id: string })?.id;
     
     if (!userId) {
@@ -801,7 +823,11 @@ export const createEmployee = async (req: Request, res: Response) => {
  */
 export const updateEmployee = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const { id } = req.params; // employeePositionId
     const userId = (req.user as { id: string })?.id;
     
@@ -912,7 +938,11 @@ export const updateEmployee = async (req: Request, res: Response) => {
  */
 export const deleteEmployee = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const { id } = req.params; // employeePositionId
     const position = await prisma.employeePosition.findFirst({ where: { id, businessId } });
     if (!position) {
@@ -1798,12 +1828,12 @@ export const getMyAttendanceRecords = async (req: Request, res: Response) => {
  */
 export const getEmployeeAuditLogs = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    const { id } = req.params; // employeePositionId
-    
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
+    const { id } = req.params; // employeePositionId
 
     // Verify employee belongs to business
     const position = await prisma.employeePosition.findFirst({
@@ -1853,7 +1883,11 @@ export const getEmployeeAuditLogs = async (req: Request, res: Response) => {
 export const terminateEmployee = async (req: Request, res: Response) => {
   try {
     const { id } = req.params; // employeePositionId
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const userId = (req.user as { id: string })?.id;
 
     if (!userId) {
@@ -2046,10 +2080,11 @@ export const getTeamEmployees = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const businessId = req.query.businessId as string;
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
 
     const {
       managerPositionId,
@@ -2340,7 +2375,11 @@ export const resolveTeamAttendanceException = async (req: Request, res: Response
 export const getOwnHRData = async (req: Request, res: Response) => {
   try {
     const user = req.user;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     
     const employeePosition = await prisma.employeePosition.findFirst({
       where: {
@@ -2536,7 +2575,11 @@ async function calculateTimeOffBalance(
 export const requestTimeOff = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const { type, startDate, endDate, reason } = req.body as { type: string; startDate: string; endDate: string; reason?: string };
 
     // Validate input
@@ -2649,7 +2692,11 @@ export const requestTimeOff = async (req: Request, res: Response) => {
 export const getPendingTeamTimeOff = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
 
     // Determine manager's position
     const managerPosition = await prisma.employeePosition.findFirst({ where: { userId: user.id, businessId, active: true } });
@@ -2687,7 +2734,11 @@ export const getPendingTeamTimeOff = async (req: Request, res: Response) => {
 export const approveTeamTimeOff = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const { id } = req.params; // timeOffRequestId
     const { decision, note } = req.body as { decision: 'APPROVE' | 'DENY'; note?: string };
 
@@ -2728,7 +2779,11 @@ export const approveTeamTimeOff = async (req: Request, res: Response) => {
 export const getTimeOffBalance = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
 
     const ep = await prisma.employeePosition.findFirst({ where: { userId: user.id, businessId, active: true } });
     if (!ep) return res.json({ balance: { pto: 0, sick: 0, personal: 0 }, used: { pto: 0, sick: 0, personal: 0 } });
@@ -2777,7 +2832,11 @@ export const getTimeOffBalance = async (req: Request, res: Response) => {
 export const getMyTimeOffRequests = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const page = Number(req.query.page || 1);
     const pageSize = Math.min(100, Number(req.query.pageSize || 20));
     const skip = (page - 1) * pageSize;
@@ -2809,7 +2868,11 @@ export const getMyTimeOffRequests = async (req: Request, res: Response) => {
 export const cancelTimeOffRequest = async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const businessId = req.query.businessId as string;
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
+    }
+    const businessId = businessIdParam;
     const { id } = req.params; // timeOffRequestId
 
     // Find the request
@@ -2862,14 +2925,27 @@ export const cancelTimeOffRequest = async (req: Request, res: Response) => {
  */
 export const getTimeOffCalendar = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    const startDate = req.query.startDate as string;
-    const endDate = req.query.endDate as string;
-    const departmentId = req.query.departmentId as string | undefined;
-
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    // Validate query parameters
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
+    
+    const startDateParam = req.query.startDate;
+    if (startDateParam && typeof startDateParam !== 'string') {
+      return res.status(400).json({ error: 'startDate must be a string' });
+    }
+    const startDate = startDateParam as string | undefined;
+    
+    const endDateParam = req.query.endDate;
+    if (endDateParam && typeof endDateParam !== 'string') {
+      return res.status(400).json({ error: 'endDate must be a string' });
+    }
+    const endDate = endDateParam as string | undefined;
+    
+    const departmentIdParam = req.query.departmentId;
+    const departmentId = (departmentIdParam && typeof departmentIdParam === 'string') ? departmentIdParam : undefined;
 
     // Build date filter
     const dateFilter: Record<string, unknown> = {};
@@ -2945,13 +3021,24 @@ export const getTimeOffCalendar = async (req: Request, res: Response) => {
  */
 export const getTimeOffReports = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    const startDate = req.query.startDate as string;
-    const endDate = req.query.endDate as string;
-    
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    // Validate query parameters
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
+    
+    const startDateParam = req.query.startDate;
+    if (startDateParam && typeof startDateParam !== 'string') {
+      return res.status(400).json({ error: 'startDate must be a string' });
+    }
+    const startDate = startDateParam as string | undefined;
+    
+    const endDateParam = req.query.endDate;
+    if (endDateParam && typeof endDateParam !== 'string') {
+      return res.status(400).json({ error: 'endDate must be a string' });
+    }
+    const endDate = endDateParam as string | undefined;
 
     const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
     const end = endDate ? new Date(endDate) : new Date(new Date().getFullYear(), 11, 31);
@@ -3345,10 +3432,11 @@ export const importEmployeesCSV = async (req: Request & { file?: Express.Multer.
  */
 export const exportEmployeesCSV = async (req: Request, res: Response) => {
   try {
-    const businessId = req.query.businessId as string;
-    if (!businessId) {
-      return res.status(400).json({ error: 'businessId is required' });
+    const businessIdParam = req.query.businessId;
+    if (!businessIdParam || typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId is required and must be a string' });
     }
+    const businessId = businessIdParam;
     
     const status = (req.query.status as string) || 'ACTIVE';
     const q = (req.query.q as string) || '';

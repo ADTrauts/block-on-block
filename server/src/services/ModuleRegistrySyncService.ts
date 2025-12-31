@@ -212,6 +212,10 @@ export class ModuleRegistrySyncService {
           operation: 'module_registry_added',
           moduleName: module.name
         });
+
+        // Register action executor if present (non-blocking)
+        await this.registerActionExecutor(module.id, module.manifest);
+
         return { action: 'added' };
       }
 
@@ -228,6 +232,10 @@ export class ModuleRegistrySyncService {
         operation: 'module_registry_updated',
         moduleName: module.name
       });
+
+      // Register action executor if present (non-blocking)
+      await this.registerActionExecutor(module.id, module.manifest);
+
       return { action: 'updated' };
     } catch (error) {
       await logger.error('Failed to sync module', {
@@ -392,6 +400,113 @@ export class ModuleRegistrySyncService {
           stack: error instanceof Error ? error.stack : undefined
         }
       });
+      return null;
+    }
+  }
+
+  /**
+   * Register action executor from module manifest (non-blocking)
+   * Called after AI context is registered
+   */
+  private async registerActionExecutor(moduleId: string, manifest: any): Promise<void> {
+    try {
+      // Extract executor config from manifest
+      const executorConfig = this.extractActionExecutorFromManifest(manifest);
+      
+      if (!executorConfig) {
+        // No executor config - this is fine, not all modules need executors
+        return;
+      }
+
+      // Import registry (dynamic import to avoid circular dependencies)
+      const { actionExecutorRegistry } = await import('../ai/core/ActionExecutorRegistry');
+
+      // Register the executor
+      actionExecutorRegistry.register({
+        moduleId,
+        supportedOperations: executorConfig.supportedOperations,
+        executorType: executorConfig.executorType,
+        executor: executorConfig.executor,
+        webhookConfig: executorConfig.webhookConfig
+      });
+
+      await logger.info('Registered action executor for module', {
+        operation: 'module_registry_executor_registered',
+        moduleId,
+        executorType: executorConfig.executorType,
+        operationCount: executorConfig.supportedOperations.length
+      });
+    } catch (error) {
+      // Log error but don't fail the sync - executor registration is optional
+      await logger.warn('Failed to register action executor', {
+        operation: 'module_registry_executor_error',
+        moduleId,
+        error: {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined
+        }
+      });
+    }
+  }
+
+  /**
+   * Extract action executor configuration from module manifest
+   */
+  private extractActionExecutorFromManifest(manifest: any): {
+    executorType: 'in-process' | 'webhook';
+    supportedOperations: string[];
+    executor?: any; // In-process executor function (would need to be loaded)
+    webhookConfig?: {
+      executorUrl: string;
+      apiKey?: string;
+      timeout?: number;
+    };
+  } | null {
+    try {
+      if (!manifest || typeof manifest !== 'object') {
+        return null;
+      }
+
+      const executorConfig = manifest.aiActionExecutor || manifest.ai_action_executor;
+
+      if (!executorConfig) {
+        return null;
+      }
+
+      // Validate required fields
+      if (!executorConfig.supportedOperations || !Array.isArray(executorConfig.supportedOperations)) {
+        return null;
+      }
+
+      if (executorConfig.supportedOperations.length === 0) {
+        return null;
+      }
+
+      // Check for webhook executor
+      if (executorConfig.executorUrl) {
+        return {
+          executorType: 'webhook',
+          supportedOperations: executorConfig.supportedOperations,
+          webhookConfig: {
+            executorUrl: executorConfig.executorUrl,
+            apiKey: executorConfig.apiKey,
+            timeout: executorConfig.timeout || 30000
+          }
+        };
+      }
+
+      // Check for in-process executor (path to executor function)
+      // Note: In-process executors would need to be loaded dynamically
+      // For now, we only support webhook executors from manifest
+      // In-process executors would be registered directly by the module during installation
+      if (executorConfig.executorPath) {
+        // This would require dynamic module loading - not implemented yet
+        // Modules can register in-process executors directly via API
+        return null;
+      }
+
+      return null;
+    } catch (error) {
       return null;
     }
   }

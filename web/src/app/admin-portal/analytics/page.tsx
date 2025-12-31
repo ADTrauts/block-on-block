@@ -4,16 +4,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Alert, Spinner, Modal, Input } from 'shared/components';
 import { 
   BarChart3, 
-  Users, 
-  TrendingUp, 
-  DollarSign, 
   Activity, 
-  Calendar,
   Filter,
   Download,
   RefreshCw
 } from 'lucide-react';
 import { adminApiService } from '../../../lib/adminApiService';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface AnalyticsData {
   userGrowth: {
@@ -48,8 +45,23 @@ interface FilterOptions {
   metric: string;
 }
 
+interface RecentActivity {
+  id: string;
+  action: string;
+  userId: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  details: string;
+  timestamp: string;
+  user?: {
+    email: string;
+    name: string | null;
+  };
+}
+
 export default function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterOptions>({
@@ -62,9 +74,10 @@ export default function AnalyticsPage() {
   const loadAnalyticsData = useCallback(async () => {
     try {
       setLoading(true);
-      const [analyticsRes, realtimeRes] = await Promise.all([
+      const [analyticsRes, realtimeRes, activityRes] = await Promise.all([
         adminApiService.getAnalytics(filters),
-        adminApiService.getRealTimeMetrics()
+        adminApiService.getRealTimeMetrics(),
+        adminApiService.getRecentActivity()
       ]);
       
       if (analyticsRes.error) {
@@ -78,6 +91,15 @@ export default function AnalyticsPage() {
       }
 
       setAnalyticsData(analyticsRes.data as AnalyticsData);
+      
+      // Load real recent activity
+      if (activityRes.error) {
+        console.error('Error loading recent activity:', activityRes.error);
+        setRecentActivity([]);
+      } else {
+        setRecentActivity((activityRes.data as RecentActivity[]) || []);
+      }
+      
       setError(null);
     } catch (err) {
       setError('Failed to load analytics data');
@@ -141,7 +163,7 @@ export default function AnalyticsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Platform Analytics</h1>
-          <p className="text-gray-600 mt-2">Real-time platform metrics and insights</p>
+          <p className="text-gray-600 mt-2">System performance, technical metrics, and real-time activity monitoring</p>
         </div>
         <div className="flex items-center space-x-3">
           <button
@@ -203,10 +225,8 @@ export default function AnalyticsPage() {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
           >
             <option value="all">All metrics</option>
-            <option value="users">User metrics</option>
-            <option value="revenue">Revenue metrics</option>
-            <option value="engagement">Engagement metrics</option>
-            <option value="system">System metrics</option>
+            <option value="system">System performance</option>
+            <option value="activity">Real-time activity</option>
           </select>
 
           <div className="flex items-center space-x-2 ml-auto">
@@ -236,124 +256,137 @@ export default function AnalyticsPage() {
       )}
 
       {analyticsData && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* User Growth */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-2">
-                <Users className="w-5 h-5 text-blue-600" />
-                <h3 className="text-lg font-semibold text-gray-900">User Growth</h3>
+        <div className="space-y-6">
+          {/* System Performance Metrics */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* System Performance */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-5 h-5 text-orange-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">System Performance</h3>
+                </div>
               </div>
-              <span className={`text-sm font-medium ${
-                analyticsData.userGrowth.growthRate > 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {analyticsData.userGrowth.growthRate > 0 ? '+' : ''}{analyticsData.userGrowth.growthRate}%
-              </span>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Users</span>
-                <span className="font-semibold">{analyticsData.userGrowth.total.toLocaleString()}</span>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Uptime</span>
+                  <span className="font-semibold text-green-600">{analyticsData.system.uptime}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Avg Response Time</span>
+                  <span className="font-semibold">{analyticsData.system.avgResponseTime}ms</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Error Rate</span>
+                  <span className={`font-semibold ${
+                    analyticsData.system.errorRate < 1 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {analyticsData.system.errorRate}%
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">New This Month</span>
-                <span className="font-semibold text-green-600">
-                  +{analyticsData.userGrowth.newThisMonth.toLocaleString()}
-                </span>
-              </div>
-              <div className="h-32 bg-gray-100 rounded-lg flex items-center justify-center">
-                <span className="text-gray-500 text-sm">Chart: Monthly User Growth</span>
-              </div>
-            </div>
-          </Card>
+            </Card>
 
-          {/* Revenue */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-2">
-                <DollarSign className="w-5 h-5 text-green-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Revenue</h3>
+            {/* Quick System Stats */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">System Health</h3>
+                </div>
               </div>
-              <span className={`text-sm font-medium ${
-                analyticsData.revenue.growthRate > 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {analyticsData.revenue.growthRate > 0 ? '+' : ''}{analyticsData.revenue.growthRate}%
-              </span>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Revenue</span>
-                <span className="font-semibold">${analyticsData.revenue.total.toLocaleString()}</span>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">API Requests (24h)</span>
+                  <span className="font-semibold">-</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Database Queries (24h)</span>
+                  <span className="font-semibold">-</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Cache Hit Rate</span>
+                  <span className="font-semibold">-</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">This Month</span>
-                <span className="font-semibold text-green-600">
-                  ${analyticsData.revenue.thisMonth.toLocaleString()}
-                </span>
-              </div>
-              <div className="h-32 bg-gray-100 rounded-lg flex items-center justify-center">
-                <span className="text-gray-500 text-sm">Chart: Monthly Revenue</span>
-              </div>
-            </div>
-          </Card>
+            </Card>
 
-          {/* Engagement */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-2">
-                <TrendingUp className="w-5 h-5 text-purple-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Engagement</h3>
+            {/* Resource Usage */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Resource Usage</h3>
+                </div>
               </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Active Users</span>
-                <span className="font-semibold">{analyticsData.engagement.activeUsers.toLocaleString()}</span>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">CPU Usage</span>
+                  <span className="font-semibold">-</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Memory Usage</span>
+                  <span className="font-semibold">-</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Storage Usage</span>
+                  <span className="font-semibold">-</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Avg Session</span>
-                <span className="font-semibold">{Math.round(analyticsData.engagement.avgSessionDuration)} min</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Retention Rate</span>
-                <span className="font-semibold text-green-600">{analyticsData.engagement.retentionRate}%</span>
-              </div>
-              <div className="h-32 bg-gray-100 rounded-lg flex items-center justify-center">
-                <span className="text-gray-500 text-sm">Chart: Daily Active Users</span>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
 
-          {/* System Performance */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-2">
-                <Activity className="w-5 h-5 text-orange-600" />
-                <h3 className="text-lg font-semibold text-gray-900">System Performance</h3>
+          {/* Performance Trends */}
+          {analyticsData.system.performanceTrend && analyticsData.system.performanceTrend.length > 0 && (
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Response Time Trend</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analyticsData.system.performanceTrend}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 10 }}
+                      stroke="#6b7280"
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 10 }}
+                      stroke="#6b7280"
+                      tickFormatter={(value) => `${value}ms`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#fff', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '6px',
+                        fontSize: '12px'
+                      }}
+                      formatter={(value: number) => `${value}ms`}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="responseTime" 
+                      stroke="#f97316" 
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Uptime</span>
-                <span className="font-semibold text-green-600">{analyticsData.system.uptime}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Avg Response Time</span>
-                <span className="font-semibold">{analyticsData.system.avgResponseTime}ms</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Error Rate</span>
-                <span className={`font-semibold ${
-                  analyticsData.system.errorRate < 1 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {analyticsData.system.errorRate}%
-                </span>
-              </div>
-              <div className="h-32 bg-gray-100 rounded-lg flex items-center justify-center">
-                <span className="text-gray-500 text-sm">Chart: Response Time Trend</span>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          )}
+
+          {/* Note about business metrics */}
+          <Alert>
+            <BarChart3 className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Note:</strong> For business metrics (user growth, revenue, engagement), see{' '}
+              <a href="/admin-portal/business-intelligence" className="text-blue-600 hover:underline font-medium">
+                Business Intelligence
+              </a>
+              {' '}page. This page focuses on system and technical performance metrics.
+            </AlertDescription>
+          </Alert>
         </div>
       )}
 
@@ -366,29 +399,70 @@ export default function AnalyticsPage() {
             <span className="text-sm text-gray-600">Live</span>
           </div>
         </div>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-              <span className="text-sm">New user registered: john.doe@example.com</span>
-            </div>
-            <span className="text-xs text-gray-500">2 min ago</span>
+        {recentActivity.length > 0 ? (
+          <div className="space-y-3">
+            {recentActivity.slice(0, 10).map((activity) => {
+              const getActivityColor = (action: string) => {
+                if (action.includes('CREATE') || action.includes('REGISTER') || action.includes('SIGNUP')) return 'bg-blue-400';
+                if (action.includes('DELETE') || action.includes('REMOVE')) return 'bg-red-400';
+                if (action.includes('UPDATE') || action.includes('MODIFY') || action.includes('EDIT')) return 'bg-yellow-400';
+                if (action.includes('SUBSCRIPTION') || action.includes('PAYMENT')) return 'bg-green-400';
+                return 'bg-gray-400';
+              };
+
+              const formatAction = (action: string) => {
+                return action
+                  .replace(/_/g, ' ')
+                  .toLowerCase()
+                  .replace(/\b\w/g, (l) => l.toUpperCase());
+              };
+
+              const formatTimestamp = (timestamp: string) => {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now.getTime() - date.getTime();
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins} min ago`;
+                if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+                return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+              };
+
+              let details: Record<string, unknown> = {};
+              try {
+                details = JSON.parse(activity.details);
+              } catch {
+                // If parsing fails, use the raw string
+              }
+
+              const userEmail = activity.user?.email || details.email || 'Unknown user';
+              const resourceInfo = activity.resourceType 
+                ? `${activity.resourceType}${activity.resourceId ? ` #${activity.resourceId.substring(0, 8)}` : ''}`
+                : '';
+
+              return (
+                <div key={activity.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-2 h-2 ${getActivityColor(activity.action)} rounded-full`}></div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatAction(activity.action)}
+                      {userEmail !== 'Unknown user' && `: ${userEmail}`}
+                      {resourceInfo && ` • ${resourceInfo}`}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-500">{formatTimestamp(activity.timestamp)}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-              <span className="text-sm">Premium subscription activated: user_123</span>
-            </div>
-            <span className="text-xs text-gray-500">5 min ago</span>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <p className="text-sm">No recent activity</p>
           </div>
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-              <span className="text-sm">Content reported for review: post_456</span>
-            </div>
-            <span className="text-xs text-gray-500">8 min ago</span>
-          </div>
-        </div>
+        )}
       </Card>
     </div>
   );

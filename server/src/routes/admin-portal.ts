@@ -53,18 +53,80 @@ router.get('/test', authenticateJWT, requireAdmin, async (req: Request, res: Res
 // Get dashboard overview statistics
 router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
   try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
     const [
       totalUsers,
+      usersLast30Days,
+      usersPrevious30Days,
       totalBusinesses,
-      monthlyRevenue
+      businessesLast30Days,
+      businessesPrevious30Days,
+      monthlyRevenue,
+      revenueLast30Days,
+      revenuePrevious30Days
     ] = await Promise.all([
       prisma.user.count(),
+      prisma.user.count({
+        where: { createdAt: { gte: thirtyDaysAgo } }
+      }),
+      prisma.user.count({
+        where: {
+          createdAt: {
+            gte: sixtyDaysAgo,
+            lt: thirtyDaysAgo
+          }
+        }
+      }),
       prisma.business.count(),
+      prisma.business.count({
+        where: { createdAt: { gte: thirtyDaysAgo } }
+      }),
+      prisma.business.count({
+        where: {
+          createdAt: {
+            gte: sixtyDaysAgo,
+            lt: thirtyDaysAgo
+          }
+        }
+      }),
       prisma.moduleSubscription.aggregate({
         _sum: { amount: true },
         where: { status: 'active' }
+      }),
+      prisma.moduleSubscription.aggregate({
+        _sum: { amount: true },
+        where: {
+          status: 'active',
+          createdAt: { gte: thirtyDaysAgo }
+        }
+      }),
+      prisma.moduleSubscription.aggregate({
+        _sum: { amount: true },
+        where: {
+          status: 'active',
+          createdAt: {
+            gte: sixtyDaysAgo,
+            lt: thirtyDaysAgo
+          }
+        }
       })
     ]);
+
+    // Calculate growth trends (percentage change)
+    const calculateTrend = (current: number, previous: number): number => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
+    const userGrowthTrend = calculateTrend(usersLast30Days, usersPrevious30Days);
+    const businessGrowthTrend = calculateTrend(businessesLast30Days, businessesPrevious30Days);
+    const revenueGrowthTrend = calculateTrend(
+      revenueLast30Days._sum.amount || 0,
+      revenuePrevious30Days._sum.amount || 0
+    );
 
     res.json({
       success: true,
@@ -73,7 +135,10 @@ router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Reques
         activeUsers: totalUsers, // Since we don't have status field, assume all are active
         totalBusinesses: totalBusinesses,
         monthlyRevenue: monthlyRevenue._sum.amount || 0,
-        systemHealth: 99.9 // Mock value for now
+        systemHealth: 99.9, // Mock value for now
+        userGrowthTrend: userGrowthTrend,
+        businessGrowthTrend: businessGrowthTrend,
+        revenueGrowthTrend: revenueGrowthTrend
       }
     });
   } catch (error) {
@@ -93,7 +158,15 @@ router.get('/dashboard/activity', authenticateJWT, requireAdmin, async (req: Req
   try {
     const recentActivity = await prisma.auditLog.findMany({
       take: 10,
-      orderBy: { timestamp: 'desc' }
+      orderBy: { timestamp: 'desc' },
+      include: {
+        user: {
+          select: {
+            email: true,
+            name: true
+          }
+        }
+      }
     });
 
     res.json({

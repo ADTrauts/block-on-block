@@ -1079,7 +1079,14 @@ export async function updateShift(
     if (finalEmployeePositionId) {
       const timeOffConflict = await prisma.timeOffRequest.findFirst({
         where: {
-          businessId: req.businessId || (req.query.businessId as string),
+          businessId: (() => {
+            if (req.businessId) return req.businessId;
+            const businessIdParam = req.query.businessId;
+            if (businessIdParam && typeof businessIdParam === 'string') {
+              return businessIdParam;
+            }
+            return undefined;
+          })(),
           employeePositionId: finalEmployeePositionId,
           status: { in: ['APPROVED', 'PENDING'] },
           OR: [
@@ -1958,7 +1965,17 @@ export async function getComplianceReports(req: AuthenticatedRequest, res: Respo
 export async function getAllEmployeeAvailability(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
 
     if (!user || !businessId) {
       res.status(401).json({ error: 'User not authenticated' });
@@ -2018,7 +2035,7 @@ export async function getAllEmployeeAvailability(req: AuthenticatedRequest, res:
     logger.error('Failed to fetch all employee availability', {
       operation: 'get_all_employee_availability',
       error: { message: err.message, stack: err.stack },
-      businessId: req.businessId || (req.query.businessId as string)
+      businessId: req.businessId || (typeof req.query.businessId === 'string' ? req.query.businessId : undefined)
     });
     res.status(500).json({ error: 'Failed to fetch availability' });
   }
@@ -2039,7 +2056,17 @@ export async function getAllShiftSwapRequests(req: AuthenticatedRequest, res: Re
 export async function approveShiftSwapAdmin(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const swapId = req.params.id;
     const { managerNotes } = req.body;
 
@@ -2190,7 +2217,17 @@ export async function approveShiftSwapAdmin(req: AuthenticatedRequest, res: Resp
 export async function denyShiftSwapAdmin(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const swapId = req.params.id;
     const { managerNotes } = req.body;
 
@@ -2290,7 +2327,17 @@ export async function denyShiftSwapAdmin(req: AuthenticatedRequest, res: Respons
 export async function getTeamSchedules(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const directReportIds = req.directReportIds || [];
 
     if (!user || !businessId) {
@@ -2462,7 +2509,17 @@ export async function getTeamAvailability(req: AuthenticatedRequest, res: Respon
 export async function getPendingShiftSwapRequestsForTeam(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const directReportIds = req.directReportIds || [];
 
     if (!user || !businessId) {
@@ -2576,7 +2633,17 @@ export async function getPendingShiftSwapRequestsForTeam(req: AuthenticatedReque
 export async function approveShiftSwapManager(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const swapId = req.params.id;
     const { managerNotes } = req.body;
 
@@ -2727,7 +2794,17 @@ export async function approveShiftSwapManager(req: AuthenticatedRequest, res: Re
 export async function denyShiftSwapManager(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const swapId = req.params.id;
     const { managerNotes } = req.body;
 
@@ -2828,7 +2905,17 @@ export async function denyShiftSwapManager(req: AuthenticatedRequest, res: Respo
 export async function getOwnSchedule(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const employeePositionId = req.employeePositionId;
 
     if (!user || !businessId) {
@@ -2968,7 +3055,17 @@ export async function setOwnAvailability(req: AuthenticatedRequest, res: Respons
   });
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const employeePositionId = req.employeePositionId;
     const { dayOfWeek, startTime, endTime, availabilityType, effectiveFrom, effectiveTo, recurring, notes } = req.body;
 
@@ -3149,7 +3246,17 @@ export async function setOwnAvailability(req: AuthenticatedRequest, res: Respons
 export async function updateOwnAvailability(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const availabilityId = req.params.id;
     const { dayOfWeek, startTime, endTime, availabilityType, effectiveFrom, effectiveTo, recurring, notes } = req.body;
 
@@ -3296,7 +3403,17 @@ export async function updateOwnAvailability(req: AuthenticatedRequest, res: Resp
 export async function getOwnAvailability(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const employeePositionId = req.employeePositionId;
 
     if (!user || !businessId) {
@@ -3389,7 +3506,17 @@ export async function getOwnAvailability(req: AuthenticatedRequest, res: Respons
 export async function deleteOwnAvailability(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const availabilityId = req.params.id;
 
     if (!user || !businessId || !availabilityId) {
@@ -3450,7 +3577,17 @@ export async function deleteOwnAvailability(req: AuthenticatedRequest, res: Resp
 export async function requestShiftSwap(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const shiftId = req.params.id;
     const { requestedToId, coveredShiftId, requestNotes } = req.body;
 
@@ -3569,7 +3706,17 @@ export async function requestShiftSwap(req: AuthenticatedRequest, res: Response)
 export async function getOwnShiftSwapRequests(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const employeePositionId = req.employeePositionId;
 
     if (!user || !businessId) {
@@ -3666,7 +3813,17 @@ export async function getOwnShiftSwapRequests(req: AuthenticatedRequest, res: Re
 export async function cancelSwapRequest(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const swapId = req.params.id;
 
     if (!user || !businessId || !swapId) {
@@ -3777,7 +3934,17 @@ export async function cancelSwapRequest(req: AuthenticatedRequest, res: Response
 export async function claimOpenShift(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const shiftId = req.params.id;
     const employeePositionId = req.employeePositionId;
 
@@ -4015,7 +4182,17 @@ export async function claimOpenShift(req: AuthenticatedRequest, res: Response): 
 export async function getOwnOpenShifts(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const user = req.user;
-    const businessId = req.businessId || (req.query.businessId as string);
+    // Get businessId from middleware or validate from query
+    let businessId: string | undefined = req.businessId;
+    if (!businessId) {
+      const businessIdParam = req.query.businessId;
+      if (businessIdParam && typeof businessIdParam === 'string') {
+        businessId = businessIdParam;
+      } else if (businessIdParam) {
+        res.status(400).json({ error: 'businessId must be a string' });
+        return;
+      }
+    }
     const employeePositionId = req.employeePositionId;
     const { startDate, endDate, positionId } = req.query;
 

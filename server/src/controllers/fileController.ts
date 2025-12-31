@@ -71,23 +71,44 @@ function hasUserId(user: any): user is { id: string } {
 export async function listFiles(req: Request, res: Response) {
   try {
     const userId = (req as AuthenticatedRequest).user?.id;
-    const folderId = req.query.folderId as string;
-    const starred = req.query.starred as string;
-    const dashboardId = req.query.dashboardId as string; // NEW: Dashboard context filtering
+    
+    // Validate query parameters with proper type checking
+    const folderId = req.query.folderId;
+    const starred = req.query.starred;
+    const dashboardId = req.query.dashboardId;
+    
+    // Validate folderId if provided
+    if (folderId && typeof folderId !== 'string') {
+      return res.status(400).json({ error: 'folderId must be a string' });
+    }
+    
+    // Validate starred if provided
+    if (starred && typeof starred !== 'string') {
+      return res.status(400).json({ error: 'starred must be a string' });
+    }
+    
+    // Validate dashboardId if provided
+    if (dashboardId && typeof dashboardId !== 'string') {
+      return res.status(400).json({ error: 'dashboardId must be a string' });
+    }
+    
+    const folderIdStr = folderId as string | undefined;
+    const starredStr = starred as string | undefined;
+    const dashboardIdStr = dashboardId as string | undefined;
     
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = { userId };
     
-    if (folderId) {
-      where.folderId = folderId;
+    if (folderIdStr) {
+      where.folderId = folderIdStr;
     } else {
       where.folderId = null;
     }
     
     // Add starred filtering
-    if (starred === 'true') {
+    if (starredStr === 'true') {
       where.starred = true;
-    } else if (starred === 'false') {
+    } else if (starredStr === 'false') {
       where.starred = false;
     }
     
@@ -98,32 +119,32 @@ export async function listFiles(req: Request, res: Response) {
     
     // Dashboard context filtering
     // When fetching starred items, show across all dashboards (don't filter by dashboardId)
-    if (starred === 'true') {
+    if (starredStr === 'true') {
       // Show starred items from all dashboards
       await logger.debug('Starred items requested - showing across all dashboards', {
         operation: 'file_list_starred_all_dashboards'
       });
-    } else if (dashboardId) {
+    } else if (dashboardIdStr) {
       query += ` AND "dashboardId" = $${paramIndex}`;
-      params.push(dashboardId);
+      params.push(dashboardIdStr);
       paramIndex++;
       await logger.debug('Dashboard context requested', {
         operation: 'file_list_dashboard_context',
-        dashboardId
+        dashboardId: dashboardIdStr
       });
     } else {
       query += ` AND "dashboardId" IS NULL`;
     }
     
-    if (folderId) {
+    if (folderIdStr) {
       query += ` AND "folderId" = $${paramIndex}`;
-      params.push(folderId);
+      params.push(folderIdStr);
       paramIndex++;
     } else {
       query += ` AND "folderId" IS NULL`;
     }
     
-    if (starred === 'true') {
+    if (starredStr === 'true') {
       query += ` AND "starred" = true`;
     } else if (starred === 'false') {
       query += ` AND "starred" = false`;
@@ -375,8 +396,12 @@ export async function downloadFile(req: Request, res: Response) {
   // Check for token in query params (for file preview)
   let userId: string;
   if (req.query.token) {
+    // Validate token query parameter
+    if (typeof req.query.token !== 'string') {
+      return res.status(400).json({ error: 'token must be a string' });
+    }
     try {
-      const decoded = jwt.verify(req.query.token as string, process.env.JWT_SECRET || '');
+      const decoded = jwt.verify(req.query.token, process.env.JWT_SECRET || '');
       const payload = decoded as JWTPayload;
       userId = payload.sub || payload.id || '';
     } catch (error) {
@@ -1054,7 +1079,24 @@ export async function getSharedItems(req: Request, res: Response) {
     });
 
     // Get files that have been shared with this user
-    let sharedFiles = [];
+    let sharedFiles: Array<{
+      id: string;
+      name: string;
+      type: string;
+      size: number;
+      url: string;
+      path: string | null;
+      folderId: string | null;
+      dashboardId: string | null;
+      userId: string;
+      starred: boolean;
+      trashedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      order: number;
+      user: { id: string; name: string | null; email: string };
+      permissions: Array<{ canRead: boolean; canWrite: boolean }>;
+    }> = [];
     try {
       sharedFiles = await prisma.file.findMany({
         where: {
@@ -1093,7 +1135,20 @@ export async function getSharedItems(req: Request, res: Response) {
     }
 
     // Get folders that have been shared with this user
-    let sharedFolders = [];
+    let sharedFolders: Array<{
+      id: string;
+      name: string;
+      parentId: string | null;
+      dashboardId: string | null;
+      userId: string;
+      starred: boolean;
+      trashedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      order: number;
+      user: { id: string; name: string | null; email: string };
+      permissions: Array<{ canRead: boolean; canWrite: boolean }>;
+    }> = [];
     try {
       sharedFolders = await prisma.folder.findMany({
         where: {

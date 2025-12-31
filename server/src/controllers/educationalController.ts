@@ -21,14 +21,16 @@ interface InviteMemberRequest {
   department?: string;
 }
 
+import { AuthenticatedRequest } from '../middleware/auth';
+
 // Helper function to get user from request
 const getUserFromRequest = (req: Request) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
   if (!user) return null;
   
   return {
     ...user,
-    id: user.sub || user.id
+    id: user.id
   };
 };
 

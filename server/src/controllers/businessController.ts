@@ -48,14 +48,16 @@ interface UpdateMemberRequest {
   canBilling?: boolean;
 }
 
+import { AuthenticatedRequest } from '../middleware/auth';
+
 // Helper function to get user from request
 const getUserFromRequest = (req: Request) => {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
   if (!user) return null;
   
   return {
     ...user,
-    id: user.sub || user.id
+    id: user.id
   };
 };
 
@@ -470,7 +472,7 @@ export const inviteMember = async (req: Request, res: Response) => {
         invitation.department,
         invitation.token,
         undefined, // message
-        user.userNumber // Include inviter's Block ID
+        user.userNumber || undefined // Include inviter's Block ID (convert null to undefined)
       );
     } catch (emailError) {
       console.error('Error sending business invitation email:', emailError);

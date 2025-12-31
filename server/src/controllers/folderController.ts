@@ -21,9 +21,29 @@ export async function listFolders(req: Request, res: Response) {
       return res.status(401).json({ message: 'Authentication required' });
     }
     
-    const parentId = req.query.parentId as string;
-    const starred = req.query.starred as string;
-    const dashboardId = req.query.dashboardId as string; // NEW: Dashboard context filtering
+    // Validate query parameters with proper type checking
+    const parentId = req.query.parentId;
+    const starred = req.query.starred;
+    const dashboardId = req.query.dashboardId;
+    
+    // Validate parentId if provided
+    if (parentId && typeof parentId !== 'string') {
+      return res.status(400).json({ error: 'parentId must be a string' });
+    }
+    
+    // Validate starred if provided
+    if (starred && typeof starred !== 'string') {
+      return res.status(400).json({ error: 'starred must be a string' });
+    }
+    
+    // Validate dashboardId if provided
+    if (dashboardId && typeof dashboardId !== 'string') {
+      return res.status(400).json({ error: 'dashboardId must be a string' });
+    }
+    
+    const parentIdStr = parentId as string | undefined;
+    const starredStr = starred as string | undefined;
+    const dashboardIdStr = dashboardId as string | undefined;
     
     // Build where conditions for Prisma ORM query
     // Start with folders owned by the user (we'll add shared folders later if needed)
@@ -33,15 +53,15 @@ export async function listFolders(req: Request, res: Response) {
     };
 
     // Dashboard context filtering
-    if (starred === 'true') {
+    if (starredStr === 'true') {
       whereConditions.starred = true;
       // Don't filter by dashboardId when fetching starred items - show across all dashboards
     } else {
-      if (dashboardId) {
-        whereConditions.dashboardId = dashboardId;
+      if (dashboardIdStr) {
+        whereConditions.dashboardId = dashboardIdStr;
         await logger.debug('Dashboard context requested for folders', {
           operation: 'folder_list_dashboard_context',
-          dashboardId
+          dashboardId: dashboardIdStr
         });
       } else {
         // Only set to null if we're NOT fetching starred items
@@ -50,8 +70,8 @@ export async function listFolders(req: Request, res: Response) {
     }
 
     // Parent folder filtering
-    if (parentId) {
-      whereConditions.parentId = parentId;
+    if (parentIdStr) {
+      whereConditions.parentId = parentIdStr;
     } else {
       // Root level folders have parentId = null
       whereConditions.parentId = null;

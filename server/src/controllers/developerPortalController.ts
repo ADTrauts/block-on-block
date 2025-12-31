@@ -1,16 +1,19 @@
 import { Request, Response } from 'express';
 import { DeveloperPortalService } from '../services/developerPortalService';
 import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 export const getDeveloperStats = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
-    const businessId = (req.query.businessId as string) || undefined;
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
     const stats = await DeveloperPortalService.getDeveloperStats(userId, businessId);
     res.json({ stats });
   } catch (error) {
@@ -21,13 +24,15 @@ export const getDeveloperStats = async (req: Request, res: Response) => {
 
 export const getModuleRevenue = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
-    const businessId = (req.query.businessId as string) || undefined;
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
     const moduleRevenue = await DeveloperPortalService.getModuleRevenue(userId, businessId);
     res.json({ moduleRevenue });
   } catch (error) {
@@ -39,11 +44,11 @@ export const getModuleRevenue = async (req: Request, res: Response) => {
 export const getModuleAnalytics = async (req: Request, res: Response) => {
   try {
     const { moduleId } = req.params;
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     // Verify module belongs to developer
     const module = await prisma.module.findFirst({
@@ -68,11 +73,11 @@ export const getModuleAnalytics = async (req: Request, res: Response) => {
 export const requestPayout = async (req: Request, res: Response) => {
   try {
     const { amount } = req.body;
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
@@ -91,11 +96,11 @@ export const requestPayout = async (req: Request, res: Response) => {
 
 export const getPayoutHistory = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     const payoutHistory = await DeveloperPortalService.getPayoutHistory(userId);
     res.json({ payoutHistory });
@@ -109,11 +114,11 @@ export const updateModulePricing = async (req: Request, res: Response) => {
   try {
     const { moduleId } = req.params;
     const { basePrice, enterprisePrice } = req.body;
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
     // Verify module belongs to developer
     const module = await prisma.module.findFirst({
@@ -145,13 +150,15 @@ export const updateModulePricing = async (req: Request, res: Response) => {
 
 export const getDeveloperDashboard = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id;
-
-    if (!userId) {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    const userId = user.id;
 
-    const businessId = (req.query.businessId as string) || undefined;
+    // Validate businessId query parameter
+    const businessIdParam = req.query.businessId;
+    const businessId = (businessIdParam && typeof businessIdParam === 'string') ? businessIdParam : undefined;
     const dashboard = await DeveloperPortalService.getDeveloperDashboard(userId, businessId);
     res.json({ dashboard });
   } catch (error) {

@@ -179,8 +179,20 @@ export const getMarketplaceModules = async (req: Request, res: Response) => {
     const sortBy = typeof req.query.sortBy === 'string' ? req.query.sortBy : 'downloads';
     const sortOrder = typeof req.query.sortOrder === 'string' ? req.query.sortOrder : 'desc';
     const pricingTier = typeof req.query.pricingTier === 'string' ? req.query.pricingTier : undefined;
-    const scope = (req.query.scope as 'personal' | 'business') || 'personal';
-    const businessId = req.query.businessId as string | undefined;
+    
+    // Validate scope and businessId query parameters
+    const scopeParam = req.query.scope;
+    const businessIdParam = req.query.businessId;
+    
+    if (scopeParam && typeof scopeParam !== 'string') {
+      return res.status(400).json({ error: 'scope must be a string' });
+    }
+    const scope = (scopeParam === 'business' ? 'business' : 'personal') as 'personal' | 'business';
+    
+    if (businessIdParam && typeof businessIdParam !== 'string') {
+      return res.status(400).json({ error: 'businessId must be a string' });
+    }
+    const businessId = businessIdParam as string | undefined;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const whereClause: any = {
@@ -292,8 +304,20 @@ export const installModule = async (req: Request, res: Response) => {
     }
 
     const { moduleId } = req.params;
-    const scope = (req.query.scope as 'personal' | 'business') || 'personal';
-    const businessId = req.query.businessId as string | undefined;
+    
+    // Validate query parameters
+    const scopeParam = req.query.scope;
+    const businessIdParam = req.query.businessId;
+    
+    if (scopeParam && typeof scopeParam !== 'string') {
+      return res.status(400).json({ success: false, error: 'scope must be a string' });
+    }
+    const scope = (scopeParam === 'business' ? 'business' : 'personal') as 'personal' | 'business';
+    
+    if (businessIdParam && typeof businessIdParam !== 'string') {
+      return res.status(400).json({ success: false, error: 'businessId must be a string' });
+    }
+    const businessId = businessIdParam as string | undefined;
 
     // Check if module exists
     const module = await prisma.module.findUnique({

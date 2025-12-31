@@ -21,7 +21,24 @@ export const checkSchedulingAdmin = async (
   next: NextFunction
 ): Promise<void> => {
   const user = req.user;
-  const businessId = (req.query.businessId as string) || (req.body.businessId as string);
+  // Validate businessId from query or body
+  const businessIdParam = req.query.businessId;
+  const businessIdBody = req.body?.businessId;
+  
+  let businessId: string | undefined;
+  if (businessIdParam) {
+    if (typeof businessIdParam !== 'string') {
+      res.status(400).json({ error: 'businessId query parameter must be a string' });
+      return;
+    }
+    businessId = businessIdParam;
+  } else if (businessIdBody) {
+    if (typeof businessIdBody !== 'string') {
+      res.status(400).json({ error: 'businessId body parameter must be a string' });
+      return;
+    }
+    businessId = businessIdBody;
+  }
 
   if (!user || !businessId) {
     logger.warn('Unauthorized access attempt: Missing user or businessId in request for checkSchedulingAdmin');
@@ -121,7 +138,24 @@ export const checkSchedulingManagerAccess = async (
   next: NextFunction
 ): Promise<void> => {
   const user = req.user;
-  const businessId = (req.query.businessId as string) || (req.body.businessId as string);
+  // Validate businessId from query or body
+  const businessIdParam = req.query.businessId;
+  const businessIdBody = req.body?.businessId;
+  
+  let businessId: string | undefined;
+  if (businessIdParam) {
+    if (typeof businessIdParam !== 'string') {
+      res.status(400).json({ error: 'businessId query parameter must be a string' });
+      return;
+    }
+    businessId = businessIdParam;
+  } else if (businessIdBody) {
+    if (typeof businessIdBody !== 'string') {
+      res.status(400).json({ error: 'businessId body parameter must be a string' });
+      return;
+    }
+    businessId = businessIdBody;
+  }
 
   if (!user || !businessId) {
     logger.warn('Unauthorized access attempt: Missing user or businessId in request for checkSchedulingManagerAccess');
@@ -253,7 +287,24 @@ export const checkSchedulingEmployeeAccess = async (
   next: NextFunction
 ): Promise<void> => {
   const user = req.user;
-  const businessId = (req.query.businessId as string) || (req.body.businessId as string);
+  // Validate businessId from query or body
+  const businessIdParam = req.query.businessId;
+  const businessIdBody = req.body?.businessId;
+  
+  let businessId: string | undefined;
+  if (businessIdParam) {
+    if (typeof businessIdParam !== 'string') {
+      res.status(400).json({ error: 'businessId query parameter must be a string' });
+      return;
+    }
+    businessId = businessIdParam;
+  } else if (businessIdBody) {
+    if (typeof businessIdBody !== 'string') {
+      res.status(400).json({ error: 'businessId body parameter must be a string' });
+      return;
+    }
+    businessId = businessIdBody;
+  }
 
   console.log('🔍 checkSchedulingEmployeeAccess called', {
     method: req.method,

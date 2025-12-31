@@ -242,7 +242,10 @@ export class StorageService {
     if (this.config.provider === 'gcs' && this.config.gcs) {
       return `https://storage.googleapis.com/${this.config.gcs.bucketName}/${filePath}`;
     } else {
-      const baseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      // Use environment variable with production fallback (never localhost in production)
+      const baseUrl = process.env.BACKEND_URL || 
+                     process.env.NEXT_PUBLIC_API_BASE_URL || 
+                     'https://vssyl-server-235369681725.us-central1.run.app';
       return `${baseUrl}/uploads/${path.basename(filePath)}`;
     }
   }

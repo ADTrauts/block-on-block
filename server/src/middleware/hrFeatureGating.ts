@@ -236,7 +236,22 @@ export function getRequiredTierForFeature(featureName: string): string {
 export function checkHRFeature(featureName: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const businessId = req.query.businessId as string || req.body.businessId;
+      // Validate businessId from query or body
+      const businessIdParam = req.query.businessId;
+      const businessIdBody = req.body?.businessId;
+      
+      let businessId: string | undefined;
+      if (businessIdParam) {
+        if (typeof businessIdParam !== 'string') {
+          return res.status(400).json({ error: 'businessId query parameter must be a string' });
+        }
+        businessId = businessIdParam;
+      } else if (businessIdBody) {
+        if (typeof businessIdBody !== 'string') {
+          return res.status(400).json({ error: 'businessId body parameter must be a string' });
+        }
+        businessId = businessIdBody;
+      }
       
       if (!businessId) {
         return res.status(400).json({ error: 'Business ID required' });

@@ -1,9 +1,12 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 // Helper function to get user from request
 const getUserFromRequest = (req: Request) => {
-  return (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) return null;
+  return user;
 };
 
 // Get user privacy settings
