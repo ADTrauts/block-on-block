@@ -4,36 +4,16 @@ import {
   stripe, 
   isStripeConfigured 
 } from '../config/stripe';
+import { AIQueryService } from './aiQueryService';
+import { RevenueSplitService } from './revenueSplitService';
 
 // Stripe webhook event interfaces
 export interface StripeWebhookEvent {
+  id: string;
   type: string;
   data: {
-    object: Stripe.Event.Data.Object;
+    object: Stripe.Event.Data;
   };
-}
-
-export interface StripeSubscription {
-  id: string;
-  status: string;
-  current_period_start: number;
-  current_period_end: number;
-  cancel_at_period_end?: boolean;
-}
-
-export interface StripeInvoice {
-  id: string;
-  subscription?: string;
-  amount_paid: number;
-}
-
-export interface StripePaymentIntent {
-  id: string;
-}
-
-export interface StripeTransfer {
-  id: string;
-  amount: number;
 }
 
 export interface CreateCustomerParams {
@@ -49,8 +29,8 @@ export interface CreateSubscriptionParams {
 }
 
 export interface CreatePaymentIntentParams {
-  amount: number;
-  currency: string;
+  amount: number; // in cents
+  currency?: string;
   customerId?: string;
   metadata?: Record<string, string>;
 }
@@ -60,6 +40,30 @@ export interface CreateTransferParams {
   currency: string;
   destination: string;
   metadata?: Record<string, string>;
+}
+
+export interface CreateSetupIntentParams {
+  customerId: string;
+  paymentMethodTypes?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface CreateCustomerPortalSessionParams {
+  customerId: string;
+  returnUrl: string;
+}
+
+export interface CreateCheckoutSessionParams {
+  customerId?: string;
+  customerEmail?: string;
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+  metadata?: Record<string, string>;
+  mode?: 'subscription' | 'payment';
+  subscriptionData?: {
+    metadata?: Record<string, string>;
+  };
 }
 
 export class StripeService {
@@ -101,6 +105,47 @@ export class StripeService {
   }
 
   /**
+   * Create a checkout session for subscriptions
+   */
+  static async createCheckoutSession(params: CreateCheckoutSessionParams) {
+    if (!isStripeConfigured() || !stripe) {
+      throw new Error('Stripe is not configured');
+    }
+
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: params.mode || 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: params.priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: params.successUrl,
+      cancel_url: params.cancelUrl,
+      metadata: params.metadata,
+    };
+
+    // Add customer if provided
+    if (params.customerId) {
+      sessionParams.customer = params.customerId;
+    } else if (params.customerEmail) {
+      sessionParams.customer_email = params.customerEmail;
+    }
+
+    // Add subscription metadata if provided
+    if (params.subscriptionData?.metadata) {
+      sessionParams.subscription_data = {
+        metadata: params.subscriptionData.metadata,
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    return session;
+  }
+
+  /**
    * Create a payment intent
    */
   static async createPaymentIntent(params: CreatePaymentIntentParams) {
@@ -108,17 +153,243 @@ export class StripeService {
       throw new Error('Stripe is not configured');
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
       amount: params.amount,
-      currency: params.currency,
-      customer: params.customerId,
+      currency: params.currency || 'usd',
       metadata: params.metadata,
-      automatic_payment_methods: {
-        enabled: true,
+    };
+
+    if (params.customerId) {
+      paymentIntentParams.customer = params.customerId;
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+
+    return paymentIntent;
+  }
+
+  /**
+   * Create a product
+   */
+  static async createProduct(name: string, description: string, metadata?: Record<string, string>) {
+    if (!isStripeConfigured() || !stripe) {
+      throw new Error('Stripe is not configured');
+    }
+
+    const product = await stripe.products.create({
+      name,
+      description,
+      metadata,
+    });
+
+    return product;
+  }
+
+  /**
+   * Create a price
+   */
+  static async createPrice(
+    productId: string,
+    unitAmount: number,
+    currency: string = 'usd',
+    recurring?: { interval: 'month' | 'year' }
+  ) {
+    if (!isStripeConfigured() || !stripe) {
+      throw new Error('Stripe is not configured');
+    }
+
+    const priceParams: Stripe.PriceCreateParams = {
+      product: productId,
+      unit_amount: unitAmount,
+      currency,
+    };
+
+    if (recurring) {
+      priceParams.recurring = {
+        interval: recurring.interval,
+      };
+    }
+
+    const price = await stripe.prices.create(priceParams);
+
+    return price;
+  }
+
+  /**
+   * Handle Stripe webhook events
+   */
+  static async handleWebhook(event: Stripe.Event) {
+    switch (event.type) {
+      case 'invoice.payment_succeeded':
+        await this.handlePaymentSucceeded(event.data.object as Stripe.Invoice);
+        break;
+      case 'invoice.payment_failed':
+        await this.handlePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
+      case 'customer.subscription.deleted':
+        await this.handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
+      case 'checkout.session.completed':
+        await this.handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
+      case 'setup_intent.succeeded':
+        await this.handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent);
+        break;
+    }
+  }
+
+  /**
+   * Handle setup intent succeeded - attach payment method to customer
+   */
+  private static async handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
+    try {
+      // The payment method is already attached to the customer when setup intent succeeds
+      // We just need to log it or perform any additional actions
+      console.log('Setup intent succeeded:', setupIntent.id);
+      
+      if (setupIntent.payment_method && typeof setupIntent.payment_method === 'string') {
+        const paymentMethod = await stripe!.paymentMethods.retrieve(setupIntent.payment_method);
+        console.log('Payment method attached:', paymentMethod.id, 'to customer:', paymentMethod.customer);
+      }
+    } catch (error) {
+      console.error('Error handling setup intent succeeded:', error);
+    }
+  }
+
+  private static async handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
+    try {
+      // Get subscription from session
+      if (session.mode === 'subscription' && typeof session.subscription === 'string') {
+        const subscription = await stripe!.subscriptions.retrieve(session.subscription);
+        const userId = session.metadata?.userId;
+        const tier = session.metadata?.tier;
+        const businessId = session.metadata?.businessId;
+
+        if (userId && tier) {
+          // Update or create subscription in database
+          const subscriptionData = {
+            userId,
+            businessId: businessId || null,
+            tier,
+            status: subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'cancelled',
+            currentPeriodStart: new Date(subscription.current_period_start * 1000),
+            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            stripeSubscriptionId: subscription.id,
+            stripeCustomerId: subscription.customer as string,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+          };
+
+          // Check if subscription already exists
+          const existing = await prisma.subscription.findFirst({
+            where: {
+              userId,
+              businessId: businessId || null,
+            },
+          });
+
+          if (existing) {
+            await prisma.subscription.update({
+              where: { id: existing.id },
+              data: subscriptionData,
+            });
+          } else {
+            await prisma.subscription.create({
+              data: subscriptionData,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error handling checkout session completed:', error);
+    }
+  }
+
+  private static async handlePaymentSucceeded(invoice: Stripe.Invoice) {
+    console.log('Payment succeeded:', invoice.id);
+    
+    // Update invoice record
+    await prisma.invoice.updateMany({
+      where: { stripeInvoiceId: invoice.id },
+      data: {
+        status: 'paid',
+        paidAt: new Date(),
       },
     });
 
-    return paymentIntent;
+    // Handle revenue sharing for module subscriptions
+    if (invoice.subscription) {
+      const moduleSubscription = await prisma.moduleSubscription.findFirst({
+        where: { stripeSubscriptionId: invoice.subscription as string },
+        include: { module: true },
+      });
+
+      if (moduleSubscription && moduleSubscription.module.isProprietary === false) {
+        // Calculate subscription age for revenue split
+        const subscriptionAgeMonths = RevenueSplitService.calculateSubscriptionAgeMonths(
+          moduleSubscription.currentPeriodStart
+        );
+        
+        // Calculate revenue split using Apple-style model
+        const revenueSplit = await RevenueSplitService.calculateDeveloperShare(
+          moduleSubscription.moduleId,
+          invoice.amount_paid / 100, // Convert from cents to dollars
+          subscriptionAgeMonths
+        );
+
+        // Record developer revenue
+        await prisma.developerRevenue.create({
+          data: {
+            developerId: moduleSubscription.module.developerId,
+            moduleId: moduleSubscription.moduleId,
+            periodStart: new Date(),
+            periodEnd: new Date(),
+            totalRevenue: invoice.amount_paid / 100, // Convert from cents to dollars
+            platformRevenue: revenueSplit.platformShare,
+            developerRevenue: revenueSplit.developerShare,
+            commissionRate: revenueSplit.commissionRate,
+            commissionType: revenueSplit.commissionType,
+            subscriptionAgeMonths,
+            isFirstYear: subscriptionAgeMonths <= 12,
+            payoutStatus: 'pending',
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle payment failed
+   */
+  private static async handlePaymentFailed(invoice: Stripe.Invoice) {
+    console.log('Payment failed:', invoice.id);
+    
+    // Update invoice record
+    await prisma.invoice.updateMany({
+      where: { stripeInvoiceId: invoice.id },
+      data: {
+        status: 'uncollectible',
+      },
+    });
+
+    // Update subscription status
+    if (invoice.subscription) {
+      await prisma.subscription.updateMany({
+        where: { stripeSubscriptionId: invoice.subscription as string },
+        data: { status: 'past_due' },
+      });
+    }
+  }
+
+  /**
+   * Handle subscription deleted
+   */
+  private static async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    await prisma.subscription.updateMany({
+      where: { stripeSubscriptionId: subscription.id },
+      data: {
+        status: 'cancelled',
+      },
+    });
   }
 
   /**
@@ -140,302 +411,80 @@ export class StripeService {
   }
 
   /**
-   * Cancel a subscription
+   * Create a setup intent for collecting payment methods
    */
-  static async cancelSubscription(subscriptionId: string, cancelAtPeriodEnd: boolean = true) {
+  static async createSetupIntent(params: CreateSetupIntentParams) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
     }
 
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: cancelAtPeriodEnd,
+    const setupIntent = await stripe.setupIntents.create({
+      customer: params.customerId,
+      payment_method_types: params.paymentMethodTypes || ['card'],
+      metadata: params.metadata,
     });
 
-    return subscription;
+    return setupIntent;
   }
 
   /**
-   * Reactivate a subscription
+   * List payment methods for a customer
    */
-  static async reactivateSubscription(subscriptionId: string) {
+  static async listPaymentMethods(customerId: string) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
     }
 
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: false,
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
     });
 
-    return subscription;
+    return paymentMethods;
   }
 
   /**
-   * Get subscription details
+   * Detach a payment method from a customer
    */
-  static async getSubscription(subscriptionId: string) {
+  static async detachPaymentMethod(paymentMethodId: string) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
     }
 
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    return subscription;
+    const paymentMethod = await stripe.paymentMethods.detach(paymentMethodId);
+    return paymentMethod;
   }
 
   /**
-   * Get customer details
+   * Set default payment method for a customer
    */
-  static async getCustomer(customerId: string) {
+  static async setDefaultPaymentMethod(customerId: string, paymentMethodId: string) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
     }
 
-    const customer = await stripe.customers.retrieve(customerId);
+    const customer = await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
+    });
+
     return customer;
   }
 
   /**
-   * Create a product in Stripe
+   * Create a customer portal session
    */
-  static async createProduct(name: string, description?: string, metadata?: Record<string, string>) {
+  static async createCustomerPortalSession(params: CreateCustomerPortalSessionParams) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
     }
 
-    const product = await stripe.products.create({
-      name,
-      description,
-      metadata,
+    const session = await stripe.billingPortal.sessions.create({
+      customer: params.customerId,
+      return_url: params.returnUrl,
     });
 
-    return product;
+    return session;
   }
-
-  /**
-   * Create a price in Stripe
-   */
-  static async createPrice(
-    productId: string, 
-    unitAmount: number, 
-    currency: string = 'usd',
-    recurring?: { interval: 'month' | 'year' }
-  ) {
-    if (!isStripeConfigured() || !stripe) {
-      throw new Error('Stripe is not configured');
-    }
-
-    const price = await stripe.prices.create({
-      product: productId,
-      unit_amount: unitAmount,
-      currency,
-      recurring,
-    });
-
-    return price;
-  }
-
-  /**
-   * Handle webhook events
-   */
-  static async handleWebhookEvent(event: StripeWebhookEvent) {
-    if (!isStripeConfigured()) {
-      console.log('Stripe not configured, skipping webhook');
-      return;
-    }
-
-    const { type, data } = event;
-
-    switch (type) {
-      case 'customer.subscription.created':
-        await this.handleSubscriptionCreated(data.object as StripeSubscription);
-        break;
-      case 'customer.subscription.updated':
-        await this.handleSubscriptionUpdated(data.object as StripeSubscription);
-        break;
-      case 'customer.subscription.deleted':
-        await this.handleSubscriptionDeleted(data.object as StripeSubscription);
-        break;
-      case 'invoice.payment_succeeded':
-        await this.handlePaymentSucceeded(data.object as StripeInvoice);
-        break;
-      case 'invoice.payment_failed':
-        await this.handlePaymentFailed(data.object as StripeInvoice);
-        break;
-      case 'payment_intent.succeeded':
-        await this.handlePaymentIntentSucceeded(data.object as StripePaymentIntent);
-        break;
-      case 'payment_intent.payment_failed':
-        await this.handlePaymentIntentFailed(data.object as StripePaymentIntent);
-        break;
-      case 'transfer.created':
-        await this.handleTransferCreated(data.object as StripeTransfer);
-        break;
-      case 'transfer.failed':
-        await this.handleTransferFailed(data.object as StripeTransfer);
-        break;
-      default:
-        console.log(`Unhandled webhook event: ${type}`);
-    }
-  }
-
-  /**
-   * Handle subscription created
-   */
-  private static async handleSubscriptionCreated(subscription: StripeSubscription) {
-    console.log('Subscription created:', subscription.id);
-    
-    // Update local subscription record
-    await prisma.subscription.updateMany({
-      where: { stripeSubscriptionId: subscription.id },
-      data: {
-        status: subscription.status,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      },
-    });
-  }
-
-  /**
-   * Handle subscription updated
-   */
-  private static async handleSubscriptionUpdated(subscription: StripeSubscription) {
-    console.log('Subscription updated:', subscription.id);
-    
-    // Update local subscription record
-    await prisma.subscription.updateMany({
-      where: { stripeSubscriptionId: subscription.id },
-      data: {
-        status: subscription.status,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-      },
-    });
-  }
-
-  /**
-   * Handle subscription deleted
-   */
-  private static async handleSubscriptionDeleted(subscription: StripeSubscription) {
-    console.log('Subscription deleted:', subscription.id);
-    
-    // Update local subscription record
-    await prisma.subscription.updateMany({
-      where: { stripeSubscriptionId: subscription.id },
-      data: {
-        status: 'cancelled',
-      },
-    });
-  }
-
-  /**
-   * Handle payment succeeded
-   */
-  private static async handlePaymentSucceeded(invoice: StripeInvoice) {
-    console.log('Payment succeeded:', invoice.id);
-    
-    // Update invoice record
-    await prisma.invoice.updateMany({
-      where: { stripeInvoiceId: invoice.id },
-      data: {
-        status: 'paid',
-        paidAt: new Date(),
-      },
-    });
-
-    // Handle revenue sharing for module subscriptions
-    if (invoice.subscription) {
-      const moduleSubscription = await prisma.moduleSubscription.findFirst({
-        where: { stripeSubscriptionId: invoice.subscription as string },
-        include: { module: true },
-      });
-
-      if (moduleSubscription && moduleSubscription.module.isProprietary === false) {
-        // Calculate developer revenue
-        const developerRevenue = invoice.amount_paid * moduleSubscription.module.revenueSplit;
-        const platformRevenue = invoice.amount_paid - developerRevenue;
-
-        // Record developer revenue
-        await prisma.developerRevenue.create({
-          data: {
-            developerId: moduleSubscription.module.developerId,
-            moduleId: moduleSubscription.moduleId,
-            periodStart: new Date(),
-            periodEnd: new Date(),
-            totalRevenue: invoice.amount_paid,
-            platformRevenue,
-            developerRevenue,
-            payoutStatus: 'pending',
-          },
-        });
-      }
-    }
-  }
-
-  /**
-   * Handle payment failed
-   */
-  private static async handlePaymentFailed(invoice: StripeInvoice) {
-    console.log('Payment failed:', invoice.id);
-    
-    // Update invoice record
-    await prisma.invoice.updateMany({
-      where: { stripeInvoiceId: invoice.id },
-      data: {
-        status: 'uncollectible',
-      },
-    });
-  }
-
-  /**
-   * Handle payment intent succeeded
-   */
-  private static async handlePaymentIntentSucceeded(paymentIntent: StripePaymentIntent) {
-    console.log('Payment intent succeeded:', paymentIntent.id);
-    // Additional payment intent handling if needed
-  }
-
-  /**
-   * Handle payment intent failed
-   */
-  private static async handlePaymentIntentFailed(paymentIntent: StripePaymentIntent) {
-    console.log('Payment intent failed:', paymentIntent.id);
-    // Additional payment intent handling if needed
-  }
-
-  /**
-   * Handle transfer created
-   */
-  private static async handleTransferCreated(transfer: StripeTransfer) {
-    console.log('Transfer created:', transfer.id);
-    
-    // Update payout records
-    await prisma.developerRevenue.updateMany({
-      where: { 
-        developerRevenue: transfer.amount / 100, // Convert from cents
-        payoutStatus: 'pending',
-      },
-      data: {
-        payoutStatus: 'paid',
-        payoutDate: new Date(),
-      },
-    });
-  }
-
-  /**
-   * Handle transfer failed
-   */
-  private static async handleTransferFailed(transfer: StripeTransfer) {
-    console.log('Transfer failed:', transfer.id);
-    
-    // Update payout records
-    await prisma.developerRevenue.updateMany({
-      where: { 
-        developerRevenue: transfer.amount / 100, // Convert from cents
-        payoutStatus: 'pending',
-      },
-      data: {
-        payoutStatus: 'failed',
-      },
-    });
-  }
-} 
+}

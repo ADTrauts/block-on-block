@@ -18,7 +18,7 @@ const isDatabaseConfigured = (): boolean => {
     // Check if it looks like a valid database URL:
     // - Has a pathname that looks like a database name (not empty, not just "/")
     // - Or is a Cloud SQL connection
-    const hasDatabaseName = pathname && pathname.length > 1 && pathname !== '/';
+    const hasDatabaseName = !!(pathname && pathname.length > 1 && pathname !== '/');
     
     return dbUrl.includes('/cloudsql/') || hasDatabaseName;
   } catch {

@@ -1511,7 +1511,12 @@ router.get('/billing/payouts', authenticateJWT, requireAdmin, async (req: Reques
         amount: payout.developerRevenue,
         status: payout.payoutStatus,
         requestedAt: payout.createdAt,
-        paidAt: payout.payoutDate
+        paidAt: payout.payoutDate,
+        commissionRate: payout.commissionRate || 0.30,
+        commissionType: payout.commissionType || 'standard',
+        totalRevenue: payout.totalRevenue,
+        platformRevenue: payout.platformRevenue,
+        isFirstYear: payout.isFirstYear ?? true,
       })),
       total,
       page: Number(page),

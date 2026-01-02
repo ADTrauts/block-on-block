@@ -1,0 +1,80 @@
+// ============================================================================
+// AI QUERY BALANCE & PURCHASE MODELS
+// ============================================================================
+
+// AI Query Balance - Tracks user's available AI queries
+model AIQueryBalance {
+  id              String   @id @default(uuid())
+  userId          String
+  businessId      String?
+  
+  // Base allowance from subscription tier
+  baseAllowance   Int      @default(0)
+  baseAllowanceUsed Int    @default(0)
+  
+  // Purchased query packs (never expire)
+  purchasedQueries Int     @default(0)
+  purchasedQueriesUsed Int @default(0)
+  
+  // Current billing period tracking
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  
+  // Rollover tracking (unused base allowance from previous periods)
+  queriesRolledOver Int    @default(0)
+  
+  // Spending limit for overage queries (Cursor-style)
+  monthlySpendingLimit Float @default(0) // Monthly limit in dollars (0 = disabled)
+  currentPeriodSpending Float @default(0) // Current period spending in dollars
+  
+  // Overage tracking
+  overageQueriesUsed Int @default(0) // Number of overage queries used this period
+  overageQueriesCost Float @default(0) // Total cost of overage queries this period
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relationships
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  purchases       AIQueryPurchase[]
+  
+  @@unique([userId, businessId])
+  @@index([userId])
+  @@index([businessId])
+  @@index([currentPeriodStart])
+  @@map("ai_query_balances")
+}
+
+// Query pack purchase records
+model AIQueryPurchase {
+  id                      String   @id @default(uuid())
+  userId                  String
+  businessId              String?
+  balanceId               String?  // Link to balance record
+  
+  packType                String   // 'small', 'medium', 'large', 'enterprise'
+  queriesAmount           Int
+  amountPaid              Float
+  currency                String   @default("USD")
+  stripePaymentIntentId   String?  @unique
+  stripeChargeId          String?
+  
+  status                  String   @default("pending") // 'pending', 'completed', 'failed', 'refunded'
+  
+  createdAt               DateTime @default(now())
+  completedAt             DateTime?
+  
+  // Relationships
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business                Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  balance                 AIQueryBalance? @relation(fields: [balanceId], references: [id], onDelete: SetNull)
+  
+  @@index([userId])
+  @@index([businessId])
+  @@index([status])
+  @@index([stripePaymentIntentId])
+  @@index([createdAt])
+  @@map("ai_query_purchases")
+}
+

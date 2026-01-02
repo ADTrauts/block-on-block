@@ -1,4 +1,6 @@
 import { prisma } from '../lib/prisma';
+import { AIQueryService } from './aiQueryService';
+import { isUnlimitedTier } from '../config/aiQueryPacks';
 
 export interface FeatureConfig {
   name: string;
@@ -54,11 +56,11 @@ export class FeatureGatingService {
       description: 'Full access to all platform modules',
     },
     'unlimited_ai': {
-      name: 'Unlimited AI Usage',
+      name: 'AI Usage',
       requiredTier: 'pro',
       module: 'ai',
       category: 'personal',
-      description: 'Unlimited AI features and requests',
+      description: 'AI features with base allowance and purchasable query packs',
     },
     'no_ads': {
       name: 'Ad-Free Experience',
@@ -185,6 +187,47 @@ export class FeatureGatingService {
         hasAccess: false,
         reason: `Requires ${feature.requiredTier} tier, current tier: ${userTier}`,
       };
+    }
+
+    // Special handling for AI features - check query balance
+    if (featureName === 'unlimited_ai' || featureName === 'limited_ai') {
+      try {
+        const availability = await AIQueryService.checkQueryAvailability(userId, businessId || undefined);
+        
+        // Enterprise tier is truly unlimited
+        if (availability.isUnlimited) {
+          return { hasAccess: true };
+        }
+
+        // Check if queries are available
+        if (!availability.available || availability.remaining <= 0) {
+          return {
+            hasAccess: false,
+            reason: `AI query balance exhausted. ${availability.remaining} queries remaining.`,
+            usageInfo: {
+              metric: 'ai_queries',
+              limit: availability.totalAvailable,
+              currentUsage: availability.totalAvailable - availability.remaining,
+              remaining: availability.remaining,
+            },
+          };
+        }
+
+        // Return access with query information
+        return {
+          hasAccess: true,
+          usageInfo: {
+            metric: 'ai_queries',
+            limit: availability.totalAvailable,
+            currentUsage: availability.totalAvailable - availability.remaining,
+            remaining: availability.remaining,
+          },
+        };
+      } catch (queryError) {
+        console.error('Query balance check error in feature gating:', queryError);
+        // If query check fails, allow access (fail open)
+        return { hasAccess: true };
+      }
     }
 
     // Check usage limits if applicable

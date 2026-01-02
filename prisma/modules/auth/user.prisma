@@ -39,6 +39,10 @@ model User {
   usageRecords    UsageRecord[]
   invoices        Invoice[]
   developerRevenue DeveloperRevenue[]
+  pricingConfigs  PricingConfig[] @relation("PricingConfigCreatedBy")
+  priceChanges     PriceChange[] @relation("PriceChangeCreatedBy")
+  aiQueryBalances  AIQueryBalance[]
+  aiQueryPurchases AIQueryPurchase[]
   
   // Existing relationships
   messages        Message[]

@@ -4,6 +4,8 @@ import { PersonalityEngine } from '../ai/core/PersonalityEngine';
 import { PrismaClient } from '@prisma/client';
 import { authenticateJWT } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
+import { FeatureGatingService } from '../services/featureGatingService';
+import { AIQueryService } from '../services/aiQueryService';
 
 const router: express.Router = express.Router();
 const digitalLifeTwin = new DigitalLifeTwinService(prisma);
@@ -17,6 +19,7 @@ router.post('/twin', authenticateJWT, async (req, res) => {
   try {
     const { query, context = {} } = req.body;
     const userId = req.user?.id;
+    const businessId = context.businessId || null;
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
@@ -24,6 +27,21 @@ router.post('/twin', authenticateJWT, async (req, res) => {
 
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
+    }
+
+    // Check AI feature access (includes query balance check)
+    const featureCheck = await FeatureGatingService.checkFeatureAccess(
+      userId,
+      'unlimited_ai',
+      businessId || undefined
+    );
+
+    if (!featureCheck.hasAccess) {
+      return res.status(429).json({
+        error: 'AI query limit exceeded',
+        message: featureCheck.reason || 'No queries remaining',
+        remaining: featureCheck.usageInfo?.remaining || 0,
+      });
     }
 
     // Use the revolutionary Digital Life Twin Core
@@ -39,6 +57,18 @@ router.post('/twin', authenticateJWT, async (req, res) => {
       }
     );
     
+    // Consume query (only after successful processing)
+    try {
+      const consumeResult = await AIQueryService.consumeQuery(userId, businessId, 1);
+      if (!consumeResult.success) {
+        // This shouldn't happen since we checked above, but handle gracefully
+        console.warn('Query consumption failed after processing:', consumeResult.error);
+      }
+    } catch (consumeError) {
+      // Log error but don't fail the request since processing already succeeded
+      console.error('Error consuming query after processing:', consumeError);
+    }
+
     // Save conversation to history with enhanced cross-module data
     await prisma.aIConversationHistory.create({
       data: {
@@ -78,6 +108,9 @@ router.post('/twin', authenticateJWT, async (req, res) => {
       }
     }
 
+    // Get updated query balance for response
+    const updatedAvailability = await AIQueryService.checkQueryAvailability(userId, businessId);
+
     res.json({
       success: true,
       data: {
@@ -88,7 +121,11 @@ router.post('/twin', authenticateJWT, async (req, res) => {
         insights: response.insights,
         personalityAlignment: response.personalityAlignment,
         crossModuleConnections: response.crossModuleConnections,
-        metadata: response.metadata
+        metadata: response.metadata,
+        queryBalance: {
+          remaining: updatedAvailability.remaining,
+          isUnlimited: updatedAvailability.isUnlimited,
+        }
       }
     });
   } catch (error) {

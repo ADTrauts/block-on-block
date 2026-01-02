@@ -15,6 +15,14 @@ import {
 } from 'lucide-react';
 import { useFeatureGating } from '../hooks/useFeatureGating';
 import { authenticatedApiCall } from '../lib/apiUtils';
+import AIQueryBalance from './AIQueryBalance';
+import QueryPackPurchase from './QueryPackPurchase';
+import PaymentMethodManager from './PaymentMethodManager';
+import UsageAlerts from './UsageAlerts';
+import UpgradeFlow from './UpgradeFlow';
+import CancelSubscriptionModal from './CancelSubscriptionModal';
+import PlanComparison, { Tier } from './PlanComparison';
+import AISpendingLimitModal from './AISpendingLimitModal';
 
 interface Subscription {
   id: string;
@@ -76,15 +84,19 @@ interface Invoice {
 interface BillingModalProps {
   isOpen: boolean;
   onClose: () => void;
+  businessId?: string;
 }
 
-export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
+export default function BillingModal({ isOpen, onClose, businessId }: BillingModalProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [moduleSubscriptions, setModuleSubscriptions] = useState<ModuleSubscription[]>([]);
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showUpgradeFlow, setShowUpgradeFlow] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showSpendingLimitModal, setShowSpendingLimitModal] = useState(false);
   const { features, loading: featuresLoading } = useFeatureGating();
 
   useEffect(() => {
@@ -176,7 +188,7 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
 
   if (loading) {
     return (
-      <Modal open={isOpen} onClose={onClose} title="Billing & Subscriptions" size="large">
+      <Modal open={isOpen} onClose={onClose} title="Billing & Subscriptions" size="xlarge">
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
@@ -185,15 +197,31 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
   }
 
   return (
-    <Modal open={isOpen} onClose={onClose} title="Billing & Subscriptions" size="large">
+    <Modal open={isOpen} onClose={onClose} title="Billing & Subscriptions" size="xlarge">
       <div className="max-h-[80vh] overflow-y-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <Tabs.List>
             <Tabs.Trigger value="overview">Overview</Tabs.Trigger>
+            <Tabs.Trigger value="plans">Plans</Tabs.Trigger>
+            <Tabs.Trigger value="payment-methods">Payment Methods</Tabs.Trigger>
+            <Tabs.Trigger value="queries">Query Packs</Tabs.Trigger>
             <Tabs.Trigger value="modules">Modules</Tabs.Trigger>
             <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
             <Tabs.Trigger value="invoices">Invoices</Tabs.Trigger>
           </Tabs.List>
+          
+          <Tabs.Content value="plans">
+            <div className="space-y-4">
+              <PlanComparison
+                currentTier={subscription?.tier as Tier || 'free'}
+                onSelectTier={(tier) => {
+                  setShowUpgradeFlow(true);
+                }}
+                showActions={true}
+                userType={businessId ? 'business' : 'personal'}
+              />
+            </div>
+          </Tabs.Content>
           
           <Tabs.Content value="overview">
             <div className="space-y-4">
@@ -243,12 +271,39 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button variant="secondary" size="sm">
+                        <Button 
+                          variant="secondary" 
+                          size="sm"
+                          onClick={() => setShowUpgradeFlow(true)}
+                        >
                           Change Plan
                         </Button>
-                        {subscription.status === 'active' && (
-                          <Button variant="secondary" size="sm">
+                        {subscription.status === 'active' && !subscription.cancelAtPeriodEnd && (
+                          <Button 
+                            variant="secondary" 
+                            size="sm"
+                            onClick={() => setShowCancelModal(true)}
+                          >
                             Cancel
+                          </Button>
+                        )}
+                        {subscription.status === 'cancelled' && subscription.cancelAtPeriodEnd && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await authenticatedApiCall(`/api/billing/subscriptions/${subscription.id}/reactivate`, {
+                                  method: 'POST',
+                                });
+                                await loadBillingData();
+                              } catch (error) {
+                                console.error('Failed to reactivate subscription:', error);
+                                alert('Failed to reactivate subscription. Please try again.');
+                              }
+                            }}
+                          >
+                            Reactivate
                           </Button>
                         )}
                       </div>
@@ -257,7 +312,32 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
                     <div className="text-center py-4">
                       <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
                       <p className="text-gray-600">No active subscription found</p>
-                      <Button className="mt-2">Subscribe to a Plan</Button>
+                      <Button 
+                        className="mt-2"
+                        onClick={async () => {
+                          try {
+                            // Create checkout session for Pro tier (default)
+                            const response = await authenticatedApiCall<{ sessionId: string; url: string }>('/api/billing/checkout/session', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                tier: 'pro',
+                                billingCycle: 'monthly',
+                                businessId: businessId || null,
+                              }),
+                            });
+                            
+                            if (response.url) {
+                              // Redirect to Stripe Checkout
+                              window.location.href = response.url;
+                            }
+                          } catch (error) {
+                            console.error('Failed to create checkout session:', error);
+                            alert('Failed to start checkout. Please try again.');
+                          }
+                        }}
+                      >
+                        Subscribe to Pro Plan
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -324,6 +404,36 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
                   </div>
                 </Card>
               </div>
+
+              {/* AI Query Balance */}
+              <AIQueryBalance 
+                businessId={businessId}
+                onPurchaseClick={() => setActiveTab('queries')}
+                onSpendingLimitClick={() => setShowSpendingLimitModal(true)}
+              />
+            </div>
+          </Tabs.Content>
+
+          <Tabs.Content value="payment-methods">
+            <div className="space-y-4">
+              <PaymentMethodManager onUpdate={loadBillingData} />
+            </div>
+          </Tabs.Content>
+
+          <Tabs.Content value="queries">
+            <div className="space-y-4">
+              <AIQueryBalance 
+                businessId={businessId}
+                onPurchaseClick={() => {}}
+                onSpendingLimitClick={() => setShowSpendingLimitModal(true)}
+              />
+              <QueryPackPurchase 
+                businessId={businessId}
+                onPurchaseComplete={() => {
+                  // Reload balance if needed
+                  setActiveTab('overview');
+                }}
+              />
             </div>
           </Tabs.Content>
 
@@ -404,12 +514,16 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
                       <div>
                         <h4 className="font-semibold mb-2">Core Platform Usage</h4>
                         <div className="space-y-2">
-                          {usage.coreUsage.map((record: UsageRecord, index: number) => (
-                            <div key={index} className="flex items-center justify-between p-2 border-b">
-                              <span className="text-sm">{record.description}</span>
-                              <span className="text-sm font-medium">{record.value} {record.unit}</span>
-                            </div>
-                          ))}
+                          {usage.coreUsage && usage.coreUsage.length > 0 ? (
+                            usage.coreUsage.map((record: UsageRecord, index: number) => (
+                              <div key={index} className="flex items-center justify-between p-2 border-b">
+                                <span className="text-sm">{record.description}</span>
+                                <span className="text-sm font-medium">{record.value} {record.unit}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-gray-600">No usage data available</p>
+                          )}
                         </div>
                       </div>
 
@@ -417,19 +531,23 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
                       <div>
                         <h4 className="font-semibold mb-2">Module Usage</h4>
                         <div className="space-y-4">
-                          {usage.moduleUsage.map((moduleUsage) => (
-                            <div key={moduleUsage.moduleId} className="border rounded-lg p-3">
-                              <h5 className="font-medium mb-2">{moduleUsage.moduleName}</h5>
-                              <div className="space-y-1">
-                                {moduleUsage.usage.map((record: UsageRecord, index: number) => (
-                                  <div key={index} className="flex items-center justify-between p-2 border-b">
-                                    <span className="text-sm">{record.description}</span>
-                                    <span className="text-sm font-medium">{record.value} {record.unit}</span>
-                                  </div>
-                                ))}
+                          {usage.moduleUsage && usage.moduleUsage.length > 0 ? (
+                            usage.moduleUsage.map((moduleUsage) => (
+                              <div key={moduleUsage.moduleId} className="border rounded-lg p-3">
+                                <h5 className="font-medium mb-2">{moduleUsage.moduleName}</h5>
+                                <div className="space-y-1">
+                                  {moduleUsage.usage.map((record: UsageRecord, index: number) => (
+                                    <div key={index} className="flex items-center justify-between p-2 border-b">
+                                      <span className="text-sm">{record.description}</span>
+                                      <span className="text-sm font-medium">{record.value} {record.unit}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ))
+                          ) : (
+                            <p className="text-sm text-gray-600">No module usage data available</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -499,6 +617,38 @@ export default function BillingModal({ isOpen, onClose }: BillingModalProps) {
           </Tabs.Content>
         </Tabs>
       </div>
+
+      {/* Upgrade/Downgrade Flow Modal */}
+      {subscription && (
+        <UpgradeFlow
+          isOpen={showUpgradeFlow}
+          onClose={() => setShowUpgradeFlow(false)}
+          currentTier={subscription.tier as Tier}
+          subscriptionId={subscription.id}
+          businessId={businessId}
+          onSuccess={loadBillingData}
+        />
+      )}
+
+      {/* AI Spending Limit Modal */}
+      <AISpendingLimitModal
+        isOpen={showSpendingLimitModal}
+        onClose={() => setShowSpendingLimitModal(false)}
+        businessId={businessId}
+        onUpdate={loadBillingData}
+      />
+
+      {/* Cancel Subscription Modal */}
+      {subscription && (
+        <CancelSubscriptionModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          subscriptionId={subscription.id}
+          currentTier={subscription.tier}
+          currentPeriodEnd={subscription.currentPeriodEnd}
+          onSuccess={loadBillingData}
+        />
+      )}
     </Modal>
   );
 } 

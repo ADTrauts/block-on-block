@@ -5,13 +5,13 @@ export const STRIPE_CONFIG = {
   secretKey: process.env.STRIPE_SECRET_KEY || '',
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
-  apiVersion: '2025-07-30.basil' as const,
+  apiVersion: '2025-08-27.basil' as const,
 };
 
 // Initialize Stripe client
 export const stripe = STRIPE_CONFIG.secretKey 
   ? new Stripe(STRIPE_CONFIG.secretKey, {
-      apiVersion: STRIPE_CONFIG.apiVersion,
+      apiVersion: STRIPE_CONFIG.apiVersion as any, // TypeScript types may lag behind Stripe API versions
     })
   : null;
 
@@ -37,6 +37,8 @@ export const STRIPE_PRICES = {
 };
 
 // Pricing configuration
+// NOTE: This is now deprecated - use PricingService instead
+// Kept for backward compatibility during migration
 export const PRICING_CONFIG = {
   FREE: {
     monthly: 0,
@@ -71,10 +73,45 @@ export const PRICING_CONFIG = {
   },
 };
 
-// Revenue split configuration
+/**
+ * Get pricing from database (preferred method)
+ * Falls back to hardcoded PRICING_CONFIG if database is not available
+ */
+export async function getPricingConfig(tier: string) {
+  try {
+    const { PricingService } = await import('../services/pricingService');
+    const pricing = await PricingService.getPricingInfo(tier);
+    if (pricing) {
+      return pricing;
+    }
+  } catch (error) {
+    console.warn('Failed to get pricing from database, using fallback:', error);
+  }
+  
+  // Fallback to hardcoded config
+  const tierUpper = tier.toUpperCase() as keyof typeof PRICING_CONFIG;
+  const config = PRICING_CONFIG[tierUpper] as any; // Type assertion for union types
+  if (!config) {
+    return null;
+  }
+  
+  return {
+    monthly: config.monthly,
+    yearly: config.yearly,
+    perEmployee: config.perEmployee,
+    includedEmployees: config.includedEmployees,
+  };
+}
+
+// Revenue split configuration (DEPRECATED - Use RevenueSplitService instead)
+// This is kept for backward compatibility but should not be used in new code
+// The actual revenue split is now calculated dynamically based on:
+// - Small Business Program (<$1M lifetime revenue = 15% platform)
+// - Long-term subscriptions (>12 months = 15% platform)
+// - Standard (first year, >=$1M revenue = 30% platform)
 export const REVENUE_SPLIT = {
-  PLATFORM_SHARE: 0.3, // 30% to platform
-  DEVELOPER_SHARE: 0.7, // 70% to developer
+  PLATFORM_SHARE: 0.3, // 30% to platform (legacy default)
+  DEVELOPER_SHARE: 0.7, // 70% to developer (legacy default)
 };
 
 // Stripe webhook events to handle
@@ -94,7 +131,8 @@ export type StripeWebhookEvent = typeof STRIPE_WEBHOOK_EVENTS[number];
 
 // Helper function to check if Stripe is configured
 export const isStripeConfigured = (): boolean => {
-  return !!(STRIPE_CONFIG.secretKey && STRIPE_CONFIG.publishableKey);
+  // Backend only needs secret key - publishable key is for frontend only
+  return !!STRIPE_CONFIG.secretKey;
 };
 
 // Helper function to get Stripe client

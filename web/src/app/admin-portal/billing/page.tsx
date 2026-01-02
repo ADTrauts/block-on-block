@@ -46,6 +46,11 @@ interface DeveloperPayout {
   status: 'pending' | 'paid' | 'failed';
   requestedAt: string;
   paidAt?: string;
+  commissionRate?: number;
+  commissionType?: 'standard' | 'small_business' | 'long_term';
+  totalRevenue?: number;
+  platformRevenue?: number;
+  isFirstYear?: boolean;
 }
 
 export default function FinancialManagement() {
@@ -454,12 +459,32 @@ export default function FinancialManagement() {
                   <tr key={payout.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{payout.developerName}</div>
+                      {payout.commissionType && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          {payout.commissionType === 'small_business' && '🏪 Small Business (15%)'}
+                          {payout.commissionType === 'long_term' && '⏰ Long-term (15%)'}
+                          {payout.commissionType === 'standard' && '📊 Standard (30%)'}
+                          {payout.isFirstYear === false && ' • After Year 1'}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${payout.amount.toLocaleString()}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        ${payout.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      {payout.totalRevenue && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          Total: ${payout.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(payout.status)}
+                      {payout.commissionRate && (
+                        <div className="text-xs text-gray-600 mt-1">
+                          {(payout.commissionRate * 100).toFixed(0)}% commission
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(payout.requestedAt).toLocaleDateString()}

@@ -27,7 +27,10 @@ model Module {
   basePrice       Float    @default(0)
   enterprisePrice Float    @default(0)
   isProprietary   Boolean  @default(false)
-  revenueSplit    Float    @default(0.7) // 0.7 = 70% to developer
+  revenueSplit    Float    @default(0.7) // 0.7 = 70% to developer (legacy, use RevenueSplitService)
+  // Apple-style revenue split tracking
+  totalLifetimeRevenue Float @default(0) // Total revenue for small business eligibility
+  smallBusinessEligible Boolean @default(false) // Eligible for 15% commission (<$1M lifetime)
   // Stripe fields
   stripeProductId String?
   stripePriceId   String?

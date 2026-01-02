@@ -20,7 +20,11 @@
     "prisma:migrate": "pnpm prisma:build && prisma migrate deploy --schema ../prisma/schema.prisma",
     "seed:chat": "ts-node scripts/seed-chat.ts",
     "seed:modules": "ts-node scripts/seed-modules.ts",
-    "ensure:calendars": "ts-node scripts/ensure-personal-calendars.ts"
+    "seed:pricing": "ts-node src/scripts/seedPricing.ts",
+    "ensure:calendars": "ts-node scripts/ensure-personal-calendars.ts",
+    "stripe:verify": "ts-node src/scripts/verifyStripeSetup.ts",
+    "stripe:sync": "ts-node src/scripts/syncStripePrices.ts",
+    "stripe:setup": "ts-node src/scripts/setupStripeProducts.ts"
   },
   "keywords": [],
   "author": "",

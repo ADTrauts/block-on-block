@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma';
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-07-30.basil',
+  apiVersion: '2025-08-27.basil' as any, // TypeScript types may lag behind Stripe API versions
 }) : null;
 
 export interface CreateSubscriptionParams {
@@ -52,11 +52,16 @@ export class SubscriptionService {
     // If this is a paid tier, create Stripe subscription
     if (tier !== 'free' && stripeCustomerId && stripe) {
       try {
+        const stripePriceId = await this.getStripePriceId(tier, 'monthly');
+        if (!stripePriceId) {
+          throw new Error(`No Stripe price ID found for tier: ${tier}`);
+        }
+
         const stripeSubscription = await stripe.subscriptions.create({
           customer: stripeCustomerId,
           items: [
             {
-              price: this.getStripePriceId(tier),
+              price: stripePriceId,
             },
           ],
           metadata: {
@@ -151,11 +156,16 @@ export class SubscriptionService {
       try {
         if (tier && tier !== 'free') {
           // Update to new tier
+          const stripePriceId = await this.getStripePriceId(tier, 'monthly');
+          if (!stripePriceId) {
+            throw new Error(`No Stripe price ID found for tier: ${tier}`);
+          }
+
           await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
             items: [
               {
                 id: (await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId)).items.data[0].id,
-                price: this.getStripePriceId(tier),
+                price: stripePriceId,
               },
             ],
           });
@@ -283,11 +293,27 @@ export class SubscriptionService {
 
   /**
    * Get Stripe price ID for tier
+   * Now uses PricingService to get stripePriceId from database
    */
-  private getStripePriceId(tier: string): string {
+  private async getStripePriceId(tier: string, billingCycle: 'monthly' | 'yearly' = 'monthly'): Promise<string | null> {
+    try {
+      const { PricingService } = await import('./pricingService');
+      const pricing = await PricingService.getPricing(tier, billingCycle);
+      
+      if (pricing?.stripePriceId) {
+        return pricing.stripePriceId;
+      }
+    } catch (error) {
+      console.warn('Failed to get Stripe price ID from database, using fallback:', error);
+    }
+
+    // Fallback to environment variables (for backward compatibility)
     const priceIds: Record<string, string> = {
-      standard: process.env.STRIPE_STANDARD_PRICE_ID!,
-      enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID!,
+      pro: process.env.STRIPE_PRO_PRICE_ID || '',
+      business_basic: process.env.STRIPE_BUSINESS_BASIC_PRICE_ID || '',
+      business_advanced: process.env.STRIPE_BUSINESS_ADVANCED_PRICE_ID || '',
+      enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
+      standard: process.env.STRIPE_STANDARD_PRICE_ID || '', // Legacy
     };
 
     const priceId = priceIds[tier];

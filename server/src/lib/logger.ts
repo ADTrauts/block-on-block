@@ -72,6 +72,11 @@ class Logger {
 
   private async logToDatabase(entry: LogEntry): Promise<void> {
     try {
+      // Skip database logging if database is not configured or accessible
+      if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('password@localhost')) {
+        return; // Silently skip if database URL is placeholder or not configured
+      }
+      
       // Store log in database for long-term analysis
       await prisma.log.create({
         data: {

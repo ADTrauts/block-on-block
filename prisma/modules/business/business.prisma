@@ -34,6 +34,8 @@ model Business {
   moduleSubscriptions ModuleSubscription[]
   usageRecords    UsageRecord[]
   invoices        Invoice[]
+  aiQueryBalances  AIQueryBalance[]
+  aiQueryPurchases AIQueryPurchase[]
   aiConversations AIConversation[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

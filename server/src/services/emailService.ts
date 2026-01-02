@@ -107,6 +107,94 @@ export async function sendCalendarCancelEmail(params: {
   });
 }
 
+/**
+ * Send price change notification email to all affected subscribers
+ */
+export async function sendPriceChangeNotification(params: {
+  toEmail: string;
+  tier: string;
+  billingCycle: 'monthly' | 'yearly';
+  oldPrice: number;
+  newPrice: number;
+  effectiveDate: Date;
+  userName?: string;
+}) {
+  const { toEmail, tier, billingCycle, oldPrice, newPrice, effectiveDate, userName } = params;
+  
+  const tierName = tier
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  
+  const priceChange = newPrice - oldPrice;
+  const priceChangePercent = ((priceChange / oldPrice) * 100).toFixed(1);
+  const isIncrease = priceChange > 0;
+  
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vssyl.com';
+  const billingUrl = `${appUrl}/settings/billing`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: toEmail,
+    subject: `Important: ${tierName} Plan Price Update`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: ${isIncrease ? '#fff3cd' : '#d1ecf1'}; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+          .price-box { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
+          .old-price { text-decoration: line-through; color: #6c757d; }
+          .new-price { font-size: 24px; font-weight: bold; color: ${isIncrease ? '#dc3545' : '#28a745'}; }
+          .change { font-size: 18px; color: ${isIncrease ? '#dc3545' : '#28a745'}; }
+          .button { display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>${isIncrease ? 'Price Update' : 'Great News!'}</h1>
+            <p>Your ${tierName} plan pricing has been updated</p>
+          </div>
+          
+          <p>Hi ${userName || 'there'},</p>
+          
+          <p>We're writing to inform you about a change to your ${tierName} ${billingCycle} subscription pricing.</p>
+          
+          <div class="price-box">
+            <p><strong>Previous Price:</strong> <span class="old-price">$${oldPrice.toFixed(2)}</span></p>
+            <p><strong>New Price:</strong> <span class="new-price">$${newPrice.toFixed(2)}</span></p>
+            <p><strong>Change:</strong> <span class="change">${isIncrease ? '+' : ''}$${Math.abs(priceChange).toFixed(2)} (${isIncrease ? '+' : ''}${priceChangePercent}%)</span></p>
+          </div>
+          
+          <p><strong>Effective Date:</strong> ${effectiveDate.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          })}</p>
+          
+          ${isIncrease ? `
+            <p>This change will take effect on your next billing cycle. If you have any questions or concerns, please don't hesitate to reach out to our support team.</p>
+          ` : `
+            <p>This reduced price will be applied to your next billing cycle. We're always working to provide you with the best value!</p>
+          `}
+          
+          <a href="${billingUrl}" class="button">View Billing Settings</a>
+          
+          <div class="footer">
+            <p>If you have any questions, please contact our support team.</p>
+            <p>© ${new Date().getFullYear()} Vssyl. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  });
+}
+
 export async function sendBusinessInvitationEmail(
   email: string,
   businessName: string,

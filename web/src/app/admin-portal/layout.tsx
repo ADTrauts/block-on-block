@@ -87,6 +87,7 @@ const AdminPortalLayout = ({ children }: AdminPortalLayoutProps) => {
     { id: 'moderation', label: 'Content Moderation', icon: Shield, path: '/admin-portal/moderation' },
     { id: 'analytics', label: 'Platform Analytics', icon: BarChart3, path: '/admin-portal/analytics' },
     { id: 'billing', label: 'Financial Management', icon: DollarSign, path: '/admin-portal/billing' },
+    { id: 'pricing', label: 'Pricing Management', icon: DollarSign, path: '/admin-portal/pricing' },
     { id: 'developers', label: 'Developer Management', icon: Code, path: '/admin-portal/developers' },
     { id: 'security', label: 'Security & Compliance', icon: Lock, path: '/admin-portal/security' },
     { id: 'system-logs', label: 'System Logs', icon: FileText, path: '/admin-portal/system-logs' },

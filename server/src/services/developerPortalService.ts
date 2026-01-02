@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma';
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-07-30.basil',
+  apiVersion: '2025-08-27.basil' as any, // TypeScript types may lag behind Stripe API versions
 }) : null;
 
 export interface DeveloperStats {
@@ -202,6 +202,8 @@ export class DeveloperPortalService {
     }
 
     // Create payout record
+    // Note: This is a special payout record, not a revenue split calculation
+    // Using default values for commission fields since this is a manual payout
     const payout = await prisma.developerRevenue.create({
       data: {
         developerId,
@@ -212,6 +214,10 @@ export class DeveloperPortalService {
         platformRevenue: 0,
         developerRevenue: amount,
         payoutStatus: 'pending',
+        commissionRate: 0.3, // Default 30% (not used for manual payouts)
+        commissionType: 'standard', // Default type
+        subscriptionAgeMonths: 0, // Not applicable for manual payouts
+        isFirstYear: false, // Not applicable for manual payouts
       },
     });
 

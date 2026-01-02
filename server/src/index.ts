@@ -50,6 +50,8 @@ import { seedHRModuleOnStartup } from './startup/seedHRModule';
 import { seedTodoModuleOnStartup } from './startup/seedTodoModule';
 import cron from 'node-cron';
 import { dispatchDueReminders } from './services/reminderService';
+import { AIQueryService } from './services/aiQueryService';
+import { OverageBillingService } from './services/overageBillingService';
 import type { JwtPayload } from 'jsonwebtoken';
 import userRouter from './routes/user';
 import memberRouter from './routes/member';
@@ -75,6 +77,7 @@ import aiPersonalityRouter from './routes/ai-personality';
 import aiPatternsRouter from './routes/ai-patterns';
 import aiUserContextRouter from './routes/ai-user-context';
 import billingRouter from './routes/billing';
+import pricingRouter from './routes/pricing';
 import featureGatingRouter from './routes/featureGating';
 import featuresRouter from './routes/features';
 import paymentRouter from './routes/payment';
@@ -88,6 +91,8 @@ import businessAIRouter from './routes/businessAI';
 import adminBusinessAIRouter from './routes/adminBusinessAI';
 import aiContextDebugRouter from './routes/ai-context-debug';
 import aiConversationsRouter from './routes/aiConversations';
+import aiQueriesRouter from './routes/aiQueries';
+import usageRouter from './routes/usage';
 import profilePhotosRouter from './routes/profilePhotos';
 import adminSetupRouter from './routes/admin-setup';
 import contentReportsRouter from './routes/contentReports';
@@ -608,6 +613,7 @@ app.use('/api/ai/patterns', authenticateJWT, aiPatternsRouter);
 app.use('/api/ai/context', authenticateJWT, aiUserContextRouter);
 app.use('/api/centralized-ai', authenticateJWT, aiCentralizedRouter);
 app.use('/api/billing', authenticateJWT, billingRouter);
+app.use('/api/pricing', pricingRouter); // Public read access, admin write access
 app.use('/api/feature-gating', authenticateJWT, featureGatingRouter);
 app.use('/api/features', featuresRouter);
 app.use('/api/payment', authenticateJWT, paymentRouter);
@@ -622,6 +628,8 @@ app.use('/api/business-ai', businessAIRouter);
 app.use('/api/admin/business-ai', adminBusinessAIRouter);
 app.use('/api/ai-context-debug', aiContextDebugRouter);
 app.use('/api/ai-conversations', authenticateJWT, aiConversationsRouter);
+app.use('/api/ai/queries', authenticateJWT, aiQueriesRouter);
+app.use('/api/usage', authenticateJWT, usageRouter);
 app.use('/api/profile-photos', profilePhotosRouter);
 app.use('/api/admin-setup', adminSetupRouter);
 app.use('/api/content-reports', contentReportsRouter);
@@ -817,6 +825,61 @@ const server = httpServer.listen(port, () => {
     });
   } catch (e) {
     console.error('Failed to schedule reminder dispatcher:', e);
+  }
+
+  // Reset AI query allowances on the 1st of each month at midnight
+  try {
+    cron.schedule('0 0 1 * *', async () => {
+      console.log('🔄 Running monthly AI query allowance reset...');
+      try {
+        await AIQueryService.resetMonthlyAllowance();
+        console.log('✅ Monthly AI query allowance reset completed');
+      } catch (error) {
+        console.error('❌ Error resetting AI query allowances:', error);
+      }
+    }, {
+      timezone: 'America/New_York'
+    });
+    console.log('✅ Monthly AI query allowance reset job scheduled (1st of month at midnight)');
+  } catch (e) {
+    console.error('Failed to schedule AI query allowance reset job:', e);
+  }
+
+  // Update developer small business eligibility on the 1st of each month at 1am
+  try {
+    const { RevenueSplitService } = await import('./services/revenueSplitService');
+    cron.schedule('0 1 1 * *', async () => {
+      console.log('🔄 Running monthly developer lifetime revenue calculation...');
+      try {
+        await RevenueSplitService.updateDeveloperEligibility();
+        console.log('✅ Developer lifetime revenue calculation completed');
+      } catch (error) {
+        console.error('❌ Error calculating developer lifetime revenue:', error);
+      }
+    }, {
+      timezone: 'America/New_York'
+    });
+    console.log('✅ Monthly developer lifetime revenue calculation job scheduled (1st of month at 1am)');
+  } catch (e) {
+    console.error('Failed to schedule developer lifetime revenue calculation job:', e);
+  }
+
+  // Process overage billing on the 1st of each month at 2am
+  try {
+    cron.schedule('0 2 1 * *', async () => {
+      console.log('🔄 Running monthly overage billing processing...');
+      try {
+        const result = await OverageBillingService.processAllOverageBilling();
+        console.log(`✅ Overage billing processed (processed: ${result.processed}, successful: ${result.successful}, failed: ${result.failed}, total: $${result.totalOverage.toFixed(2)})`);
+      } catch (error) {
+        console.error('❌ Error processing overage billing:', error);
+      }
+    }, {
+      timezone: 'America/New_York'
+    });
+    console.log('✅ Monthly overage billing job scheduled (1st of month at 2am)');
+  } catch (e) {
+    console.error('Failed to schedule overage billing job:', e);
   }
 }).on('error', (err) => {
   console.error('Server startup error:', err);

@@ -142,6 +142,12 @@ model DeveloperRevenue {
   payoutDate      DateTime?
   createdAt       DateTime @default(now())
   
+  // Apple-style revenue split tracking
+  commissionRate  Float    // Actual commission rate used (0.15 or 0.30)
+  commissionType  String   // 'standard', 'small_business', 'long_term'
+  subscriptionAgeMonths Int // Age of subscription when revenue was calculated
+  isFirstYear     Boolean  @default(true) // True if subscription is in first year
+  
   // Relationships
   developer       User     @relation(fields: [developerId], references: [id], onDelete: Cascade)
   module          Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -149,5 +155,6 @@ model DeveloperRevenue {
   @@index([developerId])
   @@index([moduleId])
   @@index([periodStart])
+  @@index([commissionType])
   @@map("developer_revenue")
 }

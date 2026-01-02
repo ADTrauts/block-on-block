@@ -1,9 +1,13 @@
 import { Request, Response } from 'express';
 import { SubscriptionService } from '../services/subscriptionService';
 import { ModuleSubscriptionService } from '../services/moduleSubscriptionService';
+import { StripeService } from '../services/stripeService';
+import { PricingService } from '../services/pricingService';
+import { UsageTrackingService } from '../services/usageTrackingService';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { isStripeConfigured } from '../config/stripe';
 const subscriptionService = new SubscriptionService();
 const moduleSubscriptionService = new ModuleSubscriptionService();
 
@@ -39,6 +43,104 @@ export const createSubscription = async (req: Request, res: Response) => {
       }
     });
     res.status(500).json({ error: 'Failed to create subscription' });
+  }
+};
+
+export const createCheckoutSession = async (req: Request, res: Response) => {
+  try {
+    const { tier, billingCycle = 'monthly', businessId } = req.body;
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isStripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    if (!tier || !['pro', 'business_basic', 'business_advanced', 'enterprise'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier. Must be pro, business_basic, business_advanced, or enterprise' });
+    }
+
+    if (billingCycle !== 'monthly' && billingCycle !== 'yearly') {
+      return res.status(400).json({ error: 'Invalid billing cycle. Must be monthly or yearly' });
+    }
+
+    // Get pricing configuration to find Stripe price ID
+    const pricing = await PricingService.getPricing(tier, billingCycle);
+    if (!pricing || !pricing.stripePriceId) {
+      return res.status(400).json({ 
+        error: `No Stripe price ID configured for ${tier} (${billingCycle}). Please configure pricing in the admin portal.` 
+      });
+    }
+
+    // Get or create Stripe customer
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let customerId = (user as any).stripeCustomerId;
+    if (!customerId) {
+      const customer = await StripeService.createCustomer({
+        email: user.email || '',
+        name: user.name || undefined,
+        metadata: { userId },
+      });
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId: customer.id } as any,
+      });
+
+      customerId = customer.id;
+    }
+
+    // Build success and cancel URLs
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const successUrl = `${baseUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${baseUrl}/billing/cancel`;
+
+    // Create checkout session
+    const session = await StripeService.createCheckoutSession({
+      customerId,
+      priceId: pricing.stripePriceId,
+      successUrl,
+      cancelUrl,
+      mode: 'subscription',
+      metadata: {
+        userId,
+        tier,
+        billingCycle,
+        businessId: businessId || '',
+      },
+      subscriptionData: {
+        metadata: {
+          userId,
+          tier,
+          billingCycle,
+          businessId: businessId || '',
+        },
+      },
+    });
+
+    res.json({
+      sessionId: session.id,
+      url: session.url,
+    });
+  } catch (error) {
+    await logger.error('Failed to create checkout session', {
+      operation: 'billing_create_checkout_session',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    res.status(500).json({ error: 'Failed to create checkout session' });
   }
 };
 
@@ -101,7 +203,7 @@ export const getUserSubscription = async (req: Request, res: Response) => {
 export const updateSubscription = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { tier, status, cancelAtPeriodEnd } = req.body;
+    const { tier, businessId, cancelAtPeriodEnd } = req.body;
     const userId = (req as any).user?.id;
 
     if (!userId) {
@@ -118,14 +220,13 @@ export const updateSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const updatedSubscription = await subscriptionService.updateSubscription({
-      subscriptionId: id,
+    const updated = await subscriptionService.updateSubscription(id, {
       tier,
-      status,
+      businessId,
       cancelAtPeriodEnd,
     });
 
-    res.json({ subscription: updatedSubscription });
+    res.json({ subscription: updated });
   } catch (error) {
     await logger.error('Failed to update subscription', {
       operation: 'billing_update_subscription',
@@ -157,9 +258,9 @@ export const cancelSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const cancelledSubscription = await subscriptionService.cancelSubscription(id);
+    await subscriptionService.cancelSubscription(id);
 
-    res.json({ subscription: cancelledSubscription });
+    res.json({ message: 'Subscription cancelled' });
   } catch (error) {
     await logger.error('Failed to cancel subscription', {
       operation: 'billing_cancel_subscription',
@@ -191,9 +292,9 @@ export const reactivateSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const reactivatedSubscription = await subscriptionService.reactivateSubscription(id);
+    await subscriptionService.reactivateSubscription(id);
 
-    res.json({ subscription: reactivatedSubscription });
+    res.json({ message: 'Subscription reactivated' });
   } catch (error) {
     await logger.error('Failed to reactivate subscription', {
       operation: 'billing_reactivate_subscription',
@@ -210,27 +311,19 @@ export const reactivateSubscription = async (req: Request, res: Response) => {
 
 export const createModuleSubscription = async (req: Request, res: Response) => {
   try {
-    const { moduleId, tier, businessId, stripeCustomerId } = req.body;
+    const { moduleId } = req.params;
+    const { tier, businessId } = req.body;
     const userId = (req as any).user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!moduleId) {
-      return res.status(400).json({ error: 'Module ID is required' });
-    }
-
-    if (!tier || !['premium', 'enterprise'].includes(tier)) {
-      return res.status(400).json({ error: 'Invalid tier' });
-    }
-
     const subscription = await moduleSubscriptionService.createModuleSubscription({
       userId,
       businessId,
       moduleId,
-      tier,
-      stripeCustomerId,
+      tier: tier || 'premium',
     });
 
     res.status(201).json({ subscription });
@@ -321,13 +414,12 @@ export const updateModuleSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const updatedSubscription = await moduleSubscriptionService.updateModuleSubscription({
-      subscriptionId: id,
+    const updated = await moduleSubscriptionService.updateModuleSubscription(id, {
       tier,
       status,
     });
 
-    res.json({ subscription: updatedSubscription });
+    res.json({ subscription: updated });
   } catch (error) {
     await logger.error('Failed to update module subscription', {
       operation: 'billing_update_module_subscription',
@@ -359,9 +451,9 @@ export const cancelModuleSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const cancelledSubscription = await moduleSubscriptionService.cancelModuleSubscription(id);
+    await moduleSubscriptionService.cancelModuleSubscription(id);
 
-    res.json({ subscription: cancelledSubscription });
+    res.json({ message: 'Module subscription cancelled' });
   } catch (error) {
     await logger.error('Failed to cancel module subscription', {
       operation: 'billing_cancel_module_subscription',
@@ -379,45 +471,61 @@ export const cancelModuleSubscription = async (req: Request, res: Response) => {
 export const getUsage = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
-    const { period } = req.query;
+    const { businessId } = req.query;
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Get current period if not specified
-    const now = new Date();
-    const periodStart = period ? new Date(period as string) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0);
-
-    // Get core subscription usage
-    const coreSubscription = await subscriptionService.getUserSubscription(userId);
-    let coreUsage: any[] = [];
-    if (coreSubscription) {
-      coreUsage = await subscriptionService.getSubscriptionUsage(coreSubscription.id);
-    }
-
-    // Get module subscription usage
-    const moduleSubscriptions = await moduleSubscriptionService.getUserModuleSubscriptions(userId);
-    const moduleUsage = await Promise.all(
-      moduleSubscriptions.map(async (sub: Record<string, any>) => {
-        const usage = await moduleSubscriptionService.getModuleSubscriptionUsage(sub.id);
-        return {
-          moduleId: sub.moduleId,
-          moduleName: sub.module.name,
-          usage,
-        };
-      })
+    // Use UsageTrackingService to get usage data
+    const usageLimits = await UsageTrackingService.getAllUsage(
+      userId,
+      businessId ? (businessId as string) : undefined
     );
 
-    res.json({
+    // Transform UsageLimit[] to the format expected by frontend (UsageData)
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    // Format metric names for display
+    const formatMetricName = (metric: string): string => {
+      return metric
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    };
+
+    // Transform to UsageRecord format
+    const coreUsage = usageLimits.map(limit => ({
+      date: new Date().toISOString(),
+      value: limit.currentUsage,
+      unit: limit.metric === 'storage_gb' ? 'GB' : limit.metric === 'api_calls' ? 'calls' : limit.metric === 'messages' ? 'messages' : 'items',
+      description: `${formatMetricName(limit.metric)}: ${limit.currentUsage}${limit.limit === -1 ? ' (unlimited)' : ` / ${limit.limit}`}`,
+    }));
+
+    // For now, moduleUsage is empty (can be extended later)
+    const moduleUsage: Array<{
+      moduleId: string;
+      moduleName: string;
+      usage: Array<{
+        date: string;
+        value: number;
+        unit: string;
+        description: string;
+      }>;
+    }> = [];
+
+    const usage = {
       coreUsage,
       moduleUsage,
       period: {
-        start: periodStart,
-        end: periodEnd,
+        start: periodStart.toISOString(),
+        end: periodEnd.toISOString(),
       },
-    });
+    };
+
+    res.json(usage);
   } catch (error) {
     await logger.error('Failed to get usage', {
       operation: 'billing_get_usage',
@@ -432,30 +540,16 @@ export const getUsage = async (req: Request, res: Response) => {
 
 export const recordUsage = async (req: Request, res: Response) => {
   try {
-    const { subscriptionId, moduleSubscriptionId, metric, quantity, cost } = req.body;
+    const { subscriptionId, metric, quantity, cost } = req.body;
     const userId = (req as any).user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!metric || !quantity || cost === undefined) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
+    const usage = await subscriptionService.recordUsage(subscriptionId, metric, quantity, cost);
 
-    let usageRecord;
-
-    if (subscriptionId) {
-      // Record usage for core subscription
-      usageRecord = await subscriptionService.recordUsage(subscriptionId, metric, quantity, cost);
-    } else if (moduleSubscriptionId) {
-      // Record usage for module subscription
-      usageRecord = await moduleSubscriptionService.recordModuleUsage(moduleSubscriptionId, metric, quantity, cost);
-    } else {
-      return res.status(400).json({ error: 'Either subscriptionId or moduleSubscriptionId is required' });
-    }
-
-    res.status(201).json({ usageRecord });
+    res.status(201).json({ usage });
   } catch (error) {
     await logger.error('Failed to record usage', {
       operation: 'billing_record_usage',
@@ -479,22 +573,8 @@ export const getInvoices = async (req: Request, res: Response) => {
     }
 
     const invoices = await prisma.invoice.findMany({
-      where: {
-        OR: [
-          { userId },
-          { subscription: { userId } },
-          { moduleSubscription: { userId } },
-        ],
-      },
-      include: {
-        subscription: true,
-        moduleSubscription: {
-          include: { module: true },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
     });
 
     res.json({ invoices });
@@ -521,25 +601,13 @@ export const getInvoice = async (req: Request, res: Response) => {
 
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: {
-        subscription: true,
-        moduleSubscription: {
-          include: { module: true },
-        },
-      },
     });
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    // Check access
-    const hasAccess = 
-      invoice.userId === userId ||
-      (invoice.subscription && invoice.subscription.userId === userId) ||
-      (invoice.moduleSubscription && invoice.moduleSubscription.userId === userId);
-
-    if (!hasAccess) {
+    if (invoice.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -561,16 +629,12 @@ export const getInvoice = async (req: Request, res: Response) => {
 export const getDeveloperRevenue = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
-    const { periodStart, periodEnd } = req.query;
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const start = periodStart ? new Date(periodStart as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const end = periodEnd ? new Date(periodEnd as string) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-
-    const revenue = await moduleSubscriptionService.getDeveloperRevenue(userId, start, end);
+    const revenue = await moduleSubscriptionService.getDeveloperRevenue(userId, new Date(0), new Date());
 
     res.json({ revenue });
   } catch (error) {
@@ -583,4 +647,236 @@ export const getDeveloperRevenue = async (req: Request, res: Response) => {
     });
     res.status(500).json({ error: 'Failed to get developer revenue' });
   }
-}; 
+};
+
+// Payment method endpoints
+
+export const listPaymentMethods = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // If Stripe is not configured, return empty array (graceful degradation)
+    if (!isStripeConfigured()) {
+      return res.json({ paymentMethods: [] });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !(user as any).stripeCustomerId) {
+      return res.json({ paymentMethods: [] });
+    }
+
+    const paymentMethods = await StripeService.listPaymentMethods((user as any).stripeCustomerId);
+
+    res.json({ paymentMethods: paymentMethods.data });
+  } catch (error) {
+    await logger.error('Failed to list payment methods', {
+      operation: 'billing_list_payment_methods',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    // Return empty array on error instead of 500 (graceful degradation)
+    res.json({ paymentMethods: [] });
+  }
+};
+
+export const createSetupIntent = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isStripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    // Get or create customer
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let customerId = (user as any).stripeCustomerId;
+    if (!customerId) {
+      const customer = await StripeService.createCustomer({
+        email: user.email || '',
+        name: user.name || undefined,
+        metadata: { userId },
+      });
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId: customer.id } as any,
+      });
+
+      customerId = customer.id;
+    }
+
+    const setupIntent = await StripeService.createSetupIntent({
+      customerId,
+      metadata: { userId },
+    });
+
+    res.json({
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+    });
+  } catch (error) {
+    await logger.error('Failed to create setup intent', {
+      operation: 'billing_create_setup_intent',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    res.status(500).json({ error: 'Failed to create setup intent' });
+  }
+};
+
+export const deletePaymentMethod = async (req: Request, res: Response) => {
+  try {
+    const { paymentMethodId } = req.params;
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isStripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    // Verify the payment method belongs to the user's customer
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !(user as any).stripeCustomerId) {
+      return res.status(404).json({ error: 'No customer found' });
+    }
+
+    const paymentMethods = await StripeService.listPaymentMethods((user as any).stripeCustomerId);
+    const paymentMethod = paymentMethods.data.find(pm => pm.id === paymentMethodId);
+
+    if (!paymentMethod) {
+      return res.status(404).json({ error: 'Payment method not found' });
+    }
+
+    await StripeService.detachPaymentMethod(paymentMethodId);
+
+    res.json({ message: 'Payment method deleted successfully' });
+  } catch (error) {
+    await logger.error('Failed to delete payment method', {
+      operation: 'billing_delete_payment_method',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    res.status(500).json({ error: 'Failed to delete payment method' });
+  }
+};
+
+export const setDefaultPaymentMethod = async (req: Request, res: Response) => {
+  try {
+    const { paymentMethodId } = req.body;
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!paymentMethodId) {
+      return res.status(400).json({ error: 'Payment method ID is required' });
+    }
+
+    if (!isStripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    // Verify the payment method belongs to the user's customer
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !(user as any).stripeCustomerId) {
+      return res.status(404).json({ error: 'No customer found' });
+    }
+
+    const paymentMethods = await StripeService.listPaymentMethods((user as any).stripeCustomerId);
+    const paymentMethod = paymentMethods.data.find(pm => pm.id === paymentMethodId);
+
+    if (!paymentMethod) {
+      return res.status(404).json({ error: 'Payment method not found' });
+    }
+
+    await StripeService.setDefaultPaymentMethod((user as any).stripeCustomerId, paymentMethodId);
+
+    res.json({ message: 'Default payment method updated successfully' });
+  } catch (error) {
+    await logger.error('Failed to set default payment method', {
+      operation: 'billing_set_default_payment_method',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    res.status(500).json({ error: 'Failed to set default payment method' });
+  }
+};
+
+export const createCustomerPortalSession = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isStripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !(user as any).stripeCustomerId) {
+      return res.status(404).json({ error: 'No customer found. Please create a subscription first.' });
+    }
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const returnUrl = `${baseUrl}/billing`;
+
+    const session = await StripeService.createCustomerPortalSession({
+      customerId: (user as any).stripeCustomerId,
+      returnUrl,
+    });
+
+    res.json({
+      url: session.url,
+    });
+  } catch (error) {
+    await logger.error('Failed to create customer portal session', {
+      operation: 'billing_create_customer_portal_session',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+    res.status(500).json({ error: 'Failed to create customer portal session' });
+  }
+};

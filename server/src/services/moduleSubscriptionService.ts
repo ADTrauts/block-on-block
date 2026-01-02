@@ -1,8 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma';
+import { RevenueSplitService } from './revenueSplitService';
+
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-07-30.basil',
+  apiVersion: '2025-08-27.basil' as any, // TypeScript types may lag behind Stripe API versions
 }) : null;
 
 export interface CreateModuleSubscriptionParams {
@@ -43,8 +45,16 @@ export class ModuleSubscriptionService {
 
     // Calculate pricing
     const amount = tier === 'enterprise' ? module.enterprisePrice : module.basePrice;
-    const platformRevenue = module.isProprietary ? amount : amount * 0.3; // 30% platform cut
-    const developerRevenue = module.isProprietary ? 0 : amount * 0.7; // 70% developer cut
+    
+    // Calculate revenue split using Apple-style model
+    const revenueSplit = await RevenueSplitService.calculateDeveloperShare(
+      moduleId,
+      amount,
+      0 // New subscription, 0 months old
+    );
+    
+    const platformRevenue = revenueSplit.platformShare;
+    const developerRevenue = revenueSplit.developerShare;
 
     // Create subscription in database
     const subscription = await prisma.moduleSubscription.create({
@@ -189,12 +199,22 @@ export class ModuleSubscriptionService {
     // Recalculate pricing if tier changed
     if (tier && tier !== subscription.tier) {
       const amount = tier === 'enterprise' ? subscription.module.enterprisePrice : subscription.module.basePrice;
-      const platformRevenue = subscription.module.isProprietary ? amount : amount * 0.3;
-      const developerRevenue = subscription.module.isProprietary ? 0 : amount * 0.7;
+      
+      // Calculate subscription age for revenue split
+      const subscriptionAgeMonths = RevenueSplitService.calculateSubscriptionAgeMonths(
+        subscription.currentPeriodStart
+      );
+      
+      // Calculate revenue split using Apple-style model
+      const revenueSplit = await RevenueSplitService.calculateDeveloperShare(
+        subscription.moduleId,
+        amount,
+        subscriptionAgeMonths
+      );
       
       updateData.amount = amount;
-      updateData.platformRevenue = platformRevenue;
-      updateData.developerRevenue = developerRevenue;
+      updateData.platformRevenue = revenueSplit.platformShare;
+      updateData.developerRevenue = revenueSplit.developerShare;
     }
 
     // Update in database
@@ -342,45 +362,78 @@ export class ModuleSubscriptionService {
       },
     });
 
-    // Group by developer and module
-    const revenueByDeveloper: Record<string, Record<string, number>> = {};
+    // Create developer revenue records with proper revenue split calculation
+    // Group by developer+module first, then calculate split based on average subscription age
+    const revenueByDeveloperModule: Record<string, {
+      developerId: string;
+      moduleId: string;
+      totalAmount: number;
+      subscriptions: Array<{ amount: number; ageMonths: number }>;
+    }> = {};
     
     for (const subscription of subscriptions) {
       const developerId = subscription.module.developerId;
       const moduleId = subscription.moduleId;
+      const key = `${developerId}:${moduleId}`;
       
-      if (!revenueByDeveloper[developerId]) {
-        revenueByDeveloper[developerId] = {};
+      // Calculate subscription age for revenue split
+      const subscriptionAgeMonths = RevenueSplitService.calculateSubscriptionAgeMonths(
+        subscription.currentPeriodStart
+      );
+      
+      if (!revenueByDeveloperModule[key]) {
+        revenueByDeveloperModule[key] = {
+          developerId,
+          moduleId,
+          totalAmount: 0,
+          subscriptions: [],
+        };
       }
       
-      if (!revenueByDeveloper[developerId][moduleId]) {
-        revenueByDeveloper[developerId][moduleId] = 0;
-      }
+      revenueByDeveloperModule[key].totalAmount += subscription.amount;
+      revenueByDeveloperModule[key].subscriptions.push({
+        amount: subscription.amount,
+        ageMonths: subscriptionAgeMonths,
+      });
+    }
+    
+    // Create database records with revenue split calculation
+    const createdRecords = [];
+    for (const [key, data] of Object.entries(revenueByDeveloperModule)) {
+      // Calculate average subscription age (weighted by amount)
+      const totalAmount = data.totalAmount;
+      const weightedAge = data.subscriptions.reduce((sum, sub) => {
+        return sum + (sub.ageMonths * (sub.amount / totalAmount));
+      }, 0);
+      const avgAgeMonths = Math.round(weightedAge);
       
-      revenueByDeveloper[developerId][moduleId] += subscription.developerRevenue;
+      // Calculate revenue split using Apple-style model
+      const revenueSplit = await RevenueSplitService.calculateDeveloperShare(
+        data.moduleId,
+        data.totalAmount,
+        avgAgeMonths
+      );
+      
+      const created = await prisma.developerRevenue.create({
+        data: {
+          developerId: data.developerId,
+          moduleId: data.moduleId,
+          periodStart,
+          periodEnd,
+          totalRevenue: data.totalAmount,
+          platformRevenue: revenueSplit.platformShare,
+          developerRevenue: revenueSplit.developerShare,
+          commissionRate: revenueSplit.commissionRate,
+          commissionType: revenueSplit.commissionType,
+          subscriptionAgeMonths: avgAgeMonths,
+          isFirstYear: avgAgeMonths <= 12,
+          payoutStatus: 'pending',
+        },
+      });
+      createdRecords.push(created);
     }
 
-    // Create developer revenue records
-    const revenueRecords = [];
-    for (const [developerId, modules] of Object.entries(revenueByDeveloper)) {
-      for (const [moduleId, revenue] of Object.entries(modules)) {
-        const revenueRecord = await prisma.developerRevenue.create({
-          data: {
-            developerId,
-            moduleId,
-            periodStart,
-            periodEnd,
-            totalRevenue: revenue,
-            platformRevenue: revenue * 0.3, // 30% platform cut
-            developerRevenue: revenue * 0.7, // 70% developer cut
-            payoutStatus: 'pending',
-          },
-        });
-        revenueRecords.push(revenueRecord);
-      }
-    }
-
-    return revenueRecords;
+    return createdRecords;
   }
 
   /**

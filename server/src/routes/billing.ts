@@ -7,6 +7,8 @@ import {
   updateSubscription,
   cancelSubscription,
   reactivateSubscription,
+  // Checkout endpoints
+  createCheckoutSession,
   // Module subscription endpoints
   createModuleSubscription,
   getModuleSubscription,
@@ -21,6 +23,12 @@ import {
   getInvoice,
   // Developer revenue endpoints
   getDeveloperRevenue,
+  // Payment method endpoints
+  listPaymentMethods,
+  createSetupIntent,
+  deletePaymentMethod,
+  setDefaultPaymentMethod,
+  createCustomerPortalSession,
 } from '../controllers/billingController';
 
 const router: express.Router = express.Router();
@@ -32,6 +40,9 @@ router.get('/subscriptions/:id', getSubscription);
 router.put('/subscriptions/:id', updateSubscription);
 router.delete('/subscriptions/:id', cancelSubscription);
 router.post('/subscriptions/:id/reactivate', reactivateSubscription);
+
+// Checkout routes
+router.post('/checkout/session', createCheckoutSession);
 
 // Module subscription routes
 router.post('/modules/:moduleId/subscribe', createModuleSubscription);
@@ -50,5 +61,12 @@ router.get('/invoices/:id', getInvoice);
 
 // Developer revenue routes
 router.get('/developer/revenue', getDeveloperRevenue);
+
+// Payment method routes
+router.get('/payment-methods', listPaymentMethods);
+router.post('/payment-methods/setup-intent', createSetupIntent);
+router.delete('/payment-methods/:paymentMethodId', deletePaymentMethod);
+router.post('/payment-methods/default', setDefaultPaymentMethod);
+router.post('/customer-portal', createCustomerPortalSession);
 
 export default router; 
