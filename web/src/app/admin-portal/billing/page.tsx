@@ -13,7 +13,10 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
-  Eye
+  Eye,
+  RefreshCw,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { adminApiService } from '../../../lib/adminApiService';
 
@@ -27,6 +30,14 @@ interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
+  stripeSubscriptionId?: string;
+  stripeCustomerId?: string;
+  lastSyncedAt?: string;
+  stripeUrls?: {
+    subscription?: string | null;
+    customer?: string | null;
+  };
+  metadata?: any;
 }
 
 interface Payment {
@@ -36,6 +47,26 @@ interface Payment {
   status: 'succeeded' | 'failed' | 'pending';
   createdAt: string;
   customerEmail: string;
+  stripeInvoiceId?: string;
+  stripeChargeId?: string;
+  stripeFee?: number;
+  stripeNetAmount?: number;
+  refundAmount?: number;
+  refundCount?: number;
+  lastSyncedAt?: string;
+  stripeUrls?: {
+    invoice?: string | null;
+    charge?: string | null;
+    customer?: string | null;
+  };
+  metadata?: any;
+  refunds?: Array<{
+    id: string;
+    amount: number;
+    status: string;
+    reason?: string;
+    createdAt: string;
+  }>;
 }
 
 interface DeveloperPayout {
@@ -60,6 +91,7 @@ export default function FinancialManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'subscriptions' | 'payments' | 'payouts'>('subscriptions');
+  const [syncing, setSyncing] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadFinancialData();
@@ -92,10 +124,21 @@ export default function FinancialManagement() {
         return;
       }
 
-      // Set data from API responses
-      setSubscriptions((subscriptionsRes.data as any)?.subscriptions || []);
-      setPayments((paymentsRes.data as any)?.payments || []);
-      setPayouts((payoutsRes.data as any)?.payouts || []);
+      // Set data from API responses - ensure proper formatting
+      const subscriptionsData = (subscriptionsRes.data as any)?.subscriptions || [];
+      const paymentsData = (paymentsRes.data as any)?.payments || [];
+      const payoutsData = (payoutsRes.data as any)?.payouts || [];
+
+      // Format subscriptions with user email
+      const formattedSubscriptions = subscriptionsData.map((sub: any) => ({
+        ...sub,
+        userEmail: sub.user?.email || sub.userEmail || 'Unknown',
+        amount: sub.amount || 0
+      }));
+
+      setSubscriptions(formattedSubscriptions);
+      setPayments(paymentsData);
+      setPayouts(payoutsData);
     } catch (err) {
       setError('Failed to load financial data');
       console.error('Error loading financial data:', err);
@@ -160,6 +203,45 @@ export default function FinancialManagement() {
     }
   };
 
+  const handleSyncSubscription = async (subscriptionId: string) => {
+    try {
+      setSyncing(prev => ({ ...prev, [`sub_${subscriptionId}`]: true }));
+      await adminApiService.syncSubscriptionFromStripe(subscriptionId);
+      await loadFinancialData();
+    } catch (error) {
+      console.error('Error syncing subscription:', error);
+      setError('Failed to sync subscription from Stripe');
+    } finally {
+      setSyncing(prev => ({ ...prev, [`sub_${subscriptionId}`]: false }));
+    }
+  };
+
+  const handleSyncInvoice = async (invoiceId: string) => {
+    try {
+      setSyncing(prev => ({ ...prev, [`inv_${invoiceId}`]: true }));
+      await adminApiService.syncInvoiceFromStripe(invoiceId);
+      await loadFinancialData();
+    } catch (error) {
+      console.error('Error syncing invoice:', error);
+      setError('Failed to sync invoice from Stripe');
+    } finally {
+      setSyncing(prev => ({ ...prev, [`inv_${invoiceId}`]: false }));
+    }
+  };
+
+  const handleSyncAll = async () => {
+    try {
+      setSyncing(prev => ({ ...prev, all: true }));
+      await adminApiService.syncAllSubscriptions();
+      await loadFinancialData();
+    } catch (error) {
+      console.error('Error syncing all subscriptions:', error);
+      setError('Failed to sync subscriptions from Stripe');
+    } finally {
+      setSyncing(prev => ({ ...prev, all: false }));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -186,6 +268,14 @@ export default function FinancialManagement() {
           <p className="text-gray-600 mt-2">Manage subscriptions, payments, and developer payouts</p>
         </div>
         <div className="flex items-center space-x-3">
+          <Button 
+            variant="secondary" 
+            onClick={handleSyncAll}
+            disabled={syncing.all}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${syncing.all ? 'animate-spin' : ''}`} />
+            {syncing.all ? 'Syncing...' : 'Sync All from Stripe'}
+          </Button>
           <Button variant="secondary">
             <DollarSign className="w-4 h-4 mr-2" />
             Export Report
@@ -392,16 +482,71 @@ export default function FinancialManagement() {
                       <div className="text-sm font-medium text-gray-900">{payment.customerEmail}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${payment.amount}
+                      <div>
+                        <div className="font-medium">${payment.amount.toFixed(2)}</div>
+                        {payment.stripeNetAmount && payment.stripeNetAmount !== payment.amount && (
+                          <div className="text-xs text-gray-500">
+                            Net: ${payment.stripeNetAmount.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      <div className="space-y-1">
+                        {payment.stripeFee !== undefined && payment.stripeFee > 0 && (
+                          <div className="text-xs">
+                            <span className="text-gray-500">Fee:</span> ${payment.stripeFee.toFixed(2)}
+                          </div>
+                        )}
+                        {payment.refundAmount !== undefined && payment.refundAmount > 0 && (
+                          <div className="text-xs">
+                            <span className="text-gray-500">Refunded:</span> ${payment.refundAmount.toFixed(2)}
+                            {payment.refundCount && payment.refundCount > 0 && (
+                              <span className="text-gray-400"> ({payment.refundCount})</span>
+                            )}
+                          </div>
+                        )}
+                        {(!payment.stripeFee && !payment.refundAmount) && (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(payment.status)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(payment.createdAt).toLocaleDateString()}
+                      <div>
+                        {new Date(payment.createdAt).toLocaleDateString()}
+                        {payment.lastSyncedAt && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Synced: {new Date(payment.lastSyncedAt).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end space-x-2">
+                        {payment.stripeUrls?.invoice && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => window.open(payment.stripeUrls?.invoice || '', '_blank')}
+                            title="View in Stripe Dashboard"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {payment.stripeInvoiceId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSyncInvoice(payment.id)}
+                            disabled={syncing[`inv_${payment.id}`]}
+                            title="Sync from Stripe"
+                          >
+                            <RefreshCw className={`w-4 h-4 ${syncing[`inv_${payment.id}`] ? 'animate-spin' : ''}`} />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"

@@ -422,6 +422,49 @@ class AdminApiService {
     return this.makeRequest(`/billing/payouts?${searchParams.toString()}`);
   }
 
+  // Stripe sync methods
+  async syncSubscriptionFromStripe(subscriptionId: string) {
+    return this.makeRequest(`/billing/subscriptions/${subscriptionId}/sync`, {
+      method: 'POST'
+    });
+  }
+
+  async syncInvoiceFromStripe(invoiceId: string) {
+    return this.makeRequest(`/billing/invoices/${invoiceId}/sync`, {
+      method: 'POST'
+    });
+  }
+
+  async syncAllSubscriptions(filters?: { userId?: string; businessId?: string }) {
+    return this.makeRequest('/billing/subscriptions/sync-all', {
+      method: 'POST',
+      body: JSON.stringify(filters || {})
+    });
+  }
+
+  async getEnhancedSubscription(subscriptionId: string) {
+    return this.makeRequest(`/billing/subscriptions/${subscriptionId}/enhanced`);
+  }
+
+  async getEnhancedInvoice(invoiceId: string) {
+    return this.makeRequest(`/billing/invoices/${invoiceId}/enhanced`);
+  }
+
+  async getDeveloperPayouts(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        searchParams.append(key, value.toString());
+      }
+    });
+
+    return this.makeRequest(`/billing/payouts?${searchParams.toString()}`);
+  }
+
   // ============================================================================
   // SECURITY & COMPLIANCE
   // ============================================================================

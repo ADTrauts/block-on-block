@@ -1084,19 +1084,40 @@ export class AdminService {
       prisma.invoice.count({ where })
     ]);
 
+    // Add Stripe URLs to each payment
+    const { StripeSyncService } = await import('./stripeSyncService');
+    
     return {
-      payments: payments.map(payment => ({
-        id: payment.id,
-        subscriptionId: payment.subscriptionId,
-        moduleSubscriptionId: payment.moduleSubscriptionId,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        createdAt: payment.createdAt.toISOString(),
-        paidAt: payment.paidAt?.toISOString(),
-        customerEmail: payment.subscription?.user?.email || payment.moduleSubscription?.user?.email || 'Unknown',
-        stripeInvoiceId: payment.stripeInvoiceId
-      })),
+      payments: payments.map(payment => {
+        const stripeUrls = {
+          invoice: StripeSyncService.getStripeInvoiceUrl(payment.stripeInvoiceId),
+          charge: payment.stripeChargeId 
+            ? `https://dashboard.stripe.com/${process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'live' : 'test'}/payments/${payment.stripeChargeId}`
+            : null,
+          customer: StripeSyncService.getStripeCustomerUrl(payment.stripeCustomerId)
+        };
+
+        return {
+          id: payment.id,
+          subscriptionId: payment.subscriptionId,
+          moduleSubscriptionId: payment.moduleSubscriptionId,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: payment.status,
+          createdAt: payment.createdAt.toISOString(),
+          paidAt: payment.paidAt?.toISOString(),
+          customerEmail: payment.subscription?.user?.email || payment.moduleSubscription?.user?.email || 'Unknown',
+          stripeInvoiceId: payment.stripeInvoiceId,
+          stripeChargeId: payment.stripeChargeId,
+          stripeFee: payment.stripeFee,
+          stripeNetAmount: payment.stripeNetAmount,
+          refundAmount: payment.refundAmount,
+          refundCount: payment.refundCount,
+          lastSyncedAt: payment.lastSyncedAt?.toISOString(),
+          stripeUrls,
+          metadata: payment.stripeMetadata || {}
+        };
+      }),
       total,
       page,
       totalPages: Math.ceil(total / limit)

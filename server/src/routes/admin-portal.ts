@@ -1436,8 +1436,19 @@ router.get('/billing/subscriptions', authenticateJWT, requireAdmin, async (req: 
       prisma.subscription.count({ where })
     ]);
 
+    // Add Stripe URLs to each subscription
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    const subscriptionsWithUrls = subscriptions.map(sub => ({
+      ...sub,
+      userEmail: sub.user.email,
+      stripeUrls: {
+        subscription: StripeSyncService.getStripeSubscriptionUrl(sub.stripeSubscriptionId),
+        customer: StripeSyncService.getStripeCustomerUrl(sub.stripeCustomerId)
+      }
+    }));
+
     res.json({
-      subscriptions,
+      subscriptions: subscriptionsWithUrls,
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit))
@@ -1531,6 +1542,157 @@ router.get('/billing/payouts', authenticateJWT, requireAdmin, async (req: Reques
       }
     });
     res.status(500).json({ error: 'Failed to fetch developer payouts' });
+  }
+});
+
+// Sync subscription from Stripe
+router.post('/billing/subscriptions/:id/sync', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    await StripeSyncService.syncSubscriptionFromStripe(id);
+    res.json({ success: true, message: 'Subscription synced from Stripe' });
+  } catch (error) {
+    await logger.error('Failed to sync subscription from Stripe', {
+      operation: 'admin_sync_subscription',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to sync subscription from Stripe' });
+  }
+});
+
+// Sync invoice from Stripe
+router.post('/billing/invoices/:id/sync', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    await StripeSyncService.syncInvoiceFromStripe(id);
+    res.json({ success: true, message: 'Invoice synced from Stripe' });
+  } catch (error) {
+    await logger.error('Failed to sync invoice from Stripe', {
+      operation: 'admin_sync_invoice',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to sync invoice from Stripe' });
+  }
+});
+
+// Sync all subscriptions
+router.post('/billing/subscriptions/sync-all', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userId, businessId } = req.body;
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    const synced = await StripeSyncService.syncAllSubscriptions({ userId, businessId });
+    res.json({ success: true, synced, message: `Synced ${synced} subscriptions from Stripe` });
+  } catch (error) {
+    await logger.error('Failed to sync all subscriptions from Stripe', {
+      operation: 'admin_sync_all_subscriptions',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to sync subscriptions from Stripe' });
+  }
+});
+
+// Get enhanced subscription data with Stripe info
+router.get('/billing/subscriptions/:id/enhanced', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const subscription = await prisma.subscription.findUnique({
+      where: { id },
+      include: {
+        user: { select: { email: true, name: true } },
+        business: { select: { name: true } },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+          take: 10
+        }
+      }
+    });
+
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    const stripeUrls = {
+      subscription: StripeSyncService.getStripeSubscriptionUrl(subscription.stripeSubscriptionId),
+      customer: StripeSyncService.getStripeCustomerUrl(subscription.stripeCustomerId)
+    };
+
+    res.json({
+      ...subscription,
+      stripeUrls,
+      metadata: subscription.stripeMetadata || {}
+    });
+  } catch (error) {
+    await logger.error('Failed to fetch enhanced subscription data', {
+      operation: 'admin_get_enhanced_subscription',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to fetch subscription data' });
+  }
+});
+
+// Get enhanced invoice data with Stripe info
+router.get('/billing/invoices/:id/enhanced', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        subscription: {
+          include: { user: { select: { email: true, name: true } } }
+        },
+        moduleSubscription: {
+          include: { user: { select: { email: true, name: true } } }
+        },
+        refunds: {
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const { StripeSyncService } = await import('../services/stripeSyncService');
+    const stripeUrls = {
+      invoice: StripeSyncService.getStripeInvoiceUrl(invoice.stripeInvoiceId),
+      charge: invoice.stripeChargeId 
+        ? `https://dashboard.stripe.com/${process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'live' : 'test'}/payments/${invoice.stripeChargeId}`
+        : null,
+      customer: StripeSyncService.getStripeCustomerUrl(invoice.stripeCustomerId)
+    };
+
+    res.json({
+      ...invoice,
+      stripeUrls,
+      metadata: invoice.stripeMetadata || {},
+      netAmount: invoice.stripeNetAmount || invoice.amount,
+      fees: invoice.stripeFee || 0
+    });
+  } catch (error) {
+    await logger.error('Failed to fetch enhanced invoice data', {
+      operation: 'admin_get_enhanced_invoice',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to fetch invoice data' });
   }
 });
 
