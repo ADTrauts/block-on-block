@@ -36,6 +36,7 @@ export default function PricingManagementPage() {
   const [impact, setImpact] = useState<any>(null);
   const [loadingImpact, setLoadingImpact] = useState(false);
   const [sendNotifications, setSendNotifications] = useState(true);
+  const [updateExistingSubscriptions, setUpdateExistingSubscriptions] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
@@ -145,6 +146,7 @@ export default function PricingManagementPage() {
           baseAIAllowance: editForm.baseAIAllowance,
           stripePriceId: editForm.stripePriceId,
           sendNotifications,
+          updateExistingSubscriptions,
         }),
       });
 
@@ -269,13 +271,32 @@ export default function PricingManagementPage() {
                         )}
                       </td>
                       <td className="py-3 px-4">
+                        <div className="flex gap-2">
+                          {prices.monthly && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(prices.monthly)}
+                              title="Edit Monthly Pricing"
+                              className="flex items-center gap-1"
+                            >
+                              <Edit className="w-3 h-3" />
+                              <span className="text-xs">Monthly</span>
+                            </Button>
+                          )}
+                          {prices.yearly && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => prices.monthly && handleEdit(prices.monthly)}
+                              onClick={() => handleEdit(prices.yearly)}
+                              title="Edit Yearly Pricing"
+                              className="flex items-center gap-1"
                         >
-                          <Edit className="w-4 h-4" />
+                              <Edit className="w-3 h-3" />
+                              <span className="text-xs">Yearly</span>
                         </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -425,8 +446,6 @@ export default function PricingManagementPage() {
               </div>
             )}
 
-            {editingPrice.tier.includes('business') && (
-              <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Per Employee Price ($)
@@ -441,7 +460,9 @@ export default function PricingManagementPage() {
                         perEmployeePrice: parseFloat(e.target.value) || undefined,
                       })
                     }
+                placeholder="0.00"
                   />
+              <p className="text-xs text-gray-500 mt-1">Leave empty if not applicable</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -456,10 +477,10 @@ export default function PricingManagementPage() {
                         includedEmployees: parseInt(e.target.value) || undefined,
                       })
                     }
+                placeholder="0"
                   />
+              <p className="text-xs text-gray-500 mt-1">Number of employees included in base price</p>
                 </div>
-              </>
-            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -476,7 +497,8 @@ export default function PricingManagementPage() {
             </div>
 
             {editingPrice && editForm.basePrice !== editingPrice.basePrice && (
-              <div className="flex items-center gap-2 pt-2">
+              <div className="space-y-3 pt-2 border-t">
+                <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   id="sendNotifications"
@@ -487,6 +509,28 @@ export default function PricingManagementPage() {
                 <label htmlFor="sendNotifications" className="text-sm text-gray-700">
                   Send email notifications to affected subscribers
                 </label>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="updateExistingSubscriptions"
+                    checked={updateExistingSubscriptions}
+                    onChange={(e) => setUpdateExistingSubscriptions(e.target.checked)}
+                    className="w-4 h-4 mt-0.5"
+                  />
+                  <div>
+                    <label htmlFor="updateExistingSubscriptions" className="text-sm font-medium text-gray-700 block">
+                      Update existing subscriptions to new price
+                    </label>
+                    <p className="text-xs text-gray-600 mt-1">
+                      All active subscriptions for this tier will be updated to the new price. 
+                      The new price will take effect on their next billing cycle (no proration).
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      ⚠️ If unchecked, existing customers will keep their current price (grandfathered pricing).
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 

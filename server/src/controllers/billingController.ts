@@ -220,9 +220,9 @@ export const updateSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const updated = await subscriptionService.updateSubscription(id, {
+    const updated = await subscriptionService.updateSubscription({
+      subscriptionId: id,
       tier,
-      businessId,
       cancelAtPeriodEnd,
     });
 
@@ -304,6 +304,45 @@ export const reactivateSubscription = async (req: Request, res: Response) => {
       }
     });
     res.status(500).json({ error: 'Failed to reactivate subscription' });
+  }
+};
+
+export const updateSubscriptionEmployeeCount = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { employeeCount } = req.body;
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (employeeCount === undefined || employeeCount < 0) {
+      return res.status(400).json({ error: 'Valid employee count is required' });
+    }
+
+    const subscription = await subscriptionService.getSubscription(id);
+
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    if (subscription.userId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updated = await subscriptionService.updateEmployeeCount(id, employeeCount);
+
+    res.json({ subscription: updated });
+  } catch (error) {
+    await logger.error('Failed to update subscription employee count', {
+      operation: 'billing_update_subscription_employee_count',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ error: 'Failed to update subscription employee count' });
   }
 };
 

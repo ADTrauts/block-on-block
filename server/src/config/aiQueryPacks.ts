@@ -11,24 +11,28 @@ export const AI_QUERY_PACKS = {
     price: 10.0,
     name: 'Small Pack',
     description: '500 additional queries',
+    stripePriceId: process.env.STRIPE_QUERY_PACK_SMALL_PRICE_ID || '', // Set after running setup script
   },
   medium: {
     queries: 2500,
     price: 40.0, // 20% discount vs buying 5 small packs (50.00)
     name: 'Medium Pack',
     description: '2,500 additional queries (Best Value)',
+    stripePriceId: process.env.STRIPE_QUERY_PACK_MEDIUM_PRICE_ID || '', // Set after running setup script
   },
   large: {
     queries: 5000,
     price: 70.0, // 30% discount vs buying 10 small packs (100.00)
     name: 'Large Pack',
     description: '5,000 additional queries',
+    stripePriceId: process.env.STRIPE_QUERY_PACK_LARGE_PRICE_ID || '', // Set after running setup script
   },
   enterprise: {
     queries: 10000,
     price: 120.0, // 40% discount vs buying 20 small packs (200.00)
     name: 'Enterprise Pack',
     description: '10,000 additional queries',
+    stripePriceId: process.env.STRIPE_QUERY_PACK_ENTERPRISE_PRICE_ID || '', // Set after running setup script
   },
 } as const;
 

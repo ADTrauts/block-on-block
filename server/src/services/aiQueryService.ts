@@ -300,16 +300,45 @@ export class AIQueryService {
       throw new Error('Invalid pack type');
     }
 
+    // Get or create Stripe customer
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    let customerId = (user as any).stripeCustomerId;
+    if (!customerId) {
+      const { StripeService } = await import('./stripeService');
+      const customer = await StripeService.createCustomer({
+        email: user.email || '',
+        name: user.name || undefined,
+        metadata: { userId },
+      });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stripeCustomerId: customer.id } as any,
+      });
+      customerId = customer.id;
+    }
+
     // Create payment intent
+    // Note: Payment Intents use amount directly (not price_id)
+    // We create Stripe Products/Prices for management, but Payment Intents work with amounts
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(pack.price * 100), // Convert to cents
       currency: 'usd',
+      customer: customerId,
       metadata: {
         userId,
         businessId: businessId || '',
         packType,
         queries: pack.queries.toString(),
         type: 'ai_query_pack',
+        // Include Stripe Price ID in metadata for reference (if configured)
+        ...(pack.stripePriceId && { stripePriceId: pack.stripePriceId }),
       },
     });
 

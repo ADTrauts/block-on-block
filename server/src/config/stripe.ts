@@ -22,6 +22,8 @@ export const STRIPE_PRODUCTS = {
   BUSINESS_BASIC: 'prod_business_basic',
   BUSINESS_ADVANCED: 'prod_business_advanced',
   ENTERPRISE: 'prod_enterprise',
+  // AI Query Packs (one-time payment products)
+  AI_QUERY_PACKS: 'prod_ai_query_packs',
 };
 
 // Stripe price IDs for different tiers

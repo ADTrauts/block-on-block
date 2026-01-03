@@ -192,7 +192,10 @@ export class StripeService {
     productId: string,
     unitAmount: number,
     currency: string = 'usd',
-    recurring?: { interval: 'month' | 'year' }
+    options?: { 
+      interval?: 'month' | 'year';
+      metadata?: Record<string, string>;
+    }
   ) {
     if (!isStripeConfigured() || !stripe) {
       throw new Error('Stripe is not configured');
@@ -204,10 +207,14 @@ export class StripeService {
       currency,
     };
 
-    if (recurring) {
+    if (options?.interval) {
       priceParams.recurring = {
-        interval: recurring.interval,
+        interval: options.interval,
       };
+    }
+
+    if (options?.metadata) {
+      priceParams.metadata = options.metadata;
     }
 
     const price = await stripe.prices.create(priceParams);
@@ -235,6 +242,46 @@ export class StripeService {
       case 'setup_intent.succeeded':
         await this.handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent);
         break;
+      case 'payment_intent.succeeded':
+        await this.handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
+        break;
+      case 'payment_intent.payment_failed':
+        await this.handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
+        break;
+    }
+  }
+
+  /**
+   * Alias for handleWebhook (for consistency with PaymentService)
+   */
+  static async handleWebhookEvent(event: Stripe.Event) {
+    return this.handleWebhook(event);
+  }
+
+  /**
+   * Handle successful payment intent (for query packs and other one-time payments)
+   */
+  private static async handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    const paymentType = paymentIntent.metadata.type;
+
+    if (paymentType === 'ai_query_pack') {
+      // Handle AI query pack purchase
+      const { AIQueryService } = await import('./aiQueryService');
+      await AIQueryService.completeQueryPackPurchase(paymentIntent.id);
+    }
+    // Other payment intent types can be handled here
+  }
+
+  /**
+   * Handle failed payment intent
+   */
+  private static async handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    const paymentType = paymentIntent.metadata.type;
+
+    if (paymentType === 'ai_query_pack') {
+      // Handle failed AI query pack purchase
+      const { AIQueryService } = await import('./aiQueryService');
+      await AIQueryService.failQueryPackPurchase(paymentIntent.id);
     }
   }
 
@@ -272,11 +319,11 @@ export class StripeService {
             businessId: businessId || null,
             tier,
             status: subscription.status === 'active' || subscription.status === 'trialing' ? 'active' : 'cancelled',
-            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+            currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
             stripeSubscriptionId: subscription.id,
             stripeCustomerId: subscription.customer as string,
-            cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+            cancelAtPeriodEnd: (subscription as any).cancel_at_period_end || false,
           };
 
           // Check if subscription already exists
@@ -317,9 +364,12 @@ export class StripeService {
     });
 
     // Handle revenue sharing for module subscriptions
-    if (invoice.subscription) {
+    const subscriptionId = typeof invoice.subscription === 'string' 
+      ? invoice.subscription 
+      : (invoice.subscription as any)?.id || null;
+    if (subscriptionId) {
       const moduleSubscription = await prisma.moduleSubscription.findFirst({
-        where: { stripeSubscriptionId: invoice.subscription as string },
+        where: { stripeSubscriptionId: subscriptionId },
         include: { module: true },
       });
 
@@ -372,9 +422,12 @@ export class StripeService {
     });
 
     // Update subscription status
-    if (invoice.subscription) {
+    const subscriptionId = typeof invoice.subscription === 'string' 
+      ? invoice.subscription 
+      : (invoice.subscription as any)?.id || null;
+    if (subscriptionId) {
       await prisma.subscription.updateMany({
-        where: { stripeSubscriptionId: invoice.subscription as string },
+        where: { stripeSubscriptionId: subscriptionId },
         data: { status: 'past_due' },
       });
     }

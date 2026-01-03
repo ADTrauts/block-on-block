@@ -3041,7 +3041,8 @@ model PricingConfig {
   baseAIAllowance Int?    // Queries included per month
   
   // Stripe Integration
-  stripePriceId   String?  // Stripe price ID
+  stripePriceId   String?  // Stripe price ID for base subscription
+  perEmployeeStripePriceId String?  // Stripe price ID for per-employee charges
   
   // Status
   isActive        Boolean  @default(true)

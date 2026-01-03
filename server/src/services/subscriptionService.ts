@@ -10,6 +10,8 @@ export interface CreateSubscriptionParams {
   businessId?: string;
   tier: 'free' | 'standard' | 'enterprise';
   stripeCustomerId?: string;
+  employeeCount?: number; // Total employees for business plans
+  billingCycle?: 'monthly' | 'yearly'; // Billing cycle for the subscription
 }
 
 export interface UpdateSubscriptionParams {
@@ -24,12 +26,28 @@ export class SubscriptionService {
    * Create a new subscription
    */
   async createSubscription(params: CreateSubscriptionParams) {
-    const { userId, businessId, tier, stripeCustomerId } = params;
+    const { userId, businessId, tier, stripeCustomerId, employeeCount, billingCycle = 'monthly' } = params;
 
-    // Set subscription period (monthly)
+    // Get pricing configuration for this tier
+    const { PricingService } = await import('./pricingService');
+    const pricingConfig = await PricingService.getPricing(tier, billingCycle);
+    
+    const includedEmployees = pricingConfig?.includedEmployees || 0;
+    const perEmployeePrice = pricingConfig?.perEmployeePrice || null;
+    
+    // Calculate additional employees and cost
+    const additionalEmployees = employeeCount && includedEmployees 
+      ? Math.max(0, employeeCount - includedEmployees) 
+      : 0;
+    const additionalEmployeeCost = perEmployeePrice && additionalEmployees > 0
+      ? perEmployeePrice * additionalEmployees
+      : null;
+
+    // Set subscription period
     const now = new Date();
+    const periodDays = billingCycle === 'yearly' ? 365 : 30;
     const currentPeriodStart = now;
-    const currentPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    const currentPeriodEnd = new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000);
 
     // Create subscription in database
     const subscription = await prisma.subscription.create({
@@ -42,6 +60,9 @@ export class SubscriptionService {
         currentPeriodEnd,
         stripeCustomerId,
         cancelAtPeriodEnd: false,
+        employeeCount: employeeCount || null,
+        includedEmployees: includedEmployees || null,
+        additionalEmployeeCost: additionalEmployeeCost || null,
       },
       include: {
         user: true,
@@ -52,22 +73,35 @@ export class SubscriptionService {
     // If this is a paid tier, create Stripe subscription
     if (tier !== 'free' && stripeCustomerId && stripe) {
       try {
-        const stripePriceId = await this.getStripePriceId(tier, 'monthly');
+        const stripePriceId = await this.getStripePriceId(tier, billingCycle);
         if (!stripePriceId) {
           throw new Error(`No Stripe price ID found for tier: ${tier}`);
         }
 
+        // Build subscription items: base price + per-employee price (if applicable)
+        const subscriptionItems: Array<{ price: string; quantity?: number }> = [
+          {
+            price: stripePriceId,
+          },
+        ];
+
+        // Add per-employee pricing if there are additional employees
+        if (additionalEmployees > 0 && pricingConfig?.perEmployeeStripePriceId) {
+          subscriptionItems.push({
+            price: pricingConfig.perEmployeeStripePriceId,
+            quantity: additionalEmployees,
+          });
+        }
+
         const stripeSubscription = await stripe.subscriptions.create({
           customer: stripeCustomerId,
-          items: [
-            {
-              price: stripePriceId,
-            },
-          ],
+          items: subscriptionItems,
           metadata: {
             subscriptionId: subscription.id,
             userId,
             businessId: businessId || '',
+            employeeCount: employeeCount?.toString() || '0',
+            includedEmployees: includedEmployees?.toString() || '0',
           },
         });
 
@@ -212,6 +246,112 @@ export class SubscriptionService {
         await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
       } catch (error) {
         console.error('Error cancelling Stripe subscription:', error);
+      }
+    }
+
+    return updatedSubscription;
+  }
+
+  /**
+   * Update employee count for a subscription
+   * This updates both the database and Stripe subscription
+   */
+  async updateEmployeeCount(subscriptionId: string, employeeCount: number) {
+    const subscription = await prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+    });
+
+    if (!subscription) {
+      throw new Error('Subscription not found');
+    }
+
+    // Get current pricing configuration
+    const { PricingService } = await import('./pricingService');
+    const billingCycle = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime() > 200 * 24 * 60 * 60 * 1000 ? 'yearly' : 'monthly';
+    const pricingConfig = await PricingService.getPricing(subscription.tier, billingCycle);
+    
+    const includedEmployees = pricingConfig?.includedEmployees || 0;
+    const perEmployeePrice = pricingConfig?.perEmployeePrice || null;
+    
+    // Calculate additional employees and cost
+    const additionalEmployees = employeeCount > includedEmployees 
+      ? Math.max(0, employeeCount - includedEmployees) 
+      : 0;
+    const additionalEmployeeCost = perEmployeePrice && additionalEmployees > 0
+      ? perEmployeePrice * additionalEmployees
+      : null;
+
+    // Update database
+    const updatedSubscription = await prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: {
+        employeeCount,
+        includedEmployees: includedEmployees || null,
+        additionalEmployeeCost: additionalEmployeeCost || null,
+      },
+      include: {
+        user: true,
+        business: true,
+      },
+    });
+
+    // Update Stripe subscription if it exists
+    if (subscription.stripeSubscriptionId && stripe && pricingConfig) {
+      try {
+        const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        const basePriceItem = stripeSubscription.items.data.find(item => 
+          item.price.id === pricingConfig.stripePriceId
+        );
+        const perEmployeeItem = stripeSubscription.items.data.find(item => 
+          item.price.id === pricingConfig.perEmployeeStripePriceId
+        );
+
+        const itemsToUpdate: Array<{ id: string; price: string; quantity?: number }> = [];
+
+        // Always include base price item
+        if (basePriceItem) {
+          itemsToUpdate.push({
+            id: basePriceItem.id,
+            price: basePriceItem.price.id,
+          });
+        }
+
+        // Update or add per-employee item
+        if (additionalEmployees > 0 && pricingConfig.perEmployeeStripePriceId) {
+          if (perEmployeeItem) {
+            // Update existing per-employee item
+            itemsToUpdate.push({
+              id: perEmployeeItem.id,
+              price: perEmployeeItem.price.id,
+              quantity: additionalEmployees,
+            });
+          } else {
+            // Add new per-employee item
+            itemsToUpdate.push({
+              price: pricingConfig.perEmployeeStripePriceId,
+              quantity: additionalEmployees,
+            });
+          }
+        } else if (perEmployeeItem) {
+          // Remove per-employee item if no additional employees
+          await stripe.subscriptionItems.del(perEmployeeItem.id);
+        }
+
+        // Update Stripe subscription
+        if (itemsToUpdate.length > 0) {
+          await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+            items: itemsToUpdate,
+            proration_behavior: 'always_invoice', // Prorate charges for employee changes
+            metadata: {
+              ...stripeSubscription.metadata,
+              employeeCount: employeeCount.toString(),
+              includedEmployees: includedEmployees?.toString() || '0',
+            },
+          });
+        }
+      } catch (error) {
+        console.error('Error updating Stripe subscription employee count:', error);
+        // Continue even if Stripe update fails - database is already updated
       }
     }
 

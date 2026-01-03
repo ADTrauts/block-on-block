@@ -301,7 +301,9 @@ export class PaymentService {
   }
 
   private static async handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-    if (paymentIntent.metadata.type === 'module_subscription') {
+    const paymentType = paymentIntent.metadata.type;
+
+    if (paymentType === 'module_subscription') {
       // Handle module subscription payment
       const moduleId = paymentIntent.metadata.moduleId;
       const userId = paymentIntent.metadata.userId;
@@ -315,12 +317,24 @@ export class PaymentService {
         amount: paymentIntent.amount / 100,
         interval: 'month',
       });
+    } else if (paymentType === 'ai_query_pack') {
+      // Handle AI query pack purchase
+      const { AIQueryService } = await import('./aiQueryService');
+      await AIQueryService.completeQueryPackPurchase(paymentIntent.id);
     }
   }
 
   private static async handlePaymentFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-    // Handle failed payment
-    console.log('Payment failed:', paymentIntent.id);
+    const paymentType = paymentIntent.metadata.type;
+
+    if (paymentType === 'ai_query_pack') {
+      // Handle failed AI query pack purchase
+      const { AIQueryService } = await import('./aiQueryService');
+      await AIQueryService.failQueryPackPurchase(paymentIntent.id);
+    } else {
+      // Handle other failed payments
+      console.log('Payment failed:', paymentIntent.id);
+    }
   }
 
   private static async handleInvoicePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {

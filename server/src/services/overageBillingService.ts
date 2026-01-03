@@ -133,10 +133,36 @@ export class OverageBillingService {
         });
       }
 
+      // Check if we've already processed overage for this billing period
+      // Look for existing invoice items with the same period end
+      const periodEnd = subscription.currentPeriodEnd;
+      const existingInvoiceItems = stripe ? await stripe.invoiceItems.list({
+        customer: subscription.stripeCustomerId,
+        limit: 100,
+      }) : { data: [] };
+
+      // Check if we've already created invoice items for this period
+      const periodAlreadyProcessed = existingInvoiceItems.data.some(item => 
+        item.metadata?.periodEnd === periodEnd.toISOString() &&
+        item.metadata?.type === 'usage_overage'
+      );
+
+      if (periodAlreadyProcessed) {
+        await logger.info('Overage already processed for this billing period', {
+          operation: 'overage_billing_skip_duplicate',
+          userId,
+          businessId,
+          periodEnd: periodEnd.toISOString(),
+        });
+        return {
+          success: true,
+          invoiceItemsCreated: 0,
+          totalOverage: totalOverageWithAI,
+        };
+      }
+
       // Create invoice items in Stripe
       let invoiceItemsCreated = 0;
-      const now = new Date();
-      const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
       for (const item of overageItems) {
         try {
@@ -151,6 +177,7 @@ export class OverageBillingService {
               metric: item.metric,
               quantity: item.quantity.toString(),
               periodEnd: periodEnd.toISOString(),
+              periodStart: subscription.currentPeriodStart.toISOString(),
               type: 'usage_overage',
             },
           });
@@ -182,16 +209,15 @@ export class OverageBillingService {
       // Create a usage record for overage tracking
       if (invoiceItemsCreated > 0) {
         try {
-          const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
           await prisma.usageRecord.create({
             data: {
               userId,
               subscriptionId: subscription.id,
               metric: 'overage_charges',
               quantity: 1,
-              cost: totalOverage,
-              periodStart,
-              periodEnd,
+              cost: totalOverageWithAI,
+              periodStart: subscription.currentPeriodStart,
+              periodEnd: subscription.currentPeriodEnd,
               businessId: businessId || null,
             },
           });
@@ -228,7 +254,8 @@ export class OverageBillingService {
 
   /**
    * Process overage billing for all active subscriptions
-   * Typically called by a cron job at the end of each billing period
+   * Only processes subscriptions whose billing period has ended
+   * Typically called by a cron job daily to catch subscriptions as their periods end
    */
   static async processAllOverageBilling(): Promise<{
     processed: number;
@@ -237,8 +264,16 @@ export class OverageBillingService {
     totalOverage: number;
   }> {
     try {
+      const now = new Date();
+      
+      // Find subscriptions whose billing period has ended (currentPeriodEnd is in the past)
+      // Also check that we haven't already processed overage for this period
       const activeSubscriptions = await prisma.subscription.findMany({
-        where: { status: 'active' },
+        where: { 
+          status: 'active',
+          currentPeriodEnd: { lte: now }, // Period has ended
+          stripeCustomerId: { not: null }, // Must have Stripe customer
+        },
         include: {
           user: true,
           business: true,
@@ -251,6 +286,11 @@ export class OverageBillingService {
       let totalOverage = 0;
 
       for (const subscription of activeSubscriptions) {
+        // Double-check period has ended (safety check)
+        if (subscription.currentPeriodEnd > now) {
+          continue; // Skip if period hasn't ended yet
+        }
+
         processed++;
 
         const result = await this.processOverageBilling(

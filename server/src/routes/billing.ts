@@ -7,6 +7,7 @@ import {
   updateSubscription,
   cancelSubscription,
   reactivateSubscription,
+  updateSubscriptionEmployeeCount,
   // Checkout endpoints
   createCheckoutSession,
   // Module subscription endpoints
@@ -38,6 +39,7 @@ router.post('/subscriptions', createSubscription);
 router.get('/subscriptions/user', getUserSubscription);
 router.get('/subscriptions/:id', getSubscription);
 router.put('/subscriptions/:id', updateSubscription);
+router.put('/subscriptions/:id/employee-count', updateSubscriptionEmployeeCount);
 router.delete('/subscriptions/:id', cancelSubscription);
 router.post('/subscriptions/:id/reactivate', reactivateSubscription);
 

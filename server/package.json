@@ -24,7 +24,11 @@
     "ensure:calendars": "ts-node scripts/ensure-personal-calendars.ts",
     "stripe:verify": "ts-node src/scripts/verifyStripeSetup.ts",
     "stripe:sync": "ts-node src/scripts/syncStripePrices.ts",
-    "stripe:setup": "ts-node src/scripts/setupStripeProducts.ts"
+    "stripe:setup": "ts-node src/scripts/setupStripeProducts.ts",
+    "stripe:list-per-employee": "ts-node src/scripts/listStripePerEmployeePrices.ts",
+    "stripe:sync-per-employee": "ts-node src/scripts/syncPerEmployeeStripePrices.ts",
+    "stripe:setup-query-packs": "ts-node src/scripts/setupQueryPackProducts.ts",
+    "stripe:sync-query-pack-prices": "ts-node src/scripts/syncQueryPackPrices.ts"
   },
   "keywords": [],
   "author": "",

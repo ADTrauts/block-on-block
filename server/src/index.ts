@@ -864,20 +864,26 @@ const server = httpServer.listen(port, () => {
     console.error('Failed to schedule developer lifetime revenue calculation job:', e);
   }
 
-  // Process overage billing on the 1st of each month at 2am
+  // Process overage billing daily at 3am
+  // This checks all subscriptions and processes overage for any whose billing period has ended
+  // This handles both monthly and yearly subscriptions correctly
   try {
-    cron.schedule('0 2 1 * *', async () => {
-      console.log('🔄 Running monthly overage billing processing...');
+    cron.schedule('0 3 * * *', async () => {
+      console.log('🔄 Running daily overage billing processing...');
       try {
         const result = await OverageBillingService.processAllOverageBilling();
-        console.log(`✅ Overage billing processed (processed: ${result.processed}, successful: ${result.successful}, failed: ${result.failed}, total: $${result.totalOverage.toFixed(2)})`);
+        if (result.processed > 0) {
+          console.log(`✅ Overage billing processed (processed: ${result.processed}, successful: ${result.successful}, failed: ${result.failed}, total: $${result.totalOverage.toFixed(2)})`);
+        } else {
+          console.log('ℹ️  No subscriptions with ended billing periods found');
+        }
       } catch (error) {
         console.error('❌ Error processing overage billing:', error);
       }
     }, {
       timezone: 'America/New_York'
     });
-    console.log('✅ Monthly overage billing job scheduled (1st of month at 2am)');
+    console.log('✅ Daily overage billing job scheduled (3am daily)');
   } catch (e) {
     console.error('Failed to schedule overage billing job:', e);
   }

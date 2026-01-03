@@ -173,6 +173,7 @@ export class PricingService {
       queryPackEnterprise?: number;
       baseAIAllowance?: number;
       stripePriceId?: string;
+      perEmployeeStripePriceId?: string | null;
       effectiveDate?: Date;
       createdBy: string;
     }
@@ -207,6 +208,7 @@ export class PricingService {
           queryPackEnterprise: data.queryPackEnterprise,
           baseAIAllowance: data.baseAIAllowance,
           stripePriceId: data.stripePriceId,
+          perEmployeeStripePriceId: data.perEmployeeStripePriceId,
           effectiveDate,
           isActive: true,
           createdBy: data.createdBy,
