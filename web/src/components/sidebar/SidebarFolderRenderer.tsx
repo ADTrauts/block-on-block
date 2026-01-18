@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ChevronRight, ChevronDown, Folder } from 'lucide-react';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 import type { SidebarFolder } from '../../types/sidebar';
 import type { ModuleConfig } from '../../config/modules';
 import { LayoutDashboard, Folder, MessageSquare, Users, BarChart3, Brain, Calendar, CheckSquare } from 'lucide-react';
