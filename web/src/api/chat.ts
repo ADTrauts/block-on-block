@@ -13,7 +13,8 @@ import {
 } from 'shared/types/chat';
 
 // Use relative URLs to go through Next.js API proxy
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
+// This ensures all API calls go through the Next.js API proxy which handles authentication
+const API_BASE = '/api/chat';
 
 // Helper function to make authenticated API calls
 async function apiCall<T>(
@@ -21,7 +22,7 @@ async function apiCall<T>(
   options: RequestInit = {}, 
   token?: string
 ): Promise<T> {
-  const url = `${API_BASE_URL}/api/chat${endpoint}`;
+  const url = `${API_BASE}${endpoint}`;
   
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

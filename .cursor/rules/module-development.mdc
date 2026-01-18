@@ -614,7 +614,18 @@ Use this checklist for every new module:
 - [ ] **Performance tests** - Context provider speed < 500ms
 - [ ] **Security tests** - Permission checks working
 
-### Phase 7: Documentation
+### Phase 7: Notification Integration (MANDATORY)
+- [ ] **Identify notification events** - What actions trigger notifications
+- [ ] **Define notification metadata** - Add `notifications` array to module manifest (see Notification Metadata section below)
+- [ ] **Use NotificationService** - Import and use `NotificationService.createNotification()`
+- [ ] **Follow naming convention** - Use `[module]_[event]` format (e.g., `hr_onboarding_task_approved`)
+- [ ] **Include metadata** - Add relevant data (IDs, links) in notification `data` field
+- [ ] **Test notifications** - Verify notifications appear in notification center
+- [ ] **Handle errors gracefully** - Don't fail operations if notification fails
+
+**CRITICAL**: Notification metadata in module manifest is REQUIRED. Without it, notification types won't appear in the notification center or settings page automatically.
+
+### Phase 8: Documentation
 - [ ] **Write README** - Installation and usage
 - [ ] **API documentation** - All endpoints documented
 - [ ] **AI context documentation** - Keywords and patterns explained
@@ -672,11 +683,83 @@ Every module **MUST** have a complete manifest:
     "actions": [...],
     "contextProviders": [...]
   },
+  "notifications": [
+    // REQUIRED: Notification metadata for dynamic notification center
+    {
+      "type": "your_module_event_name",
+      "name": "Event Name",
+      "description": "When this notification is sent",
+      "category": "your-module-category",
+      "defaultChannels": {
+        "inApp": true,
+        "email": false,
+        "push": true
+      },
+      "priority": "normal",
+      "requiresAction": false
+    }
+  ],
   "runtime": {
     "entryUrl": "https://your-module.com/index.html",
     "apiVersion": "1.0"
   }
 }
+```
+
+### Notification Metadata (REQUIRED)
+
+**CRITICAL**: Every module that sends notifications **MUST** include a `notifications` array in its manifest. This enables:
+- Automatic discovery in notification center
+- Dynamic settings page configuration
+- Proper categorization and filtering
+
+**Notification Metadata Schema**:
+```typescript
+{
+  type: string;              // Notification type (must follow [module]_[event] pattern)
+  name: string;              // Human-readable name
+  description: string;       // When this notification is sent
+  category: string;          // Category for grouping (e.g., 'hr', 'chat', 'drive')
+  defaultChannels: {
+    inApp: boolean;          // Show in notification center
+    email: boolean;          // Send email notification
+    push: boolean;           // Send push notification
+  };
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  requiresAction?: boolean;  // Whether user action is required
+}
+```
+
+**Example**:
+```typescript
+"notifications": [
+  {
+    "type": "hr_onboarding_task_approved",
+    "name": "Onboarding Task Approved",
+    "description": "Sent when a manager approves an employee's onboarding task",
+    "category": "hr",
+    "defaultChannels": {
+      "inApp": true,
+      "email": true,
+      "push": false
+    },
+    "priority": "normal",
+    "requiresAction": false
+  },
+  {
+    "type": "hr_time_off_request_submitted",
+    "name": "Time-Off Request Submitted",
+    "description": "Sent to manager when employee submits time-off request",
+    "category": "hr",
+    "defaultChannels": {
+      "inApp": true,
+      "email": true,
+      "push": true
+    },
+    "priority": "high",
+    "requiresAction": true
+  }
+]
 ```
 
 ---

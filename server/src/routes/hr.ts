@@ -85,6 +85,11 @@ router.get('/admin/settings', checkHRAdmin, hrController.getHRSettings);
 router.put('/admin/settings', checkHRAdmin, hrController.updateHRSettings);
 router.get('/admin/features', checkHRAdmin, hrController.getHRFeatureAvailability);
 
+// HR Analytics (Available on Business Advanced+)
+router.get('/admin/analytics/onboarding', checkHRAdmin, hrController.getOnboardingAnalyticsController);
+router.get('/admin/analytics/attendance', checkHRAdmin, hrController.getAttendanceAnalyticsController);
+router.get('/admin/analytics/time-off', checkHRAdmin, hrController.getTimeOffAnalyticsController);
+
 // Onboarding (Business Advanced+ pilot)
 router.get(
   '/admin/onboarding/templates',

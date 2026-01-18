@@ -48,6 +48,7 @@ import { initializeChatSocketService } from './services/chatSocketService';
 import { registerBuiltInModulesOnStartup } from './startup/registerBuiltInModules';
 import { seedHRModuleOnStartup } from './startup/seedHRModule';
 import { seedTodoModuleOnStartup } from './startup/seedTodoModule';
+import { seedSchedulingModuleOnStartup } from './startup/seedSchedulingModule';
 import cron from 'node-cron';
 import { dispatchDueReminders } from './services/reminderService';
 import { AIQueryService } from './services/aiQueryService';
@@ -193,11 +194,37 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 const corsOptions = {
-  origin: [
-    process.env.FRONTEND_URL || 'https://vssyl.com',
-    'https://vssyl.com',
-    'https://vssyl-web-235369681725.us-central1.run.app' // Cloud Run web service
-  ],
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // In development, allow localhost origins
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || 'https://vssyl.com',
+      'https://vssyl.com',
+      'https://vssyl-web-235369681725.us-central1.run.app', // Cloud Run web service
+    ];
+    
+    // Add localhost origins for development
+    if (isDevelopment) {
+      allowedOrigins.push(
+        'http://localhost:3000',
+        'http://localhost:3002',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3002'
+      );
+    }
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS not allowed for origin: ${origin}`));
+    }
+  },
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Authorization', 'Content-Type'],
@@ -807,6 +834,7 @@ const server = httpServer.listen(port, () => {
   try {
     await seedHRModuleOnStartup();
     await seedTodoModuleOnStartup();
+    await seedSchedulingModuleOnStartup();
   } catch (e) {
     console.error('Module seed failed (non-critical):', e);
   }
@@ -851,8 +879,8 @@ const server = httpServer.listen(port, () => {
     cron.schedule('0 1 1 * *', async () => {
       console.log('🔄 Running monthly developer lifetime revenue calculation...');
       try {
-        await RevenueSplitService.updateDeveloperEligibility();
-        console.log('✅ Developer lifetime revenue calculation completed');
+        const result = await RevenueSplitService.updateAllModuleSmallBusinessEligibility();
+        console.log(`✅ Developer lifetime revenue calculation completed (updated: ${result.updated}, errors: ${result.errors})`);
       } catch (error) {
         console.error('❌ Error calculating developer lifetime revenue:', error);
       }

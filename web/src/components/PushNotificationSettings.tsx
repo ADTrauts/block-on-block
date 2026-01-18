@@ -249,13 +249,16 @@ export default function PushNotificationSettings({ className = '' }: PushNotific
 
         {!status.supported && (
           <Alert type="warning" title="Browser Not Supported">
-            Your browser doesn't support push notifications. Please use a modern browser like Chrome, Firefox, or Safari.
+            <p>Your browser doesn't support push notifications. Please use a modern browser like Chrome, Firefox, or Safari.</p>
+            <p className="text-sm mt-2 text-gray-600">
+              Note: Service worker registration may take a moment. If you just enabled push notifications, wait a few seconds and refresh the page.
+            </p>
           </Alert>
         )}
 
         {status.permission === 'denied' && (
           <Alert type="error" title="Notifications Blocked">
-            Push notifications are blocked in your browser. To enable them:
+            <p className="mb-2">Push notifications are blocked in your browser. To enable them:</p>
             <ol className="list-decimal list-inside mt-2 space-y-1 text-sm">
               <li>Click the lock/info icon in your browser's address bar</li>
               <li>Change "Notifications" to "Allow"</li>
@@ -263,44 +266,16 @@ export default function PushNotificationSettings({ className = '' }: PushNotific
             </ol>
           </Alert>
         )}
+
+        {status.supported && status.permission !== 'denied' && !status.subscribed && (
+          <Alert type="info" title="Enable Push Notifications">
+            <p>Click "Enable" above to subscribe to push notifications. You'll receive notifications even when the app is closed.</p>
+          </Alert>
+        )}
       </div>
 
-      <div className="border-t pt-4">
-        <h4 className="font-medium mb-3">Notification Types</h4>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">Chat Messages</span>
-              <p className="text-sm text-gray-600">New messages and mentions</p>
-            </div>
-            <Switch checked={status.subscribed} onChange={() => {}} />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">File Sharing</span>
-              <p className="text-sm text-gray-600">When files are shared with you</p>
-            </div>
-            <Switch checked={status.subscribed} onChange={() => {}} />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">Business Invitations</span>
-              <p className="text-sm text-gray-600">When you're invited to join a business</p>
-            </div>
-            <Switch checked={status.subscribed} onChange={() => {}} />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">System Updates</span>
-              <p className="text-sm text-gray-600">Important system announcements</p>
-            </div>
-            <Switch checked={status.subscribed} onChange={() => {}} />
-          </div>
-        </div>
-      </div>
+      {/* Note: Push notification preferences are controlled by the main notification preferences above */}
+      {/* Individual notification type toggles are managed in the main Notification Settings page */}
     </div>
   );
 } 

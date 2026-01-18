@@ -357,6 +357,8 @@ model Notification {
   body        String?
   data        Json?
   read        Boolean  @default(false)
+  priority    String?  // 'low' | 'normal' | 'high' | 'urgent'
+  snoozedUntil DateTime?
   createdAt   DateTime @default(now())
   deliveredAt DateTime?
   deleted     Boolean  @default(false)
@@ -3112,6 +3114,10 @@ model Subscription {
   stripeSubscriptionId String?
   stripeCustomerId    String?
   
+  // Stripe integration fields
+  lastSyncedAt     DateTime? // Last time synced from Stripe
+  stripeMetadata   Json?   // Store additional Stripe subscription data
+  
   // Business-specific fields
   employeeCount   Int?     // Total employees for business plans
   includedEmployees Int?   // Included employees (10 for business plans)
@@ -3211,18 +3217,55 @@ model Invoice {
   paidAt          DateTime?
   createdAt       DateTime @default(now())
   
+  // Stripe integration fields
+  stripeChargeId  String?  // Stripe charge ID
+  stripePaymentIntentId String? // Stripe payment intent ID
+  stripeCustomerId String? // Stripe customer ID
+  stripeFee        Float?  // Stripe processing fee
+  stripeNetAmount  Float? // Net amount after Stripe fees
+  refundAmount     Float? @default(0) // Total refunded amount
+  refundCount      Int?   @default(0) // Number of refunds
+  lastSyncedAt     DateTime? // Last time synced from Stripe
+  
+  // Additional Stripe metadata
+  stripeMetadata   Json?   // Store additional Stripe data (payment method, disputes, etc.)
+  
   // Relationships
   subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   moduleSubscription ModuleSubscription? @relation(fields: [moduleSubscriptionId], references: [id], onDelete: Cascade)
   business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          String?
+  refunds         Refund[]  // Related refunds
 
   @@index([subscriptionId])
   @@index([moduleSubscriptionId])
   @@index([businessId])
   @@index([status])
+  @@index([stripeInvoiceId])
+  @@index([stripeChargeId])
   @@map("invoices")
+}
+
+// Refund tracking
+model Refund {
+  id              String   @id @default(uuid())
+  invoiceId       String
+  amount          Float
+  currency        String   @default("USD")
+  reason          String?  // 'duplicate', 'fraudulent', 'requested_by_customer', etc.
+  status          String   // 'pending', 'succeeded', 'failed', 'canceled'
+  stripeRefundId  String?  @unique // Stripe refund ID
+  stripeChargeId String?  // Original charge ID
+  createdAt       DateTime @default(now())
+  processedAt     DateTime?
+  
+  // Relationships
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  @@index([invoiceId])
+  @@index([stripeRefundId])
+  @@map("refunds")
 }
 
 // Developer revenue tracking for third-party modules

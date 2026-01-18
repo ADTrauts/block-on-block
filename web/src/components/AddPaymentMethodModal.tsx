@@ -14,9 +14,10 @@ interface AddPaymentMethodModalProps {
 }
 
 // Initialize Stripe
-const stripePromise = loadStripe(
-  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''
-);
+// Note: Stripe.js requires HTTPS for production, but HTTP is fine for local development
+const stripePromise = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 function PaymentMethodForm({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
   const stripe = useStripe();
@@ -208,10 +209,14 @@ export default function AddPaymentMethodModal({
           <Alert variant="error" title="Error">
             {error}
           </Alert>
-        ) : clientSecret ? (
+        ) : clientSecret && stripePromise ? (
           <Elements stripe={stripePromise} options={options}>
             <PaymentMethodForm onSuccess={handleSuccess} onClose={handleClose} />
           </Elements>
+        ) : !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ? (
+          <Alert variant="error" title="Configuration Error">
+            Stripe publishable key is not configured. Please set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.
+          </Alert>
         ) : null}
       </div>
     </Modal>

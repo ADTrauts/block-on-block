@@ -76,16 +76,28 @@ export class EmailNotificationService {
   }
 
   /**
-   * Test email service (admin only)
+   * Test email service (users can test to their own email)
    */
   async testEmailService(email?: string): Promise<boolean> {
     try {
       const response = await authenticatedApiCall('/api/email-notifications/test', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ email })
-      }) as { success: boolean };
+      }) as { success?: boolean; message?: string; error?: string };
 
-      return response.success;
+      if (response.success) {
+        return true;
+      }
+      
+      // Log helpful error message
+      if (response.error || response.message) {
+        console.error('Email test failed:', response.error || response.message);
+      }
+      
+      return false;
     } catch (error) {
       console.error('Error testing email service:', error);
       return false;

@@ -86,16 +86,36 @@ export async function authenticatedApiCall<T>(
 
     headers.Authorization = `Bearer ${token}`;
 
-    return fetch(url, {
-      ...options,
-      headers,
-    });
+    // Add timeout for API calls (30 seconds for most requests, longer for file uploads)
+    const controller = new AbortController();
+    const timeoutDuration = isFormDataBody ? 120000 : 30000; // 2 min for uploads, 30 sec for others
+    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      const isAborted = fetchError instanceof Error && fetchError.name === 'AbortError';
+      
+      if (isAborted) {
+        throw new Error(`Request timeout after ${timeoutDuration / 1000} seconds`);
+      }
+      throw fetchError;
+    }
   };
 
   let response = await makeRequest(accessToken);
 
-  // If we get a 401/403 and we're using NextAuth (not a direct token), try to refresh
-  if ((response.status === 401 || response.status === 403) && !token) {
+  // If we get a 401 and we're using NextAuth (not a direct token), try to refresh
+  // Note: 403 can be either auth error OR permission/tier error - we'll check the response body
+  if (response.status === 401 && !token) {
     console.log('Authentication error detected, attempting token refresh...', {
       status: response.status,
       endpoint,
@@ -130,8 +150,8 @@ export async function authenticatedApiCall<T>(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     
-    // Handle authentication errors (401, 403)
-    if (response.status === 401 || response.status === 403) {
+    // Handle authentication errors (401) - always an auth issue
+    if (response.status === 401) {
       console.log('Authentication error after refresh attempt:', {
         status: response.status,
         endpoint,
@@ -154,6 +174,57 @@ export async function authenticatedApiCall<T>(
       throw error;
     }
     
+    // Handle 403 errors - could be auth OR permission/tier issue
+    if (response.status === 403) {
+      // Check if this is actually a permission/tier error (not auth)
+      // Permission/tier errors have specific error messages like "Business tier upgrade required" or "Insufficient permissions"
+      const isPermissionError = errorData.error && (
+        errorData.error.includes('tier') ||
+        errorData.error.includes('permission') ||
+        errorData.error.includes('upgrade') ||
+        errorData.error.includes('Insufficient') ||
+        errorData.error.includes('Access denied')
+      );
+      
+      if (isPermissionError) {
+        // This is a permission/tier error, not an auth error
+        // Return the actual error message from the backend
+        console.log('Permission/tier error detected:', {
+          status: response.status,
+          endpoint,
+          errorData
+        });
+        
+        const errorMessage = errorData.message || errorData.error || errorData.details || 'Access denied';
+        const error = new Error(errorMessage) as ApiError;
+        error.status = response.status;
+        error.isAuthError = false;
+        // Attach additional error data for the UI to use
+        (error as any).errorData = errorData;
+        throw error;
+      }
+      
+      // If it's not a permission error, treat it as auth error
+      console.log('403 error treated as authentication error:', {
+        status: response.status,
+        endpoint,
+        errorData,
+        hasToken: !!accessToken,
+        tokenLength: accessToken?.length
+      });
+      
+      if (authErrorDispatcher) {
+        console.log('Dispatching auth error to modal...');
+        authErrorDispatcher('Your session has expired. Please log in to continue.');
+      } else {
+        console.warn('Auth error dispatcher not available - modal may not appear');
+      }
+      const error = new Error('Session expired. Please refresh the page to log in again.') as ApiError;
+      error.status = response.status;
+      error.isAuthError = true;
+      throw error;
+    }
+    
     // Handle server errors (500)
     if (response.status >= 500) {
       console.error('Server error:', {
@@ -162,14 +233,20 @@ export async function authenticatedApiCall<T>(
         errorData
       });
       
-      const error = new Error('Server error. Please try again later.') as ApiError;
+      const errorMessage = errorData.error || errorData.message || errorData.details || 'Server error. Please try again later.';
+      const error = new Error(errorMessage) as ApiError;
       error.status = response.status;
+      // Attach error data for the UI to use
+      (error as any).errorData = errorData;
       throw error;
     }
     
     // Handle other errors
-    const error = new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`) as ApiError;
+    const errorMessage = errorData.error || errorData.message || errorData.details || `HTTP error! status: ${response.status}`;
+    const error = new Error(errorMessage) as ApiError;
     error.status = response.status;
+    // Attach error data for the UI to use
+    (error as any).errorData = errorData;
     throw error;
   }
 

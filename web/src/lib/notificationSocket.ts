@@ -32,6 +32,15 @@ export const useNotificationSocket = (): NotificationSocketHook => {
       return;
     }
 
+    // Clean up any existing socket before creating a new one
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      if (socketRef.current.connected) {
+        socketRef.current.disconnect();
+      }
+      socketRef.current = null;
+    }
+
     try {
       // Use centralized WebSocket configuration
       const config = getWebSocketConfig();
@@ -44,12 +53,10 @@ export const useNotificationSocket = (): NotificationSocketHook => {
       });
 
       socketRef.current.on('connect', () => {
-        console.log('✅ Notification socket connected successfully');
         isConnectedRef.current = true;
       });
 
       socketRef.current.on('disconnect', () => {
-        console.log('🔌 Notification socket disconnected');
         isConnectedRef.current = false;
       });
 
@@ -65,7 +72,12 @@ export const useNotificationSocket = (): NotificationSocketHook => {
 
   const disconnect = useCallback(() => {
     if (socketRef.current) {
-      socketRef.current.disconnect();
+      // Only disconnect if socket is actually connected or connecting
+      // This prevents "closed before connection established" errors
+      if (socketRef.current.connected || socketRef.current.connecting) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+      }
       socketRef.current = null;
       isConnectedRef.current = false;
     }

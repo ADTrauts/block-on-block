@@ -46,6 +46,12 @@ import {
   startOnboardingJourney as startOnboardingJourneyService,
   upsertOnboardingTemplate as upsertOnboardingTemplateService
 } from '../services/hrOnboardingService';
+import {
+  getOnboardingAnalytics,
+  getAttendanceAnalytics,
+  getTimeOffAnalytics
+} from '../services/hrAnalyticsService';
+import { NotificationService } from '../services/notificationService';
 import { ensureBusinessDashboardForUser } from '../services/dashboardService';
 import { ensureEmployeeDocumentsFolder } from '../services/driveService';
 import { getBusinessHRFeatures } from '../middleware/hrFeatureGating';
@@ -1175,11 +1181,16 @@ export const getOnboardingJourneys = async (req: Request, res: Response) => {
     }
 
     const employeeHrProfileId = req.query.employeeHrProfileId as string | undefined;
-    if (!employeeHrProfileId) {
-      return res.status(400).json({ error: 'employeeHrProfileId is required' });
+    
+    // If employeeHrProfileId is provided, return journeys for that employee
+    if (employeeHrProfileId) {
+      const journeys = await listEmployeeJourneysService(businessId, employeeHrProfileId);
+      return res.json({ journeys });
     }
 
-    const journeys = await listEmployeeJourneysService(businessId, employeeHrProfileId);
+    // Otherwise, return all journeys for the business (admin view)
+    const { listAllOnboardingJourneys } = await import('../services/hrOnboardingService');
+    const journeys = await listAllOnboardingJourneys(businessId);
     return res.json({ journeys });
   } catch (error) {
     console.error('Error fetching onboarding journeys:', error);
@@ -2659,6 +2670,29 @@ export const requestTimeOff = async (req: Request, res: Response) => {
           balance: { available: balance.available, requested: requestedDays, used: balance.used, allotment: balance.allotment }
         });
       }
+      
+      // Check for low balance warning (less than 3 days remaining)
+      if (balance.available <= 3 && balance.available > 0) {
+        try {
+          await NotificationService.createNotification({
+            userId: user.id,
+            type: 'hr_time_off_balance_low',
+            title: 'Low PTO Balance Warning',
+            body: `You have ${balance.available} day${balance.available !== 1 ? 's' : ''} of PTO remaining. Consider planning your time off accordingly.`,
+            data: {
+              businessId,
+              employeePositionId: employeePosition.id,
+              balance: balance.available,
+              allotment: balance.allotment,
+              used: balance.used,
+              actionUrl: `/business/${businessId}/workspace/hr/me`
+            }
+          });
+        } catch (notificationError) {
+          // Don't fail request if notification fails
+          console.error('Error sending balance low notification:', notificationError);
+        }
+      }
     }
 
     // Create the time-off request
@@ -2672,6 +2706,27 @@ export const requestTimeOff = async (req: Request, res: Response) => {
         reason: reason || null,
         status: TimeOffStatus.PENDING,
         requestedById: user.id
+      },
+      include: {
+        employeePosition: {
+          include: {
+            position: {
+              include: {
+                reportsTo: {
+                  include: {
+                    employeePositions: {
+                      where: { businessId, active: true },
+                      include: {
+                        user: { select: { id: true, name: true, email: true } }
+                      },
+                      take: 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     });
 
@@ -2679,6 +2734,37 @@ export const requestTimeOff = async (req: Request, res: Response) => {
       await syncTimeOffRequestCalendar(request.id);
     } catch (syncError) {
       console.error('Error syncing time-off calendar:', syncError);
+    }
+
+    // Notify manager about time-off request
+    try {
+      const managerPosition = request.employeePosition?.position?.reportsTo?.employeePositions?.[0];
+      const managerUserId = managerPosition?.user?.id;
+      
+      if (managerUserId) {
+        const employeeName = user.name || user.email || 'An employee';
+        const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+        
+        await NotificationService.createNotification({
+          userId: managerUserId,
+          type: 'hr_time_off_request_submitted',
+          title: 'Time-Off Request Submitted',
+          body: `${employeeName} has submitted a ${normalizedType} request for ${days} day${days !== 1 ? 's' : ''} (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`,
+          data: {
+            requestId: request.id,
+            businessId,
+            employeePositionId: employeePosition.id,
+            employeeUserId: user.id,
+            type: normalizedType,
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+            actionUrl: `/business/${businessId}/workspace/hr/team`
+          }
+        });
+      }
+    } catch (notificationError) {
+      // Don't fail request creation if notification fails
+      console.error('Error sending time-off request notification:', notificationError);
     }
 
     return res.json({ message: 'Time-off request submitted', request });
@@ -2758,15 +2844,66 @@ export const approveTeamTimeOff = async (req: Request, res: Response) => {
 
     // Update status
     const status = decision === 'APPROVE' ? TimeOffStatus.APPROVED : TimeOffStatus.DENIED;
-    await prisma.timeOffRequest.update({
+    const updatedRequest = await prisma.timeOffRequest.update({
       where: { id },
-      data: { status, approvedById: user.id, approvedAt: new Date(), managerNote: note || null }
+      data: { status, approvedById: user.id, approvedAt: new Date(), managerNote: note || null },
+      include: {
+        employeePosition: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        }
+      }
     });
 
     try {
       await syncTimeOffRequestCalendar(id);
     } catch (syncError) {
       console.error('Error syncing time-off calendar:', syncError);
+    }
+
+    // Notify employee about approval/denial
+    try {
+      const employeeUserId = updatedRequest.employeePosition?.user?.id;
+      if (employeeUserId) {
+        const managerName = user.name || user.email || 'Your manager';
+        const days = Math.max(1, Math.round((new Date(updatedRequest.endDate).getTime() - new Date(updatedRequest.startDate).getTime()) / (24 * 60 * 60 * 1000)) + 1);
+        
+        if (status === TimeOffStatus.APPROVED) {
+          await NotificationService.createNotification({
+            userId: employeeUserId,
+            type: 'hr_time_off_request_approved',
+            title: 'Time-Off Request Approved ✅',
+            body: `${managerName} has approved your ${updatedRequest.type} request for ${days} day${days !== 1 ? 's' : ''} (${new Date(updatedRequest.startDate).toLocaleDateString()} - ${new Date(updatedRequest.endDate).toLocaleDateString()})`,
+            data: {
+              requestId: updatedRequest.id,
+              businessId,
+              type: updatedRequest.type,
+              startDate: updatedRequest.startDate.toISOString(),
+              endDate: updatedRequest.endDate.toISOString(),
+              actionUrl: `/business/${businessId}/workspace/hr/me`
+            }
+          });
+        } else {
+          await NotificationService.createNotification({
+            userId: employeeUserId,
+            type: 'hr_time_off_request_denied',
+            title: 'Time-Off Request Denied',
+            body: `${managerName} has denied your ${updatedRequest.type} request for ${days} day${days !== 1 ? 's' : ''}.${note ? ` Note: ${note}` : ''}`,
+            data: {
+              requestId: updatedRequest.id,
+              businessId,
+              type: updatedRequest.type,
+              startDate: updatedRequest.startDate.toISOString(),
+              endDate: updatedRequest.endDate.toISOString(),
+              actionUrl: `/business/${businessId}/workspace/hr/me`
+            }
+          });
+        }
+      }
+    } catch (notificationError) {
+      // Don't fail approval if notification fails
+      console.error('Error sending time-off approval notification:', notificationError);
     }
 
     return res.json({ message: `Request ${status.toLowerCase()}` });
@@ -3563,6 +3700,79 @@ export const exportEmployeesCSV = async (req: Request, res: Response) => {
     return res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Failed to export employees' 
     });
+  }
+};
+
+// ============================================================================
+// ANALYTICS CONTROLLERS
+// ============================================================================
+
+/**
+ * Get onboarding analytics
+ * GET /api/hr/admin/analytics/onboarding
+ */
+export const getOnboardingAnalyticsController = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+    const analytics = await getOnboardingAnalytics(businessId, startDate, endDate);
+    return res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching onboarding analytics:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch onboarding analytics';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Get attendance analytics
+ * GET /api/hr/admin/analytics/attendance
+ */
+export const getAttendanceAnalyticsController = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+    const analytics = await getAttendanceAnalytics(businessId, startDate, endDate);
+    return res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching attendance analytics:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch attendance analytics';
+    return res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Get time-off analytics
+ * GET /api/hr/admin/analytics/time-off
+ */
+export const getTimeOffAnalyticsController = async (req: Request, res: Response) => {
+  try {
+    const businessId = resolveBusinessId(req);
+    if (!businessId) {
+      return res.status(400).json({ error: 'businessId is required' });
+    }
+
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+    const analytics = await getTimeOffAnalytics(businessId, startDate, endDate);
+    return res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching time-off analytics:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch time-off analytics';
+    return res.status(500).json({ error: message });
   }
 };
 

@@ -34,10 +34,13 @@ export interface WebSocketManager {
  * Future-proof pattern that works across all environments
  */
 export const getWebSocketConfig = (): WebSocketConfig => {
+  // In development, default to localhost if env var not set
+  // In production, use environment variable or production fallback
+  const isDevelopment = process.env.NODE_ENV !== 'production';
   const rawBaseUrl = process.env.NEXT_PUBLIC_WS_URL ||
                      process.env.NEXT_PUBLIC_API_BASE_URL ||
                      process.env.NEXT_PUBLIC_API_URL ||
-                     'https://vssyl-server-235369681725.us-central1.run.app';
+                     (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
 
   let parsedUrl: URL;
   try {

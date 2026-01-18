@@ -152,6 +152,8 @@ model Notification {
   body        String?
   data        Json?
   read        Boolean  @default(false)
+  priority    String?  // 'low' | 'normal' | 'high' | 'urgent'
+  snoozedUntil DateTime?
   createdAt   DateTime @default(now())
   deliveredAt DateTime?
   deleted     Boolean  @default(false)

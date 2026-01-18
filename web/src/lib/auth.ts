@@ -15,12 +15,37 @@ interface DecodedToken {
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
-        const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: token.refreshToken }),
-    });
+        // In development, default to localhost if env var not set
+        // In production, use environment variable or production fallback
+        const isDevelopment = process.env.NODE_ENV !== 'production';
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
+                             process.env.NEXT_PUBLIC_API_URL || 
+                             (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
+        
+        // Add timeout for token refresh
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        let response: Response;
+        try {
+          response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: token.refreshToken }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+          const isAborted = fetchError instanceof Error && fetchError.name === 'AbortError';
+          
+          if (isAborted) {
+            console.error('Token refresh timeout');
+            throw new Error('Token refresh timeout');
+          }
+          throw fetchError;
+        }
 
     if (!response.ok) {
       throw new Error('Failed to refresh token');
@@ -59,15 +84,64 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
-          const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: credentials.email,
-              password: credentials.password,
-            }),
+          // In development, default to localhost if env var not set
+          // In production, use environment variable or production fallback
+          const isDevelopment = process.env.NODE_ENV !== 'production';
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
+                               process.env.NEXT_PUBLIC_API_URL || 
+                               (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
+          
+          const loginUrl = `${API_BASE_URL}/api/auth/login`;
+          console.log('NextAuth Authorize - Attempting login:', { 
+            url: loginUrl, 
+            email: credentials.email,
+            isDevelopment,
+            API_BASE_URL
           });
+          
+          let response: Response;
+          try {
+            // Add timeout for fetch in case backend is slow or unreachable
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            response = await fetch(loginUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: credentials.email,
+                password: credentials.password,
+              }),
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+          } catch (fetchError) {
+            const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+            const isAborted = fetchError instanceof Error && fetchError.name === 'AbortError';
+            const isNetworkError = errorMessage.includes('fetch') || 
+                                  errorMessage.includes('ECONNREFUSED') ||
+                                  errorMessage.includes('ENOTFOUND') ||
+                                  errorMessage.includes('network');
+            
+            console.error('NextAuth Authorize - Fetch error:', {
+              error: errorMessage,
+              isAborted,
+              isNetworkError,
+              stack: fetchError instanceof Error ? fetchError.stack : undefined,
+              url: loginUrl,
+              isDevelopment,
+              API_BASE_URL
+            });
+            
+            if (isAborted) {
+              throw new Error('Connection timeout. Please check if the backend server is running.');
+            } else if (isNetworkError) {
+              throw new Error(`Cannot connect to server at ${API_BASE_URL}. Please ensure the backend is running.`);
+            } else {
+              throw new Error(`Login failed: ${errorMessage}`);
+            }
+          }
 
           if (!response.ok) {
             let errorMessage = 'Invalid credentials';
@@ -80,6 +154,11 @@ export const authOptions: NextAuthOptions = {
               // If response is not JSON, use default message
               errorMessage = `Login failed (${response.status})`;
             }
+            console.error('NextAuth Authorize - Login failed:', {
+              status: response.status,
+              statusText: response.statusText,
+              errorMessage
+            });
             throw new Error(errorMessage);
           }
 

@@ -8,7 +8,12 @@ export const runtime = 'nodejs';
 // Ensure all HTTP methods are handled
 export const dynamicParams = true;
 
-const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
+// In development, default to localhost if env var not set
+// In production, use environment variable or production fallback
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const backendUrl = process.env.BACKEND_URL || 
+                   process.env.NEXT_PUBLIC_API_BASE_URL || 
+                   (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
 
 async function handler(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
@@ -175,16 +180,36 @@ async function handler(req: NextRequest) {
       });
     }
 
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutDuration = contentType?.includes('multipart/form-data') ? 120000 : 30000; // 2 min for uploads, 30 sec for others
+    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+    
+    // Add signal to fetch options if not already present
+    if (!fetchOptions.signal) {
+      fetchOptions.signal = controller.signal;
+    }
+
     let response: Response;
     try {
       response = await fetch(url, fetchOptions);
+      clearTimeout(timeoutId);
     } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+      const isAborted = fetchError instanceof Error && fetchError.name === 'AbortError';
+      
       console.error('🚨 [API PROXY] Fetch failed:', {
-        error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+        error: errorMessage,
+        isAborted,
         url,
         backendUrl,
         pathname
       });
+      
+      if (isAborted) {
+        throw new Error(`Request timeout after ${timeoutDuration / 1000} seconds`);
+      }
       throw fetchError;
     }
 

@@ -10,7 +10,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
     }
 
-    const response = await fetch(`${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://vssyl-server-235369681725.us-central1.run.app'}/api/trash/delete/${params.id}`, {
+    // In development, default to localhost if env var not set
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+    const baseUrl = process.env.BACKEND_URL || 
+                    process.env.NEXT_PUBLIC_API_BASE_URL || 
+                    (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
+    const response = await fetch(`${baseUrl}/api/trash/delete/${params.id}`, {
       method: 'DELETE',
       headers: {
         'Authorization': authHeader,

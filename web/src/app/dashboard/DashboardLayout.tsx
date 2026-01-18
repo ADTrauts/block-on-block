@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LayoutDashboard, Folder, MessageSquare, Shield, Home, Briefcase, GraduationCap, Plus, Settings, Users, BarChart3, Lock, Puzzle, Brain, Calendar as CalendarIcon, CheckSquare } from 'lucide-react';
 import GlobalTrashBin from '../../components/GlobalTrashBin';
 import { useSession } from "next-auth/react";
@@ -26,6 +26,9 @@ import AIChatDropdown from '../../components/header/AIChatDropdown';
 import { Modal, DraggableWrapper } from 'shared/components';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { DragEndEvent } from '@dnd-kit/core';
+import { SidebarCustomizationModal } from '../../components/sidebar/SidebarCustomizationModal';
+import { SidebarCustomizationProvider, useSidebarCustomization } from '../../contexts/SidebarCustomizationContext';
+import { SidebarFolderRenderer } from '../../components/sidebar/SidebarFolderRenderer';
 
 // Add CSS styles for enhanced drag and drop UX
 const dragStyles = `
@@ -97,7 +100,7 @@ const dragStyles = `
 `;
 
 // Module icons mapping
-const MODULE_ICONS = {
+export const MODULE_ICONS = {
   dashboard: LayoutDashboard,
   drive: Folder,
   chat: MessageSquare,
@@ -107,6 +110,10 @@ const MODULE_ICONS = {
   ai: Brain,
   calendar: CalendarIcon,
   todo: CheckSquare,
+  hr: Shield,
+  scheduling: CalendarIcon,
+  admin: Lock,
+  modules: Puzzle,
 };
 
 // Helper function to get sidebar key
@@ -134,7 +141,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isMobile, setIsMobile] = useState(false);
-  const [customizing, setCustomizing] = useState(false);
+  const [showCustomizationModal, setShowCustomizationModal] = useState(false);
   const [modules, setModules] = useState<ModuleConfig[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [hydrated, setHydrated] = useState(false);
@@ -196,12 +203,53 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const { isWorkAuthenticated, currentBusinessId } = useWorkAuth();
   const { getFilteredModules, hasModuleAccess, getModuleAccessReason } = usePositionAwareModules();
   const { getHeaderStyle, getBrandColor } = useThemeColors();
+  const { getConfigForContext, getConfigForTab, loading: sidebarConfigLoading } = useSidebarCustomization();
 
   const [showWorkTab, setShowWorkTab] = useState(false);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
   // Determine if sidebar should be shown
   // Hide sidebars on Work tab (both pre- and post-auth) so BrandedWorkDashboard is full-width
+  // Note: Right sidebar visibility is controlled by shouldShowSidebar, NOT by sidebarCollapsed
+  // This ensures the right sidebar always stays visible when sidebars are shown, even if left sidebar is collapsed
   const shouldShowSidebar = !showWorkTab;
+  
+  // Get right sidebar configuration
+  const rightSidebarContext = isWorkAuthenticated && currentBusinessId ? currentBusinessId : 'personal';
+  const rightSidebarConfig = getConfigForContext(rightSidebarContext);
+  
+  // Get left sidebar config for current dashboard
+  const dashboardTabId = currentDashboardId || '';
+  const leftSidebarConfig = getConfigForTab(dashboardTabId);
+  
+  // Initialize collapsed folders state from config
+  useEffect(() => {
+    if (leftSidebarConfig) {
+      const sortedFolders = [...leftSidebarConfig.folders].sort((a, b) => a.order - b.order);
+      const initialCollapsed = new Set(sortedFolders.filter(f => f.collapsed).map(f => f.id));
+      setCollapsedFolders(initialCollapsed);
+    } else {
+      setCollapsedFolders(new Set());
+    }
+  }, [dashboardTabId, leftSidebarConfig, getConfigForTab]);
+  
+  // Get right sidebar modules in correct order: Dashboard (top) -> Pinned -> AI/Modules/Trash (bottom)
+  const getRightSidebarModules = useMemo(() => {
+    const pinnedModuleIds = rightSidebarConfig?.pinnedModules
+      .sort((a, b) => a.order - b.order)
+      .map(m => m.id) || [];
+    
+    // Get pinned modules in order
+    const pinnedModules = pinnedModuleIds
+      .map(id => modules.find(m => m.id === id))
+      .filter(Boolean) as ModuleConfig[];
+    
+    return {
+      top: modules.filter(m => m.id === 'dashboard'), // Dashboard at top
+      middle: pinnedModules, // Pinned modules in middle
+      bottom: [], // AI, Modules, Trash are rendered separately
+    };
+  }, [modules, rightSidebarConfig]);
 
   // Get available modules using position-aware filtering
   const getAvailableModules = (): ModuleConfig[] => {
@@ -209,10 +257,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    setModules(getAvailableModules());
+    const availableModules = getAvailableModules();
+    setModules(availableModules);
     setIsMobile(window.innerWidth < 700);
     setHydrated(true);
-  }, [currentDashboard, getDashboardType]);
+  }, [currentDashboard, getDashboardType, getFilteredModules]);
 
   useEffect(() => {
     if (!hydrated || !pathname) return;
@@ -899,7 +948,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             opacity: (shouldShowSidebar && !sidebarCollapsed) ? 1 : 0, 
             transition: 'opacity 0.2s, visibility 0.2s' 
           }}>
-            {!customizing && (
+            {(
               <nav>
                 <ul style={{ listStyle: 'none', padding: 0 }}>
                   {showWorkTab && isWorkAuthenticated ? (
@@ -925,8 +974,16 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     // Show no modules when selecting business
                     null
                   ) : (
-                    // Show personal modules
-                    modules.map(m => {
+                    // Show personal modules with folder organization
+                    (() => {
+                      // Wait for config to load before showing anything (prevents flash of old content)
+                      if (sidebarConfigLoading && !leftSidebarConfig) {
+                        return null; // Don't render anything while loading
+                      }
+
+                      // If no config exists after loading, show flat list (fallback)
+                      if (!leftSidebarConfig) {
+                        return modules.map(m => {
                       const Icon = (MODULE_ICONS as Record<string, typeof LayoutDashboard>)[m.id] || LayoutDashboard;
                       const isActive = pathname?.startsWith(`/${m.id}`);
                       return (
@@ -953,13 +1010,126 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                           </button>
                         </li>
                       );
-                    })
+                        });
+                      }
+
+                      // Render with folders and loose modules interleaved (same logic as customizer)
+                      const sortedFolders = [...leftSidebarConfig.folders].sort((a, b) => a.order - b.order);
+                      
+                      // Sort loose modules, ensuring dashboard is always first
+                      const sortedLooseModules = [...leftSidebarConfig.looseModules].sort((a, b) => {
+                        // Dashboard always comes first (order -1)
+                        if (a.id === 'dashboard') return -1;
+                        if (b.id === 'dashboard') return 1;
+                        // Then sort by order
+                        return a.order - b.order;
+                      });
+                      
+                      // Create combined list for interleaving (same as customizer)
+                      type CombinedItem = 
+                        | { type: 'folder'; folder: typeof sortedFolders[0]; order: number } 
+                        | { type: 'loose-module'; module: typeof sortedLooseModules[0]; order: number };
+                      
+                      const combinedItems: CombinedItem[] = [];
+                      
+                      // Add folders with their order
+                      sortedFolders.forEach(folder => {
+                        combinedItems.push({ type: 'folder', folder, order: folder.order });
+                      });
+                      
+                      // Add loose modules with their order
+                      sortedLooseModules.forEach(module => {
+                        combinedItems.push({ type: 'loose-module', module, order: module.order });
+                      });
+                      
+                      // Sort combined items by order (same as customizer)
+                      combinedItems.sort((a, b) => {
+                        // Dashboard always first (order -1)
+                        if (a.type === 'loose-module' && a.module.id === 'dashboard') return -1;
+                        if (b.type === 'loose-module' && b.module.id === 'dashboard') return 1;
+                        // Then sort by order
+                        return a.order - b.order;
+                      });
+                      
+                      const textColor = (showWorkTab || isBusinessContext) ? getSidebarStyles().color : '#fff';
+                      const activeModuleId = pathname?.split('/')[1] || null;
+
+                      const handleToggleCollapse = (folderId: string) => {
+                        setCollapsedFolders(prev => {
+                          const newSet = new Set(prev);
+                          if (newSet.has(folderId)) {
+                            newSet.delete(folderId);
+                          } else {
+                            newSet.add(folderId);
+                          }
+                          return newSet;
+                        });
+                      };
+
+                      // Render combined items (interleaved folders and loose modules)
+                      return (
+                        <>
+                          {combinedItems.map((item) => {
+                            if (item.type === 'folder') {
+                              return (
+                                <SidebarFolderRenderer
+                                  key={item.folder.id}
+                                  folder={{
+                                    ...item.folder,
+                                    collapsed: collapsedFolders.has(item.folder.id),
+                                  }}
+                                  modules={modules}
+                                  onToggleCollapse={handleToggleCollapse}
+                                  onModuleClick={navigateToModule}
+                                  activeModuleId={activeModuleId || undefined}
+                                  textColor={textColor}
+                                />
+                              );
+                            } else {
+                              // Loose module
+                              const module = modules.find(m => m.id === item.module.id);
+                              if (!module) {
+                                // Module not found in available modules (likely still loading or uninstalled)
+                                // Silently skip - missing modules just won't appear in sidebar
+                                return null;
+                              }
+                              const Icon = (MODULE_ICONS as Record<string, typeof LayoutDashboard>)[module.id] || LayoutDashboard;
+                              const isActive = pathname?.startsWith(`/${module.id}`);
+                              return (
+                                <li key={module.id} style={{ marginBottom: 8 }}>
+                                  <button
+                                    onClick={() => navigateToModule(module.id)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      padding: '10px 12px',
+                                      borderRadius: 8,
+                                      background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                                      color: textColor,
+                                      textDecoration: 'none',
+                                      gap: 12,
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      width: '100%',
+                                      textAlign: 'left',
+                                    }}
+                                  >
+                                    <Icon size={22} />
+                                    <span>{module.name}</span>
+                                  </button>
+                                </li>
+                              );
+                            }
+                          })}
+                        </>
+                      );
+                    })()
                   )}
                 </ul>
               </nav>
             )}
             <div style={{ marginTop: 'auto' }}>
-              <button onClick={() => setCustomizing(true)} style={{ width: '100%', background: 'none', border: '1px solid #555', color: (showWorkTab || isBusinessContext) ? getSidebarStyles().color : '#fff', padding: '8px 0', borderRadius: 6, fontWeight: 600 }}>
+              <button onClick={() => setShowCustomizationModal(true)} style={{ width: '100%', background: 'none', border: '1px solid #555', color: (showWorkTab || isBusinessContext) ? getSidebarStyles().color : '#fff', padding: '8px 0', borderRadius: 6, fontWeight: 600 }}>
                 Customize
               </button>
             </div>
@@ -981,7 +1151,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </main>
         <aside
           style={{
-            width: shouldShowSidebar ? 40 : 0,
+            width: 40,
             background: isBusinessContext ? getSidebarStyles().backgroundColor : getBrandColor('neutralMid'),
             display: 'flex',
             flexDirection: 'column',
@@ -993,14 +1163,17 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             right: 0,
             top: 64,
             height: 'calc(100vh - 64px)',
-            zIndex: 2000,
+            zIndex: 1000,
             boxShadow: '0 0 8px rgba(0,0,0,0.04)',
-            transition: 'width 0.2s ease-in-out',
+            transition: 'opacity 0.2s ease-in-out, visibility 0.2s ease-in-out',
             overflow: 'hidden',
+            // Right sidebar should always be visible when sidebars are shown, regardless of left sidebar collapse state
+            visibility: shouldShowSidebar ? 'visible' : 'hidden',
+            opacity: shouldShowSidebar ? 1 : 0,
           }}
         >
-          {/* All main module icons */}
-          {modules.map(module => {
+          {/* Fixed Top: Dashboard */}
+          {getRightSidebarModules.top.map(module => {
             const Icon = (MODULE_ICONS as Record<string, typeof LayoutDashboard>)[module.id] || LayoutDashboard;
             const isActive = pathname?.startsWith(`/${module.id}`) ?? false;
             return (
@@ -1030,8 +1203,41 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             );
           })}
           
-          {/* Marketplace/Modules Icon */}
-          {/* AI Assistant Button */}
+          {/* Customizable Middle: Pinned Modules */}
+          {getRightSidebarModules.middle.map(module => {
+            const Icon = (MODULE_ICONS as Record<string, typeof LayoutDashboard>)[module.id] || LayoutDashboard;
+            const isActive = pathname?.startsWith(`/${module.id}`) ?? false;
+            return (
+              <button
+                key={module.id}
+                className={`flex items-center justify-center w-10 h-10 my-1 rounded-lg transition-colors ${isActive ? 'bg-gray-800' : 'hover:bg-gray-700'} ${isActive ? 'text-white' : 'text-gray-300'}`}
+                style={{
+                  background: isActive ? '#1f2937' : 'transparent',
+                  color: isActive ? '#fff' : '#cbd5e1',
+                  border: 'none',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 40,
+                  height: 40,
+                  margin: '8px 0',
+                  borderRadius: 8,
+                  transition: 'background 0.18s cubic-bezier(.4,1.2,.6,1)',
+                }}
+                onClick={() => navigateToModule(module.id)}
+                title={module.name}
+              >
+                <Icon size={22} />
+              </button>
+            );
+          })}
+          
+          {/* Spacer to push bottom items down */}
+          <div className="flex-1" />
+          
+          {/* Fixed Bottom: AI Assistant, Modules, Trash */}
           <button
             className={`flex items-center justify-center w-10 h-10 my-1 rounded-lg transition-colors ${pathname?.startsWith('/ai') ? 'bg-purple-600' : 'hover:bg-gray-700'} ${pathname?.startsWith('/ai') ? 'text-white' : 'text-gray-300'}`}
             style={{
@@ -1390,6 +1596,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         />
       )}
 
+      {/* Sidebar Customization Modal */}
+      <SidebarCustomizationModal
+        open={showCustomizationModal}
+        onClose={() => setShowCustomizationModal(false)}
+      />
     </div>
   );
 }
@@ -1401,10 +1612,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <BusinessConfigurationProvider businessId={currentBusinessId || undefined}>
       <PositionAwareModuleProvider>
-        <DashboardLayoutInner>
+        <DashboardLayoutWithModules>
           {children}
-        </DashboardLayoutInner>
+        </DashboardLayoutWithModules>
       </PositionAwareModuleProvider>
     </BusinessConfigurationProvider>
+  );
+}
+
+// Inner component that has access to modules
+function DashboardLayoutWithModules({ children }: { children: React.ReactNode }) {
+  const { getFilteredModules } = usePositionAwareModules();
+  const availableModules = useMemo(() => getFilteredModules(), [getFilteredModules]);
+  
+  return (
+    <SidebarCustomizationProvider availableModules={availableModules}>
+      <DashboardLayoutInner>
+        {children}
+      </DashboardLayoutInner>
+    </SidebarCustomizationProvider>
   );
 }

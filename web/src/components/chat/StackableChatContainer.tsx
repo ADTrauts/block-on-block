@@ -41,21 +41,6 @@ const StackableChatContainer: React.FC = () => {
     const businessDashboards = dashboards.business || [];
     const combined = [...allDashboards, ...businessDashboards];
     
-    // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('All dashboards including business:', {
-        allDashboards: allDashboards.length,
-        businessDashboards: businessDashboards.length,
-        combined: combined.length,
-        businessDashboardsList: businessDashboards.map(d => ({
-          id: d.id,
-          name: d.name,
-          businessId: (d as any).business?.id,
-          businessName: (d as any).business?.name,
-          widgets: d.widgets?.map(w => w.type)
-        }))
-      });
-    }
     
     return combined;
   }, [allDashboards, dashboards.business]);
@@ -69,19 +54,6 @@ const StackableChatContainer: React.FC = () => {
       // All dashboards have chat available - it's a core module
       return !!d.id;
     });
-    
-    // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Chat] All dashboards (chat always available):', {
-        total: filtered.length,
-        dashboards: filtered.map(d => ({
-          id: d.id,
-          name: d.name,
-          type: getDashboardType(d),
-          businessId: (d as any).business?.id
-        }))
-      });
-    }
     
     // Sort: personal first, then by type (business, educational, household)
     return filtered.sort((a, b) => {
@@ -378,11 +350,11 @@ const StackableChatContainer: React.FC = () => {
         onSearchChange={(query) => setChatState(prev => ({ ...prev, searchQuery: query }))}
         selectedDashboardId={chatState.selectedDashboardId}
         currentDashboardId={currentDashboardId}
-        chatDashboards={chatDashboards}
+        chatDashboards={chatDashboards as unknown as Array<{ id: string; [key: string]: unknown }>}
         dashboardUnreadCounts={dashboardUnreadCounts}
         onDashboardTabClick={handleDashboardTabClick}
-        getDashboardType={getDashboardType}
-        getDashboardDisplayName={getDashboardDisplayName}
+        getDashboardType={getDashboardType as unknown as (dashboard: { id: string; [key: string]: unknown }) => string}
+        getDashboardDisplayName={getDashboardDisplayName as unknown as (dashboard: { id: string; [key: string]: unknown }) => string}
         isDocked={chatState.isDocked}
         isExpanded={chatState.isDockedExpanded}
         onToggleExpanded={toggleDockedExpanded}

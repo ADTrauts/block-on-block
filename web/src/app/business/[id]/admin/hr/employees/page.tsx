@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { Alert, EmptyState, Spinner } from 'shared/components';
 import { toast } from 'react-hot-toast';
+import HRPageLayout from '@/components/hr/HRPageLayout';
 
 type ActiveEmployee = {
   id: string; // employeePositionId
@@ -319,6 +320,7 @@ export default function HREmployeesPage() {
   const count = active ? activeData.count : terminatedData.count;
 
   return (
+    <HRPageLayout businessId={businessId} currentView="employees">
     <div className="p-6">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex gap-2">
@@ -946,6 +948,7 @@ export default function HREmployeesPage() {
         </div>
       )}
     </div>
+    </HRPageLayout>
   );
 }
 

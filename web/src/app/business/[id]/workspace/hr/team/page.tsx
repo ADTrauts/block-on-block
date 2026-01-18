@@ -19,11 +19,15 @@ import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContex
 import { Spinner, Alert, EmptyState, Badge } from 'shared/components';
 import { toast } from 'react-hot-toast';
 import Link from 'next/link';
+import HRPageLayout from '@/components/hr/HRPageLayout';
 import {
   completeTeamOnboardingTask,
   getTeamOnboardingTasks,
-  type TeamOnboardingTask
+  type TeamOnboardingTask,
+  type OnboardingTaskStatus,
 } from '@/api/hrOnboarding';
+import ManagerOnboardingDashboard from '@/components/hr/onboarding/ManagerOnboardingDashboard';
+import TeamOnboardingTaskList from '@/components/hr/onboarding/TeamOnboardingTaskList';
 
 interface TeamMember {
   id: string;
@@ -293,7 +297,10 @@ export default function ManagerTeamView() {
   };
 
   const handleCompleteOnboardingTask = useCallback(
-    async (taskId: string) => {
+    async (
+      taskId: string,
+      payload: { approved?: boolean; notes?: string; status?: OnboardingTaskStatus }
+    ) => {
       if (!businessId) {
         toast.error('Business ID is required to update onboarding tasks.');
         return;
@@ -302,15 +309,17 @@ export default function ManagerTeamView() {
       setCompletingOnboardingTaskId(taskId);
       try {
         await completeTeamOnboardingTask(businessId, taskId, {
-          status: 'COMPLETED',
-          approved: true
+          status: payload.status || 'COMPLETED',
+          approved: payload.approved,
+          notes: payload.notes,
         });
-        toast.success('Onboarding task updated');
+        toast.success(payload.approved === false ? 'Task rejected' : 'Task completed');
         await fetchOnboardingTasks();
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to update onboarding task';
         toast.error(message);
+        throw error; // Re-throw so modal can handle it
       } finally {
         setCompletingOnboardingTaskId(null);
       }
@@ -320,8 +329,9 @@ export default function ManagerTeamView() {
   
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse">
+      <HRPageLayout businessId={businessId} currentView="team">
+        <div className="p-6">
+          <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-1/3 mb-6"></div>
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
@@ -330,50 +340,58 @@ export default function ManagerTeamView() {
           </div>
         </div>
       </div>
+      </HRPageLayout>
     );
   }
-  
+
   if (error) {
     return (
-      <div className="p-6">
-        <Alert type="error" title="Error Loading Team Data">
-          {error}
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="team">
+        <div className="p-6">
+          <Alert type="error" title="Error Loading Team Data">
+            {error}
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
 
   if (!hrFeatures.hasHRAccess) {
     return (
-      <div className="p-6">
-        <Alert type="warning" title="Team HR Not Available">
-          Your company needs Business Advanced or Enterprise tier to access HR features.
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="team">
+        <div className="p-6">
+          <Alert type="warning" title="Team HR Not Available">
+            Your company needs Business Advanced or Enterprise tier to access HR features.
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
 
   if (!hasDirectReports) {
     return (
-      <div className="p-6">
-        <EmptyState
-          icon="👥"
-          title="No Team Members"
-          description="You don&apos;t have any direct reports. Team HR features are available when you manage a team."
-        />
-        <div className="mt-6 text-center">
-          <Link 
-            href={`/business/${businessId}/workspace`}
-            className="text-blue-600 hover:underline"
-          >
-            ← Back to Workspace
-          </Link>
+      <HRPageLayout businessId={businessId} currentView="team">
+        <div className="p-6">
+          <EmptyState
+            icon="👥"
+            title="No Team Members"
+            description="You don&apos;t have any direct reports. Team HR features are available when you manage a team."
+          />
+          <div className="mt-6 text-center">
+            <Link 
+              href={`/business/${businessId}/workspace`}
+              className="text-blue-600 hover:underline"
+            >
+              ← Back to Workspace
+            </Link>
+          </div>
         </div>
-      </div>
+      </HRPageLayout>
     );
   }
   
   return (
+    <HRPageLayout businessId={businessId} currentView="team">
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
@@ -411,10 +429,12 @@ export default function ManagerTeamView() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {onboardingManagerFeatureEnabled && (
           <div className="border rounded-lg p-6 bg-white md:col-span-2 xl:col-span-3">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="text-3xl">✅</div>
-                <h3 className="text-lg font-semibold">Onboarding Tasks</h3>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Team Onboarding</h3>
+                <p className="text-sm text-gray-600">
+                  Review and approve onboarding tasks for your team members.
+                </p>
               </div>
               {onboardingTasksLoading && <Spinner size={20} />}
             </div>
@@ -433,56 +453,17 @@ export default function ManagerTeamView() {
                 description="You have reviewed all onboarding tasks for your team."
               />
             ) : (
-              <div className="space-y-3">
-                {onboardingTasks.map((task) => {
-                  const employeeName =
-                    task.onboardingJourney.employeeHrProfile?.employeePosition?.user?.name ||
-                    task.onboardingJourney.employeeHrProfile?.employeePosition?.user?.email ||
-                    'Team member';
-                  const templateName =
-                    task.onboardingJourney.onboardingTemplate?.name || 'Onboarding journey';
-
-                  return (
-                    <div
-                      key={task.id}
-                      className="border rounded-lg bg-gray-50 px-4 py-3 text-sm flex flex-col gap-2"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div>
-                          <div className="text-gray-500 text-xs uppercase tracking-wide">
-                            {templateName}
-                          </div>
-                          <div className="font-semibold text-gray-900">{task.title}</div>
-                        </div>
-                        <div className="text-right text-xs text-gray-500">
-                          {task.dueDate
-                            ? `Due ${new Date(task.dueDate).toLocaleDateString()}`
-                            : 'No due date'}
-                        </div>
-                      </div>
-                      {task.description && (
-                        <div className="text-gray-600">{task.description}</div>
-                      )}
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="text-xs text-gray-500">
-                          Assigned to: <span className="font-medium text-gray-700">{employeeName}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs uppercase tracking-wide text-gray-500">
-                            {task.status}
-                          </span>
-                          <button
-                            onClick={() => handleCompleteOnboardingTask(task.id)}
-                            disabled={completingOnboardingTaskId === task.id}
-                            className="px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60"
-                          >
-                            {completingOnboardingTaskId === task.id ? 'Saving…' : 'Mark Complete'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="space-y-6">
+                <ManagerOnboardingDashboard
+                  tasks={onboardingTasks}
+                  teamMemberCount={teamMembers.length}
+                />
+                <TeamOnboardingTaskList
+                  tasks={onboardingTasks}
+                  businessId={businessId}
+                  onTaskComplete={handleCompleteOnboardingTask}
+                  completingTaskId={completingOnboardingTaskId}
+                />
               </div>
             )}
           </div>
@@ -741,6 +722,7 @@ export default function ManagerTeamView() {
         </p>
       </div>
     </div>
+    </HRPageLayout>
   );
 }
 

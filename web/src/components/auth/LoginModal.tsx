@@ -72,14 +72,6 @@ export function LoginModal() {
         redirect: false,
       });
 
-      // Debug: Always log the full result to understand what's happening
-      console.log('LoginModal - Login result:', {
-        ok: result?.ok,
-        error: result?.error,
-        url: result?.url,
-        status: result?.status,
-        fullResult: result
-      });
 
       // Handle error case - but check if ok is also true (NextAuth quirk)
       if (result?.error && !result?.ok) {

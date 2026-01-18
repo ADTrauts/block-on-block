@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { EmailNotificationService } from '../services/emailNotificationService';
 
-// Test email service (admin only)
+// Test email service (users can test to their own email)
 export const testEmailService = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -10,38 +10,54 @@ export const testEmailService = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Check if user is admin
+    // Get user's email
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, email: true }
+      select: { email: true, role: true }
     });
 
-    if (user?.role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    if (!user?.email) {
+      return res.status(400).json({ error: 'User email not found' });
     }
 
-    const { email = user.email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email address is required' });
+    // Allow users to test to their own email, or admins to test to any email
+    const { email } = req.body;
+    const targetEmail = email || user.email;
+    
+    // Only admins can test to other emails
+    if (email && email !== user.email && user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'You can only test to your own email address' });
     }
 
     const emailService = EmailNotificationService.getInstance();
     
     if (!emailService.isAvailable()) {
-      return res.status(503).json({ error: 'Email service not configured' });
+      return res.status(503).json({ 
+        error: 'Email service not configured',
+        message: 'SMTP settings are not configured. Email notifications are disabled.'
+      });
     }
 
-    const success = await emailService.testEmail(email);
+    const success = await emailService.testEmail(targetEmail);
 
     if (success) {
-      res.json({ success: true, message: 'Test email sent successfully' });
+      res.json({ 
+        success: true, 
+        message: `Test email sent successfully to ${targetEmail}` 
+      });
     } else {
-      res.status(500).json({ error: 'Failed to send test email' });
+      res.status(500).json({ 
+        error: 'Failed to send test email',
+        message: 'The email service is configured but failed to send. Check SMTP settings.'
+      });
     }
   } catch (error) {
     console.error('Error testing email service:', error);
-    res.status(500).json({ error: 'Failed to test email service' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ 
+      error: 'Failed to test email service',
+      message: errorMessage
+    });
   }
 };
 

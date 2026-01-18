@@ -75,6 +75,20 @@ export class NotificationGroupingService {
         maxGroupSize: 1,
         priority: 'high'
       },
+      // HR notifications - group by type within 15 minutes
+      {
+        type: 'hr',
+        timeWindow: 15,
+        maxGroupSize: 5,
+        priority: 'medium'
+      },
+      // Calendar notifications - group by type within 10 minutes
+      {
+        type: 'calendar',
+        timeWindow: 10,
+        maxGroupSize: 5,
+        priority: 'medium'
+      },
       // System notifications - group by type within 15 minutes
       {
         type: 'system',
@@ -90,10 +104,16 @@ export class NotificationGroupingService {
    */
   async getGroupedNotifications(userId: string, limit: number = 50): Promise<NotificationGroup[]> {
     try {
+      const now = new Date();
       const notifications = await prisma.notification.findMany({
         where: {
           userId,
-          deleted: false
+          deleted: false,
+          // Filter out snoozed notifications (only show if snoozedUntil is null or in the past)
+          OR: [
+            { snoozedUntil: null },
+            { snoozedUntil: { lt: now } }
+          ]
         },
         orderBy: {
           createdAt: 'desc'
@@ -153,7 +173,24 @@ export class NotificationGroupingService {
    * Get grouping rule for notification type
    */
   private getGroupingRule(type: string): GroupingRule | null {
-    return this.groupingRules.find(rule => rule.type === type) || null;
+    // Map notification types to grouping categories
+    const typeMapping: Record<string, string> = {
+      'chat_message': 'chat',
+      'chat_mention': 'mentions',
+      'chat_reaction': 'chat',
+      'mentions': 'mentions',
+      'drive_shared': 'drive',
+      'drive_permission': 'drive',
+      'business_invitation': 'invitations',
+      'member_request': 'invitations',
+      'system_alert': 'system',
+      'hr_onboarding_task_approved': 'hr',
+      'hr_time_off_request_submitted': 'hr',
+      'calendar_reminder': 'calendar'
+    };
+    
+    const category = typeMapping[type] || type.split('_')[0]; // Fallback to first part of type
+    return this.groupingRules.find(rule => rule.type === category) || null;
   }
 
   /**
@@ -227,7 +264,25 @@ export class NotificationGroupingService {
    * Generate title for grouped notifications
    */
   private generateGroupTitle(notification: NotificationData, rule: GroupingRule): string {
-    switch (notification.type) {
+    // Map notification types to grouping categories
+    const typeMapping: Record<string, string> = {
+      'chat_message': 'chat',
+      'chat_mention': 'mentions',
+      'chat_reaction': 'chat',
+      'mentions': 'mentions',
+      'drive_shared': 'drive',
+      'drive_permission': 'drive',
+      'business_invitation': 'invitations',
+      'member_request': 'invitations',
+      'system_alert': 'system',
+      'hr_onboarding_task_approved': 'hr',
+      'hr_time_off_request_submitted': 'hr',
+      'calendar_reminder': 'calendar'
+    };
+    
+    const category = typeMapping[notification.type] || notification.type.split('_')[0];
+    
+    switch (category) {
       case 'chat':
         return `${(notification.data as any)?.senderName || 'Someone'} sent ${rule.maxGroupSize > 1 ? 'messages' : 'a message'}`;
       case 'mentions':

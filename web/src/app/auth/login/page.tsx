@@ -33,25 +33,8 @@ export default function LoginPage() {
         redirect: false, // Prevent NextAuth from handling redirect automatically
       });
 
-      // Debug: Always log the full result to understand what's happening
-      console.log('Login result:', {
-        ok: result?.ok,
-        error: result?.error,
-        url: result?.url,
-        status: result?.status,
-        fullResult: result
-      });
-
       // Handle error case - but check if ok is also true (NextAuth quirk)
       if (result?.error && !result?.ok) {
-        // Debug: Log what we're receiving
-        console.log('Login error received:', {
-          error: result.error,
-          errorType: typeof result.error,
-          isString: typeof result.error === 'string',
-          trimmed: typeof result.error === 'string' ? result.error.trim() : 'N/A',
-          fullResult: result
-        });
         
         // Handle the case where error is the string 'undefined' or other invalid values
         let errorMsg = 'An error occurred during login';
@@ -70,14 +53,12 @@ export default function LoginPage() {
       // Handle success case
       if (result?.ok) {
         // Successful login - wait for session to be fully established before redirecting
-        console.log('Login successful, waiting for session to be established...');
         setRedirecting(true);
         
         // Add delay to ensure NextAuth session cookie is fully propagated
         // This prevents 403 errors on initial dashboard load
         await waitForSession();
         
-        console.log('Session established, redirecting to', returnUrl);
         router.push(returnUrl);
         return;
       }
@@ -123,11 +104,10 @@ export default function LoginPage() {
       try {
         const session = await getSession();
         if (session?.accessToken) {
-          console.log('Session confirmed with access token, redirecting...');
           return; // Session is ready
         }
       } catch (error) {
-        console.warn('Error checking session:', error);
+        // Session check failed, will retry
       }
       
       // Wait before next check

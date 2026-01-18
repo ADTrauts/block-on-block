@@ -307,3 +307,36 @@ export async function getOnboardingDocumentLibrary(
   );
 }
 
+export async function getAllOnboardingJourneys(
+  businessId: string
+): Promise<EmployeeOnboardingJourney[]> {
+  const query = buildQuery(businessId);
+  const response = await authenticatedApiCall<{ journeys: EmployeeOnboardingJourney[] }>(
+    `/api/hr/admin/onboarding/journeys?${query}`,
+    { method: 'GET' }
+  );
+  return response.journeys;
+}
+
+export interface StartOnboardingJourneyInput {
+  employeeHrProfileId: string;
+  onboardingTemplateId?: string | null;
+  startDate?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export async function startOnboardingJourney(
+  businessId: string,
+  payload: StartOnboardingJourneyInput
+): Promise<EmployeeOnboardingJourney> {
+  const query = buildQuery(businessId);
+  const response = await authenticatedApiCall<{ journey: EmployeeOnboardingJourney }>(
+    `/api/hr/admin/onboarding/journeys?${query}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }
+  );
+  return response.journey;
+}
+

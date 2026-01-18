@@ -19,6 +19,7 @@ import DevelopmentHelper from './DevelopmentHelper';
 import { SessionReadyGate } from '../components/auth/SessionReadyGate';
 import { AuthErrorProvider } from '../contexts/AuthErrorContext';
 import { LoginModal } from '../components/auth/LoginModal';
+import ServiceWorkerRegistration from '../components/ServiceWorkerRegistration';
 
 export const dynamic = "force-dynamic";
 
@@ -75,9 +76,21 @@ export default function RootLayout({
                                 <ErrorBoundaryWrapper>
                                   {children}
                                   <StackableChatContainer />
-                                  <Toaster position="top-right" />
+                                  <Toaster 
+                                    position="top-right"
+                                    toastOptions={{
+                                      duration: 5000,
+                                      style: {
+                                        cursor: 'pointer',
+                                      },
+                                      error: {
+                                        duration: 6000,
+                                      },
+                                    }}
+                                  />
                                   <LoginModal />
                                   <DevelopmentHelper />
+                                  <ServiceWorkerRegistration />
                                 </ErrorBoundaryWrapper>
                               </ToastProvider>
                             </AuthErrorProvider>

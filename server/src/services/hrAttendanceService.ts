@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { NotificationService } from './notificationService';
 
 type JsonInput = Prisma.InputJsonValue | null | undefined;
 
@@ -257,6 +258,12 @@ export async function recordPunchIn(params: RecordPunchParams) {
     source
   });
 
+  // NOTE: Attendance exceptions are typically created by background jobs or policy enforcement
+  // When exceptions are created, add notification hooks there:
+  // - hr_attendance_exception_created (notify manager)
+  // - hr_attendance_policy_violation (notify manager/employee)
+  // - hr_attendance_missing_punch (notify employee)
+
   return record;
 }
 
@@ -506,6 +513,32 @@ export async function resolveAttendanceException({
       managerNote: managerNote ?? exception.managerNote ?? null,
       resolutionPayload: resolutionPayload ?? Prisma.JsonNull,
       updatedAt: now
+    },
+    include: {
+      attendanceRecord: {
+        include: {
+          employeePosition: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+              position: {
+                include: {
+                  reportsTo: {
+                    include: {
+                      employeePositions: {
+                        where: { businessId, active: true },
+                        include: {
+                          user: { select: { id: true, name: true, email: true } }
+                        },
+                        take: 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   });
 
@@ -548,6 +581,34 @@ export async function resolveAttendanceException({
         });
       }
     }
+  }
+
+  // Notify employee when exception is resolved
+  try {
+    const employeeUserId = updatedException.attendanceRecord?.employeePosition?.user?.id;
+    if (employeeUserId && status === AttendanceExceptionStatus.RESOLVED) {
+      const managerName = updatedException.attendanceRecord?.employeePosition?.position?.reportsTo?.employeePositions?.[0]?.user?.name || 'Your manager';
+      
+      await NotificationService.createNotification({
+        userId: employeeUserId,
+        type: 'hr_attendance_exception_resolved',
+        title: 'Attendance Exception Resolved',
+        body: `${managerName} has resolved your attendance exception: ${exception.type}.${resolutionNote ? ` Note: ${resolutionNote}` : ''}`,
+        data: {
+          exceptionId: updatedException.id,
+          businessId,
+          type: exception.type,
+          actionUrl: `/business/${businessId}/workspace/hr/me`
+        }
+      });
+    }
+  } catch (notificationError) {
+    // Don't fail resolution if notification fails
+    await logger.warn('Failed to send exception resolution notification', {
+      operation: 'attendance_exception_notification_error',
+      exceptionId: updatedException.id,
+      error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+    });
   }
 
   return updatedException;

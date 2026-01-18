@@ -280,7 +280,7 @@ export default function AvatarContextMenu({ className }: AvatarContextMenuProps)
     
     // Notifications
     {
-      icon: <Bell className="w-4 h-4" />,
+      icon: <NotificationBadge size="sm" className="flex items-center" />,
       label: 'Notifications',
       onClick: () => {
         router.push('/notifications');

@@ -53,7 +53,20 @@ export class PushNotificationService {
     }
 
     try {
-      const registration = await navigator.serviceWorker.getRegistration('/sw.js');
+      // Try to get existing registration
+      let registration = await navigator.serviceWorker.getRegistration('/sw.js');
+      
+      // If no registration, try to register
+      if (!registration) {
+        try {
+          registration = await navigator.serviceWorker.register('/sw.js');
+          console.log('✅ Service worker registered for push notifications');
+        } catch (regError) {
+          console.warn('⚠️ Service worker registration failed:', regError);
+          // This is expected in development if service worker isn't fully configured
+        }
+      }
+      
       this.registration = registration || null;
       if (!this.registration) {
         console.log('Service worker not found, push notifications will be disabled');

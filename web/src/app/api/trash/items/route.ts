@@ -7,7 +7,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
     }
 
-    const response = await fetch(`${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://vssyl-server-235369681725.us-central1.run.app'}/api/trash/items`, {
+    // In development, default to localhost if env var not set
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+    const baseUrl = process.env.BACKEND_URL || 
+                    process.env.NEXT_PUBLIC_API_BASE_URL || 
+                    (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
+    const response = await fetch(`${baseUrl}/api/trash/items`, {
       headers: {
         'Authorization': authHeader,
         'Content-Type': 'application/json',
@@ -36,7 +41,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const response = await fetch(`${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://vssyl-server-235369681725.us-central1.run.app'}/api/trash/items`, {
+    // In development, default to localhost if env var not set
+    const isDevelopment = process.env.NODE_ENV !== 'production';
+    const baseUrl = process.env.BACKEND_URL || 
+                    process.env.NEXT_PUBLIC_API_BASE_URL || 
+                    (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
+    const response = await fetch(`${baseUrl}/api/trash/items`, {
       method: 'POST',
       headers: {
         'Authorization': authHeader,

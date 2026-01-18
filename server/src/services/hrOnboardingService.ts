@@ -11,6 +11,7 @@ import { logger } from '../lib/logger';
 import { ensureBusinessDashboardForUser } from './dashboardService';
 import { ensureEmployeeDocumentsFolder } from './driveService';
 import { storageService } from './storageService';
+import { NotificationService } from './notificationService';
 
 type JsonInput = Prisma.InputJsonValue | null | undefined;
 
@@ -479,6 +480,36 @@ export async function listEmployeeJourneys(businessId: string, employeeHrProfile
   });
 }
 
+export async function listAllOnboardingJourneys(businessId: string) {
+  return prisma.employeeOnboardingJourney.findMany({
+    where: {
+      businessId
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      onboardingTemplate: true,
+      employeeHrProfile: {
+        include: {
+          employeePosition: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true
+                }
+              }
+            }
+          }
+        }
+      },
+      tasks: {
+        orderBy: { orderIndex: 'asc' }
+      }
+    }
+  });
+}
+
 export async function completeOnboardingTask(input: CompleteOnboardingTaskInput) {
   const {
     businessId,
@@ -514,8 +545,70 @@ export async function completeOnboardingTask(input: CompleteOnboardingTaskInput)
 
   const updatedTask = await prisma.employeeOnboardingTask.update({
     where: { id: taskId },
-    data: updates
+    data: updates,
+    include: {
+      onboardingJourney: {
+        include: {
+          employeeHrProfile: {
+            include: {
+              employeePosition: {
+                include: {
+                  user: { select: { id: true, name: true, email: true } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   });
+
+  // Send notifications based on task completion/approval
+  try {
+    const employeeUserId = updatedTask.onboardingJourney.employeeHrProfile?.employeePosition?.user?.id;
+    
+    if (approved && employeeUserId) {
+      // Notify employee that their task was approved
+      await NotificationService.createNotification({
+        userId: employeeUserId,
+        type: 'hr_onboarding_task_approved',
+        title: 'Onboarding Task Approved',
+        body: `Your task "${updatedTask.title}" has been approved.`,
+        data: {
+          taskId: updatedTask.id,
+          journeyId: updatedTask.onboardingJourneyId,
+          businessId,
+          actionUrl: `/business/${businessId}/workspace/hr/me`
+        }
+      });
+    } else if (status === OnboardingTaskStatus.COMPLETED && updatedTask.requiresApproval && employeeUserId) {
+      // Notify manager that a task needs approval
+      // Find the manager (ownerReference or default manager)
+      const managerUserId = updatedTask.ownerReference || null;
+      if (managerUserId) {
+        await NotificationService.createNotification({
+          userId: managerUserId,
+          type: 'hr_onboarding_task_pending_approval',
+          title: 'Onboarding Task Pending Approval',
+          body: `${updatedTask.onboardingJourney.employeeHrProfile?.employeePosition?.user?.name || 'An employee'} completed "${updatedTask.title}" and needs your approval.`,
+          data: {
+            taskId: updatedTask.id,
+            journeyId: updatedTask.onboardingJourneyId,
+            businessId,
+            employeeUserId,
+            actionUrl: `/business/${businessId}/workspace/hr/team`
+          }
+        });
+      }
+    }
+  } catch (notificationError) {
+    // Don't fail task completion if notification fails
+    await logger.warn('Failed to send onboarding notification', {
+      operation: 'onboarding_notification_error',
+      taskId: updatedTask.id,
+      error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+    });
+  }
 
   // If all tasks completed, mark journey as completed
   const remaining = await prisma.employeeOnboardingTask.count({
@@ -527,13 +620,48 @@ export async function completeOnboardingTask(input: CompleteOnboardingTaskInput)
   });
 
   if (remaining === 0) {
-    await prisma.employeeOnboardingJourney.update({
+    const completedJourney = await prisma.employeeOnboardingJourney.update({
       where: { id: updatedTask.onboardingJourneyId },
       data: {
         status: OnboardingJourneyStatus.COMPLETED,
         completionDate: new Date()
+      },
+      include: {
+        employeeHrProfile: {
+          include: {
+            employeePosition: {
+              include: {
+                user: { select: { id: true, name: true, email: true } }
+              }
+            }
+          }
+        }
       }
     });
+
+    // Notify employee and HR that journey is completed
+    try {
+      const employeeUserId = completedJourney.employeeHrProfile?.employeePosition?.user?.id;
+      if (employeeUserId) {
+        await NotificationService.createNotification({
+          userId: employeeUserId,
+          type: 'hr_onboarding_journey_completed',
+          title: 'Onboarding Journey Completed! 🎉',
+          body: 'Congratulations! You have completed your onboarding journey.',
+          data: {
+            journeyId: completedJourney.id,
+            businessId,
+            actionUrl: `/business/${businessId}/workspace/hr/me`
+          }
+        });
+      }
+    } catch (notificationError) {
+      await logger.warn('Failed to send journey completion notification', {
+        operation: 'onboarding_journey_completion_notification_error',
+        journeyId: completedJourney.id,
+        error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+      });
+    }
   }
 
   return updatedTask;

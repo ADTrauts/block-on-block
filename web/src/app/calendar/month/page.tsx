@@ -47,39 +47,9 @@ function MonthInner() {
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [calendars, setCalendars] = useState<Calendar[]>([]);
 
-  // Debug: Log when modal state changes
   useEffect(() => {
     const eventFromRef = eventClickRef.current;
-    console.log('📅 Personal Calendar: Modal state changed', { 
-      showEventModal, 
-      selectedEventId: selectedEvent?.id,
-      selectedEventTitle: selectedEvent?.title,
-      hasSelectedEvent: !!selectedEvent,
-      refEventId: eventFromRef?.id,
-      hasRefEvent: !!eventFromRef,
-      canShowModal: showEventModal && (selectedEvent || eventFromRef),
-      windowDefined: typeof window !== 'undefined'
-    });
-    if (showEventModal && (selectedEvent || eventFromRef)) {
-      const eventToShow = selectedEvent || eventFromRef;
-      console.log('📅 Personal Calendar: Modal should be visible', { 
-        showEventModal, 
-        selectedEventId: eventToShow?.id,
-        title: eventToShow?.title,
-        usingRef: !selectedEvent && !!eventFromRef
-      });
-      // Also check if modal element exists in DOM
-      setTimeout(() => {
-        const modal = document.querySelector('[data-calendar-modal="true"]');
-        console.log('📅 Personal Calendar: Modal in DOM?', { 
-          exists: !!modal, 
-          zIndex: modal ? window.getComputedStyle(modal as Element).zIndex : null,
-          display: modal ? window.getComputedStyle(modal as Element).display : null,
-          visibility: modal ? window.getComputedStyle(modal as Element).visibility : null,
-          opacity: modal ? window.getComputedStyle(modal as Element).opacity : null
-        });
-      }, 100);
-    } else if (showEventModal && !selectedEvent && !eventFromRef) {
+    if (showEventModal && !selectedEvent && !eventFromRef) {
       console.warn('⚠️ Personal Calendar: showEventModal is true but no event available!', {
         showEventModal,
         selectedEvent,
@@ -580,25 +550,11 @@ function MonthInner() {
               // Don't set showEventModal here - this is for new event creation
             }} 
             onEventClick={(ev) => { 
-              console.log('📅 Personal Calendar: Event clicked', { 
-                eventId: ev.id, 
-                title: ev.title,
-                event: ev,
-                eventType: typeof ev,
-                hasId: !!ev.id,
-                eventKeys: Object.keys(ev)
-              });
               // Store event in ref immediately to avoid race conditions
               eventClickRef.current = ev;
               // Set both states in a single batch
               setSelectedEvent(ev);
               setShowEventModal(true);
-              console.log('📅 Personal Calendar: Modal state set', { 
-                showEventModal: true, 
-                selectedEventId: ev.id,
-                eventPassed: !!ev,
-                refSet: !!eventClickRef.current
-              });
             }}
             onEventMove={async (ev, deltaDays) => {
               const start = new Date(ev.occurrenceStartAt || ev.startAt);
@@ -638,19 +594,10 @@ function MonthInner() {
       {(() => {
         const eventToShow = selectedEvent || eventClickRef.current;
         const shouldShow = showEventModal && eventToShow && typeof window !== 'undefined';
-        console.log('📅 Personal Calendar: Modal render check', {
-          showEventModal,
-          hasSelectedEvent: !!selectedEvent,
-          hasRefEvent: !!eventClickRef.current,
-          eventToShow: !!eventToShow,
-          windowDefined: typeof window !== 'undefined',
-          shouldShow
-        });
         
         if (!shouldShow) return null;
         
         if (!eventToShow) {
-          console.error('📅 Personal Calendar: Modal condition passed but no event!');
           return null;
         }
         
@@ -662,7 +609,6 @@ function MonthInner() {
             onClick={(e) => {
               // Only close if clicking the backdrop itself, not the modal content
               if (e.target === e.currentTarget) {
-                console.log('📅 Personal Calendar: Backdrop clicked, closing modal');
                 setShowEventModal(false);
                 setSelectedEvent(null);
                 eventClickRef.current = null;

@@ -173,7 +173,7 @@ export default function ChatContent({ fileReference }: ChatContentProps) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ width: 'calc(100vw - 40px)', minHeight: 0 }}>
+    <div className="flex h-full overflow-hidden">
       {/* Left Panel - Conversation List */}
       <div 
         className={`bg-white border-r border-gray-200 transition-all duration-300 flex flex-col ${panelState.leftPanelCollapsed ? 'w-16' : 'w-[260px]'}`}

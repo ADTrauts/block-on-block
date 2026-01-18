@@ -92,7 +92,6 @@ export class ChatSocketClient {
         });
 
         this.socket.on('connect', () => {
-          console.log('✅ Chat WebSocket connected successfully');
           this.reconnectAttempts = 0;
           resolve();
         });

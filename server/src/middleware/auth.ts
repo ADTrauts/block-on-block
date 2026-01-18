@@ -80,10 +80,28 @@ export async function authenticateJWT(req: Request, res: Response, next: NextFun
       path: req.path,
       ipAddress: req.ip
     });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('❌ [AUTH] No token provided:', {
+        path: req.path,
+        method: req.method,
+        hasAuthHeader: !!authHeader
+      });
+    }
     return res.status(401).json({ message: 'Access token required' });
   }
 
   try {
+    // Additional logging in development for token verification errors
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [AUTH] Attempting to verify token:', {
+        tokenLength: token.length,
+        tokenPrefix: token.substring(0, 20) + '...',
+        path: req.path,
+        method: req.method,
+        hasJWTSecret: !!JWT_SECRET,
+        jwtSecretLength: JWT_SECRET?.length
+      });
+    }
     const decoded = jwt.verify(token, JWT_SECRET!) as JWTPayload;
     await logger.debug('JWT token decoded successfully', { 
       operation: 'auth_token_decoded',
@@ -91,6 +109,17 @@ export async function authenticateJWT(req: Request, res: Response, next: NextFun
       email: decoded.email,
       role: decoded.role
     });
+    
+    // Additional logging in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔐 [AUTH] Token verified successfully:', {
+        userId: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+        path: req.path,
+        method: req.method
+      });
+    }
     
     // Fetch full user data from database
     const userSelect = {

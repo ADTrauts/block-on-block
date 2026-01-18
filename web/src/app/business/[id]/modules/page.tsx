@@ -137,7 +137,87 @@ export default function BusinessModulesPage() {
       // Reload modules
       await loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to install module');
+      // Check if this is a tier upgrade error
+      const error = err as Error & { 
+        errorData?: { 
+          requiresTier?: string; 
+          currentTier?: string; 
+          upgradeUrl?: string; 
+          message?: string; 
+          details?: string; 
+          error?: string;
+          errorName?: string;
+        };
+        status?: number;
+      };
+      
+      // Log the full error for debugging - expand errorData to see actual error
+      console.error('Module installation error:', {
+        message: error.message,
+        status: error.status,
+        errorDetails: error.errorData?.details,
+        errorMessage: error.errorData?.error,
+        errorName: error.errorData?.errorName,
+        fullErrorData: error.errorData
+      });
+      
+      // Log errorData as JSON string to see all properties
+      if (error.errorData) {
+        console.error('Full errorData:', JSON.stringify(error.errorData, null, 2));
+      }
+      
+      if (error.errorData?.requiresTier || error.errorData?.error?.includes('tier') || error.errorData?.error?.includes('upgrade')) {
+        // This is a tier upgrade error - show a more helpful message with upgrade link
+        const message = error.errorData.message || error.errorData.details || error.message || 'Business tier upgrade required';
+        const toastId = toast.error(
+          (t) => (
+            <div className="flex flex-col gap-2" onClick={() => toast.dismiss(t.id)}>
+              <span>{message}</span>
+              {error.errorData?.upgradeUrl && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toast.dismiss(t.id);
+                    router.push(error.errorData!.upgradeUrl || '/billing');
+                  }}
+                  className="text-sm font-semibold text-blue-400 hover:text-blue-300 underline self-start"
+                >
+                  Upgrade Now →
+                </button>
+              )}
+            </div>
+          ),
+          { 
+            duration: 6000,
+            id: `tier-upgrade-${moduleId}`,
+            position: 'top-right'
+          }
+        );
+      } else if (error.errorData?.error?.includes('permission') || error.errorData?.error?.includes('Insufficient')) {
+        // Permission error
+        const message = error.errorData.details || error.errorData.message || error.message || 'Insufficient permissions';
+        toast.error(message, { 
+          duration: 5000,
+          position: 'top-right',
+          id: `permission-error-${moduleId}`
+        });
+      } else {
+        // Generic error - show the actual error message with details if available
+        let message = err instanceof Error ? err.message : 'Failed to install module';
+        
+        // Include error details if available (for 500 errors)
+        if (error.errorData?.details) {
+          message = `${message}: ${error.errorData.details}`;
+        } else if (error.errorData?.error) {
+          message = `${message}: ${error.errorData.error}`;
+        }
+        
+        toast.error(message, { 
+          duration: 6000,
+          position: 'top-right',
+          id: `install-error-${moduleId}`
+        });
+      }
     } finally {
       setInstallingModuleId(null);
     }

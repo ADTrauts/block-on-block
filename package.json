@@ -17,7 +17,8 @@
     "prisma:migrate": "pnpm run prisma:build && prisma migrate dev",
     "prisma:studio": "pnpm run prisma:build && prisma studio",
     "clear-cache": "./scripts/clear-cache.sh",
-    "reset": "pnpm clear-cache && pnpm install && pnpm dev"
+    "reset": "pnpm clear-cache && pnpm install && pnpm dev",
+    "add-notification-metadata": "npx ts-node scripts/add-notification-metadata.ts"
   },
   "keywords": [],
   "author": "",

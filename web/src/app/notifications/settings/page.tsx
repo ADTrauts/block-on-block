@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { 
   Bell, 
@@ -13,13 +13,21 @@ import {
   AtSign,
   Save,
   ArrowLeft,
-  Mail
+  Mail,
+  Clock,
+  UserCheck,
+  Check
 } from 'lucide-react';
 import { Button, Switch } from 'shared/components';
 import { useSafeSession } from '../../../lib/useSafeSession';
 import { useRouter } from 'next/navigation';
+import { getModuleNotificationTypes, getNotificationPreferences, saveNotificationPreferences } from '../../../api/notifications';
 import PushNotificationSettings from '../../../components/PushNotificationSettings';
 import EmailNotificationSettings from '../../../components/EmailNotificationSettings';
+import DoNotDisturbSettings from '../../../components/DoNotDisturbSettings';
+import QuietHoursSettings from '../../../components/QuietHoursSettings';
+import type { ModuleNotificationMetadata } from '../../../shared/src/types/module-notifications';
+import { toast } from 'react-hot-toast';
 
 interface NotificationPreference {
   id: string;
@@ -29,69 +37,117 @@ interface NotificationPreference {
   inApp: boolean;
   email: boolean;
   push: boolean;
+  moduleId?: string;
 }
+
+// Icon mapping for categories
+const CATEGORY_ICONS: Record<string, React.ComponentType<any>> = {
+  chat: MessageSquare,
+  drive: Folder,
+  members: Users,
+  business: Building,
+  hr: UserCheck,
+  system: AlertCircle,
+  mentions: AtSign,
+  calendar: Clock,
+  scheduling: Clock,
+  todo: Check,
+};
 
 export default function NotificationSettingsPage() {
   const { session, status, mounted } = useSafeSession();
   const router = useRouter();
-  const [preferences, setPreferences] = useState<NotificationPreference[]>([
-    {
-      id: 'mentions',
-      label: 'Mentions',
-      description: 'When someone mentions you in a conversation',
-      icon: AtSign,
-      inApp: true,
-      email: true,
-      push: false
-    },
-    {
-      id: 'chat',
-      label: 'Chat Messages',
-      description: 'New messages in conversations you\'re part of',
-      icon: MessageSquare,
-      inApp: true,
-      email: false,
-      push: true
-    },
-    {
-      id: 'drive',
-      label: 'Drive Activity',
-      description: 'File sharing, permission changes, and uploads',
-      icon: Folder,
-      inApp: true,
-      email: true,
-      push: false
-    },
-    {
-      id: 'members',
-      label: 'Member Activity',
-      description: 'Connection requests, role changes, and invitations',
-      icon: Users,
-      inApp: true,
-      email: true,
-      push: false
-    },
-    {
-      id: 'business',
-      label: 'Business Updates',
-      description: 'Business invitations, member changes, and analytics',
-      icon: Building,
-      inApp: true,
-      email: true,
-      push: false
-    },
-    {
-      id: 'system',
-      label: 'System Notifications',
-      description: 'Platform updates, maintenance, and security alerts',
-      icon: AlertCircle,
-      inApp: true,
-      email: true,
-      push: true
-    }
-  ]);
-
+  const [moduleMetadata, setModuleMetadata] = useState<ModuleNotificationMetadata[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Load notification preferences from module metadata and user preferences
+  useEffect(() => {
+    if (!mounted || status === "loading") return;
+
+    const loadPreferences = async () => {
+      try {
+        setLoading(true);
+        
+        // Load module types and user preferences in parallel
+        const [moduleTypesResponse, userPreferencesResponse] = await Promise.all([
+          getModuleNotificationTypes(),
+          getNotificationPreferences().catch(() => ({ preferences: {} })) // Fallback to empty if fails
+        ]);
+        
+        setModuleMetadata(moduleTypesResponse.modules);
+        const userPrefs = userPreferencesResponse.preferences || {};
+        
+        // Build preferences from module metadata
+        const categoryMap = new Map<string, NotificationPreference>();
+        
+        for (const module of moduleTypesResponse.modules) {
+          for (const notificationType of module.notificationTypes) {
+            const categoryId = notificationType.category;
+            
+            if (!categoryMap.has(categoryId)) {
+              const Icon = CATEGORY_ICONS[categoryId] || Bell;
+              const userCategoryPrefs = userPrefs[categoryId];
+              const defaultChannels = notificationType.defaultChannels;
+              
+              categoryMap.set(categoryId, {
+                id: categoryId,
+                label: module.moduleName,
+                description: `Notifications from ${module.moduleName}`,
+                icon: Icon,
+                inApp: userCategoryPrefs?.inApp ?? defaultChannels.inApp,
+                email: userCategoryPrefs?.email ?? defaultChannels.email,
+                push: userCategoryPrefs?.push ?? defaultChannels.push,
+                moduleId: module.moduleId
+              });
+            } else {
+              // Update defaults if any notification type in category has channel enabled
+              const existing = categoryMap.get(categoryId)!;
+              const defaultChannels = notificationType.defaultChannels;
+              existing.inApp = existing.inApp || defaultChannels.inApp;
+              existing.email = existing.email || defaultChannels.email;
+              existing.push = existing.push || defaultChannels.push;
+            }
+          }
+        }
+
+        // Add system category if not present
+        if (!categoryMap.has('system')) {
+          const systemPrefs = userPrefs.system || {};
+          categoryMap.set('system', {
+            id: 'system',
+            label: 'System Notifications',
+            description: 'Platform updates, maintenance, and security alerts',
+            icon: AlertCircle,
+            inApp: systemPrefs.inApp ?? true,
+            email: systemPrefs.email ?? true,
+            push: systemPrefs.push ?? true
+          });
+        }
+
+        setPreferences(Array.from(categoryMap.values()));
+      } catch (error) {
+        console.error('Failed to load notification preferences:', error);
+        // Fallback to default preferences
+        setPreferences([
+          {
+            id: 'system',
+            label: 'System Notifications',
+            description: 'Platform updates, maintenance, and security alerts',
+            icon: AlertCircle,
+            inApp: true,
+            email: true,
+            push: true
+          }
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPreferences();
+  }, [mounted, status]);
 
   const handleTogglePreference = (id: string, channel: 'inApp' | 'email' | 'push') => {
     setPreferences(prev => 
@@ -104,15 +160,37 @@ export default function NotificationSettingsPage() {
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    // TODO: Save preferences to backend
-    setTimeout(() => {
+    try {
+      setSaving(true);
+      
+      // Convert preferences to format expected by API
+      const preferencesToSave: Record<string, { inApp: boolean; email: boolean; push: boolean }> = {};
+      for (const pref of preferences) {
+        preferencesToSave[pref.id] = {
+          inApp: pref.inApp,
+          email: pref.email,
+          push: pref.push
+        };
+      }
+      
+      await saveNotificationPreferences(preferencesToSave);
+      toast.success('Notification preferences saved successfully');
+    } catch (error) {
+      console.error('Failed to save notification preferences:', error);
+      toast.error('Failed to save notification preferences');
+    } finally {
       setSaving(false);
-      // Show success message
-    }, 1000);
+    }
   };
 
-  if (!mounted || status === "loading") return null;
+  if (!mounted || status === "loading" || loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+  
   if (!session?.user) return null;
 
   return (
@@ -147,8 +225,13 @@ export default function NotificationSettingsPage() {
             </p>
           </div>
 
-          <div className="divide-y divide-gray-200">
-            {preferences.map((preference) => {
+          {preferences.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              <p>No notification preferences available. Install modules to configure notifications.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-200">
+              {preferences.map((preference) => {
               const Icon = preference.icon;
               return (
                 <div key={preference.id} className="p-6">
@@ -192,31 +275,18 @@ export default function NotificationSettingsPage() {
                   </div>
                 </div>
               );
-            })}
-          </div>
+              })}
+            </div>
+          )}
 
+          {/* Do Not Disturb Section */}
           <div className="p-6 border-t border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-gray-900">Do Not Disturb</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Temporarily silence all notifications
-                </p>
-              </div>
-              <Switch checked={false} onChange={() => {}} />
-            </div>
+            <DoNotDisturbSettings />
           </div>
 
+          {/* Quiet Hours Section */}
           <div className="p-6 border-t border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-gray-900">Quiet Hours</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Automatically silence notifications during specific hours
-                </p>
-              </div>
-              <Switch checked={false} onChange={() => {}} />
-            </div>
+            <QuietHoursSettings />
           </div>
         </div>
 

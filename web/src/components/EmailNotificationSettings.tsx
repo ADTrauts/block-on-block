@@ -74,16 +74,27 @@ export default function EmailNotificationSettings({ className = '' }: EmailNotif
     setSuccess(null);
 
     try {
+      if (!status.configured) {
+        setError('Email service is not configured. Please configure SMTP settings first.');
+        return;
+      }
+
+      if (!status.available) {
+        setError('Email service is configured but not available. Please check your SMTP settings.');
+        return;
+      }
+
       const success = await emailService.testEmailService();
       
       if (success) {
-        setSuccess('Test email sent successfully! Check your inbox.');
+        setSuccess('Test email sent successfully! Check your inbox (and spam folder).');
       } else {
-        setError('Failed to send test email. Please check your email configuration.');
+        setError('Failed to send test email. The email service may not be properly configured. Check server logs for details.');
       }
     } catch (error) {
       console.error('Error sending test email:', error);
-      setError('Failed to send test email. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setError(`Failed to send test email: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -176,14 +187,19 @@ export default function EmailNotificationSettings({ className = '' }: EmailNotif
 
         {!status.configured && (
           <Alert type="warning" title="Email Service Not Configured">
-            Email notifications are not configured. To enable email notifications, add SMTP configuration to your environment variables:
-            <pre className="mt-2 p-2 bg-gray-100 rounded text-sm overflow-x-auto">
+            <p className="mb-2">Email notifications are not configured. To enable email notifications, add SMTP configuration to your environment variables.</p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                Show configuration details
+              </summary>
+              <pre className="mt-2 p-2 bg-gray-100 rounded text-sm overflow-x-auto">
 {`SMTP_HOST=your-smtp-host
 SMTP_PORT=587
 SMTP_USER=your-email@example.com
 SMTP_PASS=your-password
 EMAIL_FROM=notifications@yourdomain.com`}
-            </pre>
+              </pre>
+            </details>
           </Alert>
         )}
 
@@ -194,69 +210,8 @@ EMAIL_FROM=notifications@yourdomain.com`}
         )}
       </div>
 
-      <div className="border-t pt-4">
-        <h4 className="font-medium mb-3">Email Preferences</h4>
-        <p className="text-sm text-gray-600 mb-4">
-          Choose which types of notifications you want to receive via email
-        </p>
-        
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">Chat Messages</span>
-              <p className="text-sm text-gray-600">New messages in conversations</p>
-            </div>
-            <Switch 
-              checked={preferences.chat || false} 
-              onChange={() => handleTogglePreference('chat')}
-            />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">Mentions</span>
-              <p className="text-sm text-gray-600">When someone mentions you</p>
-            </div>
-            <Switch 
-              checked={preferences.mentions || false} 
-              onChange={() => handleTogglePreference('mentions')}
-            />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">File Sharing</span>
-              <p className="text-sm text-gray-600">When files are shared with you</p>
-            </div>
-            <Switch 
-              checked={preferences.drive || false} 
-              onChange={() => handleTogglePreference('drive')}
-            />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">Business Invitations</span>
-              <p className="text-sm text-gray-600">When you're invited to join a business</p>
-            </div>
-            <Switch 
-              checked={preferences.invitations || false} 
-              onChange={() => handleTogglePreference('invitations')}
-            />
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="font-medium">System Updates</span>
-              <p className="text-sm text-gray-600">Important system announcements</p>
-            </div>
-            <Switch 
-              checked={preferences.system || false} 
-              onChange={() => handleTogglePreference('system')}
-            />
-          </div>
-        </div>
-      </div>
+      {/* Note: Email preferences for individual notification types are controlled by the main notification preferences above */}
+      {/* The toggles in the main Notification Settings page control email notifications per module */}
     </div>
   );
 } 

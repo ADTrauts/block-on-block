@@ -343,10 +343,36 @@ export const installModule = async (req: Request, res: Response) => {
         where: { businessId, userId: user.id, isActive: true },
       });
       if (!membership) {
-        return res.status(403).json({ success: false, error: 'Access denied for this business' });
+        logger.warn('Module installation denied: User not a member of business', {
+          operation: 'module_install',
+          userId: user.id,
+          businessId,
+          moduleId,
+          reason: 'not_member'
+        });
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Access denied for this business',
+          details: 'You are not a member of this business'
+        });
       }
       if (!(membership.role === 'ADMIN' || membership.role === 'MANAGER' || membership.canManage)) {
-        return res.status(403).json({ success: false, error: 'Insufficient permissions to install for this business' });
+        logger.warn('Module installation denied: Insufficient permissions', {
+          operation: 'module_install',
+          userId: user.id,
+          businessId,
+          moduleId,
+          userRole: membership.role,
+          canManage: membership.canManage,
+          reason: 'insufficient_permissions'
+        });
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Insufficient permissions to install for this business',
+          details: `Your role (${membership.role}) does not have permission to install modules. Requires ADMIN, MANAGER, or canManage permission.`,
+          userRole: membership.role,
+          canManage: membership.canManage
+        });
       }
 
       // Check if module is already installed for this business
@@ -377,6 +403,7 @@ export const installModule = async (req: Request, res: Response) => {
       }
       
       // For proprietary modules (like HR), check business tier instead
+      let businessTier: string | undefined;
       if (module.isProprietary && module.pricingTier && module.pricingTier !== 'free') {
         const business = await prisma.business.findUnique({
           where: { id: businessId },
@@ -389,43 +416,109 @@ export const installModule = async (req: Request, res: Response) => {
         });
         
         const activeSub = business?.subscriptions[0];
-        const businessTier = activeSub?.tier || business?.tier || 'free';
+        businessTier = activeSub?.tier || business?.tier || 'free';
         
         // HR module requires business_advanced or enterprise
         const requiredTiers = ['business_advanced', 'enterprise'];
         const hasRequiredTier = requiredTiers.includes(businessTier);
         
         if (!hasRequiredTier) {
+          logger.warn('Module installation denied: Business tier too low', {
+            operation: 'module_install',
+            userId: user.id,
+            businessId,
+            moduleId,
+            currentTier: businessTier,
+            requiredTier: module.pricingTier,
+            reason: 'tier_too_low'
+          });
           return res.status(403).json({
             success: false,
             error: 'Business tier upgrade required',
             requiresTier: module.pricingTier,
             currentTier: businessTier,
             message: `${module.name} requires Business Advanced or Enterprise tier`,
-            upgradeUrl: '/billing/upgrade'
+            upgradeUrl: '/billing/upgrade',
+            details: `Your business is on the ${businessTier} tier. This module requires Business Advanced or Enterprise tier.`
           });
         }
       }
 
-      // Install module for business
-      const installation = await (prisma as any).businessModuleInstallation.create({
-        data: { 
-          moduleId, 
-          businessId, 
-          enabled: true,
-          installedAt: new Date()
-          // Note: installedBy column doesn't exist in production DB yet
-        },
-        include: { 
-          module: { 
-            include: { 
-              developer: { 
-                select: { id: true, name: true, email: true } 
-              } 
-            } 
-          } 
-        },
+      // Log successful permission and tier checks
+      logger.info('Module installation checks passed', {
+        operation: 'module_install',
+        userId: user.id,
+        businessId,
+        moduleId,
+        userRole: membership.role,
+        canManage: membership.canManage,
+        businessTier: businessTier
       });
+
+      // Install module for business
+      let installation;
+      try {
+        // Create the installation first without includes to avoid relation issues
+        installation = await prisma.businessModuleInstallation.create({
+          data: { 
+            moduleId, 
+            businessId, 
+            enabled: true,
+            installedAt: new Date()
+            // Note: installedBy column is optional, so we don't set it
+          }
+        });
+        
+        // Then fetch the module details separately
+        const moduleWithDeveloper = await prisma.module.findUnique({
+          where: { id: moduleId },
+          include: {
+            developer: {
+              select: { id: true, name: true, email: true }
+            }
+          }
+        });
+        
+        // Combine the installation with module data for response
+        installation = {
+          ...installation,
+          module: moduleWithDeveloper
+        } as any;
+      } catch (dbError) {
+        const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+        const errorStack = dbError instanceof Error ? dbError.stack : undefined;
+        
+        logger.error('Failed to create module installation', {
+          operation: 'module_install',
+          userId: user.id,
+          businessId,
+          moduleId,
+          error: { message: errorMessage, stack: errorStack }
+        });
+        
+        // Check if it's a unique constraint violation (already installed)
+        if (errorMessage.includes('Unique constraint') || 
+            errorMessage.includes('duplicate key') ||
+            errorMessage.includes('Unique violation')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Module is already installed for this business'
+          });
+        }
+        
+        // Check for foreign key constraint violations
+        if (errorMessage.includes('Foreign key constraint') || 
+            errorMessage.includes('violates foreign key')) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid module or business ID',
+            details: 'The module or business does not exist'
+          });
+        }
+        
+        // Re-throw for other database errors to be caught by outer catch
+        throw dbError;
+      }
 
       // Update module download count
       await prisma.module.update({ 
@@ -526,15 +619,33 @@ export const installModule = async (req: Request, res: Response) => {
       });
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    logger.error('Error installing module', {
+      operation: 'module_install',
+      error: { message: errorMessage, stack: errorStack },
+      moduleId: req.params.moduleId,
+      userId: (req as any).user?.id,
+      businessId: typeof req.query.businessId === 'string' ? req.query.businessId : undefined
+    });
+    
     console.error('Error installing module:', error);
     console.error('Error details:', {
       name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      message: errorMessage,
+      stack: errorStack
     });
+    
+    // Return more detailed error information in development
+    const isDevelopment = process.env.NODE_ENV === 'development';
     res.status(500).json({ 
       success: false, 
       error: 'Failed to install module',
+      ...(isDevelopment && { 
+        details: errorMessage,
+        stack: errorStack 
+      }),
       // Show details always for now (debugging production issue)
       details: error instanceof Error ? error.message : String(error),
       errorName: error instanceof Error ? error.name : 'Unknown'

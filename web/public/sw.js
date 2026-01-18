@@ -7,14 +7,39 @@ const DYNAMIC_CACHE = 'dynamic-v1';
 self.addEventListener('install', (event) => {
   console.log('Service Worker installing...');
   
+  // Cache files individually to avoid failing if any file doesn't exist
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll([
+    caches.open(STATIC_CACHE).then(async (cache) => {
+      // Only cache files that actually exist
+      const filesToCache = [
         '/',
-        '/favicon.ico',
-        '/notification-badge.png',
-        '/manifest.json'
-      ]);
+        '/favicon.ico'
+        // Note: Add other static assets here as they're created
+        // '/notification-badge.png', // Uncomment when file is added
+        // '/manifest.json', // Uncomment when file is added
+      ];
+      
+      // Try to cache each file individually, don't fail if some don't exist
+      const cachePromises = filesToCache.map(async (url) => {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            await cache.put(url, response);
+            console.log(`✅ Cached: ${url}`);
+          } else {
+            console.warn(`⚠️ Failed to cache ${url}: ${response.status}`);
+          }
+        } catch (error) {
+          console.warn(`⚠️ Failed to cache ${url}:`, error);
+          // Don't throw - continue with other files
+        }
+      });
+      
+      await Promise.allSettled(cachePromises);
+      console.log('✅ Service Worker cache initialization complete');
+    }).catch((error) => {
+      console.error('Error initializing service worker cache:', error);
+      // Don't fail installation if cache fails
     })
   );
   
@@ -49,7 +74,7 @@ self.addEventListener('push', (event) => {
     const options = {
       body: data.body,
       icon: data.icon || '/favicon.ico',
-      badge: data.badge || '/notification-badge.png',
+      badge: data.badge || '/favicon.ico', // Fallback to favicon if badge doesn't exist
       image: data.image,
       tag: data.tag,
       data: data.data,

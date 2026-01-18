@@ -250,6 +250,24 @@ export default function SettingsPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Preferences</h2>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Sidebar Customization</label>
+                <p className="text-sm text-gray-600 mb-3">
+                  Organize your sidebars with folders and customize module placement
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    // Navigate to dashboard where customize button is available
+                    router.push('/dashboard');
+                  }}
+                >
+                  Customize Sidebars
+                </Button>
+                <p className="text-xs text-gray-500 mt-2">
+                  Click the "Customize" button in the left sidebar to organize your modules
+                </p>
+              </div>
               <div className="text-gray-600">
                 <p>More settings coming soon:</p>
                 <ul className="mt-2 space-y-1 text-sm">

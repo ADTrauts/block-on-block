@@ -39,7 +39,6 @@ export function AuthErrorProvider({ children }: { children: React.ReactNode }) {
   }, [nextPathname]);
 
   const showLoginModal = useCallback((message?: string) => {
-    console.log('showLoginModal called:', { message, pathname });
     // Store current URL for return after login - always use window.location for accuracy
     const currentUrl = typeof window !== 'undefined' 
       ? window.location.pathname + window.location.search 
@@ -47,7 +46,6 @@ export function AuthErrorProvider({ children }: { children: React.ReactNode }) {
     setReturnUrl(currentUrl);
     setLoginMessage(message || 'Your session has expired. Please log in to continue.');
     setIsLoginModalOpen(true);
-    console.log('Login modal state updated:', { isLoginModalOpen: true, message, returnUrl: currentUrl });
   }, [pathname]);
 
   const hideLoginModal = useCallback(() => {
@@ -68,11 +66,8 @@ export function AuthErrorProvider({ children }: { children: React.ReactNode }) {
 
   // Register global auth error dispatcher
   useEffect(() => {
-    console.log('Registering auth error dispatcher...');
     setAuthErrorDispatcher(showLoginModal);
-    console.log('Auth error dispatcher registered');
     return () => {
-      console.log('Clearing auth error dispatcher...');
       clearAuthErrorDispatcher();
     };
   }, [showLoginModal]);

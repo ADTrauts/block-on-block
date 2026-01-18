@@ -6,6 +6,7 @@ import { Spinner, Alert, EmptyState } from 'shared/components';
 import { toast } from 'react-hot-toast';
 import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContext';
 import { useHRFeatures } from '@/hooks/useHRFeatures';
+import HRPageLayout from '@/components/hr/HRPageLayout';
 
 type AttendanceOverview = {
   activeEmployees: number;
@@ -328,33 +329,38 @@ export default function HRAttendancePage() {
         <Alert type="error" title="Business Not Found">
           A valid business identifier is required to view attendance settings.
         </Alert>
-        </div>
+      </div>
     );
   }
 
   if (!hrFeatures.hasHRAccess) {
     return (
-      <div className="p-6">
-        <Alert type="warning" title="HR Module Not Installed">
-          The HR module must be installed and the business tier upgraded to Business Advanced or
-          Enterprise to access attendance settings.
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="attendance">
+        <div className="p-6">
+          <Alert type="warning" title="HR Module Not Installed">
+            The HR module must be installed and the business tier upgraded to Business Advanced or
+            Enterprise to access attendance settings.
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
 
   if (!hrFeatures.attendance.enabled) {
     return (
-      <div className="p-6">
-        <Alert type="warning" title="Attendance Module Not Available">
-          Attendance features are not included with the current subscription tier. Upgrade to
-          Business Advanced or Enterprise to enable attendance tracking.
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="attendance">
+        <div className="p-6">
+          <Alert type="warning" title="Attendance Module Not Available">
+            Attendance features are not included with the current subscription tier. Upgrade to
+            Business Advanced or Enterprise to enable attendance tracking.
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
 
   return (
+    <HRPageLayout businessId={businessId} currentView="attendance">
     <div className="p-6 space-y-8">
       <div>
         <h1 className="text-3xl font-bold">Attendance Settings</h1>
@@ -785,6 +791,7 @@ export default function HRAttendancePage() {
         </section>
       )}
         </div>
+    </HRPageLayout>
   );
 }
 

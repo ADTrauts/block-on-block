@@ -1233,6 +1233,146 @@ For complete documentation, see: `memory-bank/aiContextSystem.md`
 
 ---
 
+## 🔔 Notification Integration Standards (MANDATORY FOR ALL MODULES)
+
+### Critical Rule: Notifications Are Not Optional
+
+**Every module MUST integrate with the global notification system.** Notifications enable:
+- Real-time user awareness of important events
+- Centralized notification management (`/notifications`)
+- Email and push notification support
+- Better user engagement and retention
+
+### Notification Type Naming Convention
+
+**CRITICAL**: Follow the pattern `[module]_[event]` for all notification types:
+
+```typescript
+// ✅ CORRECT: Module prefix + underscore + event name
+'hr_onboarding_task_approved'
+'hr_time_off_request_submitted'
+'chat_message'
+'drive_file_shared'
+'calendar_event_reminder'
+
+// ❌ WRONG: Generic or inconsistent naming
+'onboarding_approved'  // Missing module prefix
+'taskApproved'         // Wrong format (camelCase)
+'hr-task-approved'     // Wrong separator (hyphen)
+'system_notification' // Too generic
+```
+
+### Backend Implementation Pattern
+
+```typescript
+// ✅ CORRECT: Use NotificationService in service/controller
+import { NotificationService } from '../services/notificationService';
+import { logger } from '../lib/logger';
+
+export async function yourServiceFunction(input: YourInput) {
+  // ... your business logic ...
+  
+  // Send notification (don't fail operation if notification fails)
+  try {
+    await NotificationService.createNotification({
+      userId: targetUserId,  // Who receives the notification
+      type: 'your_module_event_name',  // Follow naming convention
+      title: 'Clear, Descriptive Title',
+      body: `Contextual message: "${relevantData}"`,
+      data: {
+        // Include IDs for navigation
+        itemId: item.id,
+        businessId: businessId,
+        // Optional: Add action URLs
+        actionUrl: `/business/${businessId}/workspace/your-module`
+      }
+    });
+  } catch (notificationError) {
+    // Don't fail the operation if notification fails
+    await logger.warn('Failed to send notification', {
+      operation: 'notification_error',
+      error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+    });
+  }
+  
+  return result;
+}
+```
+
+### Frontend Integration Requirements
+
+**MANDATORY**: When adding new notification types, update these files:
+
+1. **`web/src/app/notifications/page.tsx`**:
+   - Add types to `getNormalizedType()` function
+   - Add category icon to `getNotificationIcon()` if new category
+   - Add category to `categories` array if new category
+
+2. **`web/src/api/notifications.ts`**:
+   - Add category to `Notification` interface `type` union
+
+### Notification Categories
+
+Current categories (add new ones as needed):
+- **chat**: Chat messages, reactions (`chat_message`, `chat_reaction`)
+- **drive**: File sharing, permissions (`drive_shared`, `drive_permission`)
+- **members**: Member requests, invitations (`member_request`, `business_invitation`)
+- **business**: Business updates (`business_invitation`)
+- **hr**: HR module notifications (`hr_onboarding_*`, `hr_time_off_*`, `hr_attendance_*`)
+- **mentions**: @mentions in chat (`chat_mention`)
+- **system**: System alerts, maintenance (`system_alert`)
+
+### Rules
+
+1. **ALWAYS use NotificationService**: Never create notifications directly in database
+2. **ALWAYS define notification metadata**: Add `notifications` array to module manifest (REQUIRED)
+3. **ALWAYS handle errors gracefully**: Wrap in try-catch, don't fail operations
+4. **ALWAYS follow naming convention**: `[module]_[event]` format
+5. **ALWAYS include metadata**: Add IDs and URLs in `data` field for navigation
+6. **NEVER use generic types**: Use module-specific types, not just 'system'
+7. **NEVER fail operations**: Notification failures shouldn't break functionality
+
+**CRITICAL**: Notification metadata in module manifest is now REQUIRED. The notification center and settings page automatically discover notification types from module manifests. Without metadata, notifications won't appear properly categorized.
+
+### Common Notification Events by Module
+
+**HR Module**:
+- `hr_onboarding_task_approved` - Task approved by manager
+- `hr_onboarding_task_pending_approval` - Task needs approval
+- `hr_onboarding_journey_completed` - All tasks completed
+- `hr_time_off_request_submitted` - Request submitted (notify manager)
+- `hr_time_off_request_approved` - Request approved (notify employee)
+- `hr_time_off_request_denied` - Request denied (notify employee)
+- `hr_time_off_balance_low` - Balance below threshold
+- `hr_attendance_exception_created` - Exception detected
+- `hr_attendance_policy_violation` - Policy violation
+- `hr_attendance_missing_punch` - Missing punch reminder
+
+**Chat Module**:
+- `chat_message` - New message in conversation
+- `chat_mention` - User mentioned in message
+- `chat_reaction` - Reaction to message
+
+**Drive Module**:
+- `drive_shared` - File shared with user
+- `drive_permission` - Permission changed
+
+### Testing Checklist
+
+- [ ] Notification appears in notification center (`/notifications`)
+- [ ] Notification appears in correct category
+- [ ] Notification badge count increments
+- [ ] Real-time WebSocket update works
+- [ ] Notification includes correct metadata
+- [ ] Clicking notification navigates correctly
+- [ ] Mark as read works
+- [ ] Email notification sent (if configured)
+- [ ] Push notification sent (if configured)
+
+For complete documentation, see: `.cursor/rules/module-development.mdc` (Notification Integration Standards section)
+
+---
+
 ## 📋 Development Workflow
 
 ### Starting Development
@@ -1331,6 +1471,10 @@ pnpm prisma:generate
 5. **Test context endpoints** with real businessId
 6. **Document** what questions the AI can answer
 7. **Follow standardized response format** (success, context, metadata)
+8. **Integrate notifications** using `NotificationService.createNotification()`
+9. **Follow naming convention** `[module]_[event]` for notification types
+10. **Update frontend** notification categorization in notification page
+11. **Handle errors gracefully** - don't fail operations if notifications fail
 
 ---
 

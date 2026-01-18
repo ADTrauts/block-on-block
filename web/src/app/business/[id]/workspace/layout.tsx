@@ -2,6 +2,7 @@ import React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { BusinessConfigurationProvider } from '../../../../contexts/BusinessConfigurationContext';
 import { PositionAwareModuleProvider } from '../../../../components/PositionAwareModuleProvider';
+import { SidebarCustomizationProvider } from '../../../../contexts/SidebarCustomizationContext';
 import DashboardLayoutWrapper from '../../../../components/business/DashboardLayoutWrapper';
 import { serverBusinessApiCall } from '../../../../lib/serverApiUtils';
 import { getServerSession } from 'next-auth';
@@ -50,9 +51,11 @@ export default async function Layout({ children, params }: { children: React.Rea
   return (
     <BusinessConfigurationProvider businessId={businessId}>
       <PositionAwareModuleProvider>
+        <SidebarCustomizationProvider>
         <DashboardLayoutWrapper business={business}>
           {children}
         </DashboardLayoutWrapper>
+        </SidebarCustomizationProvider>
       </PositionAwareModuleProvider>
     </BusinessConfigurationProvider>
   );

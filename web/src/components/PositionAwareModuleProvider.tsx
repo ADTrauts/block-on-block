@@ -41,11 +41,14 @@ export function PositionAwareModuleProvider({ children }: PositionAwareModulePro
 
   // Load installed personal modules
   useEffect(() => {
-    if (!session?.accessToken) return;
+    if (!session?.accessToken) {
+      return;
+    }
 
     const loadInstalledModules = async () => {
       try {
         const installed = await getInstalledModules({ scope: 'personal' });
+        
         // Convert installed modules to ModuleConfig format
         const moduleConfigs: ModuleConfig[] = installed.map(module => ({
           id: module.id,
@@ -56,9 +59,10 @@ export function PositionAwareModuleProvider({ children }: PositionAwareModulePro
           permissions: module.permissions || ['view'],
           category: 'core' as const
         }));
+        
         setInstalledPersonalModules(moduleConfigs);
       } catch (error) {
-        console.error('Error loading installed modules:', error);
+        console.error('[ModuleProvider] Error loading installed modules:', error);
       }
     };
 

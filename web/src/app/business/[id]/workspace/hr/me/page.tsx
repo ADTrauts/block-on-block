@@ -18,11 +18,14 @@ import { useHRFeatures } from '@/hooks/useHRFeatures';
 import { useBusinessConfiguration } from '@/contexts/BusinessConfigurationContext';
 import { Spinner, Alert, EmptyState } from 'shared/components';
 import { toast } from 'react-hot-toast';
+import HRPageLayout from '@/components/hr/HRPageLayout';
 import {
   completeMyOnboardingTask,
   getMyOnboardingJourneys,
-  type EmployeeOnboardingJourney
+  type EmployeeOnboardingJourney,
+  type OnboardingTaskStatus,
 } from '@/api/hrOnboarding';
+import EmployeeOnboardingJourneyView from '@/components/hr/onboarding/EmployeeOnboardingJourneyView';
 
 interface EmployeeData {
   id: string;
@@ -70,7 +73,9 @@ export default function EmployeeSelfService() {
   const { data: session } = useSession();
   const businessId = (params?.id as string) || '';
   
-  console.log('[HR/me] Component mounted/updated:', { businessId, hasSession: !!session, pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR' });
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[HR/me] Component mounted/updated:', { businessId, hasSession: !!session, pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR' });
+  }
   
   const { businessTier } = useBusinessConfiguration();
   const hrFeatures = useHRFeatures(businessTier || undefined);
@@ -206,7 +211,10 @@ export default function EmployeeSelfService() {
   );
 
   const handleCompleteOnboardingTask = useCallback(
-    async (taskId: string) => {
+    async (
+      taskId: string,
+      payload: { status?: OnboardingTaskStatus; notes?: string; metadata?: Record<string, unknown> }
+    ) => {
       if (!businessId) {
         toast.error('Business ID is required to update onboarding tasks.');
         return;
@@ -214,13 +222,14 @@ export default function EmployeeSelfService() {
 
       setCompletingTaskId(taskId);
       try {
-        await completeMyOnboardingTask(businessId, taskId, { status: 'COMPLETED' });
+        await completeMyOnboardingTask(businessId, taskId, payload);
         toast.success('Task completed');
         await fetchOnboardingJourneys();
       } catch (error) {
         const errorMsg =
           error instanceof Error ? error.message : 'Failed to complete onboarding task';
         toast.error(errorMsg);
+        throw error; // Re-throw so modal can handle it
       } finally {
         setCompletingTaskId(null);
       }
@@ -234,7 +243,11 @@ export default function EmployeeSelfService() {
       try {
         setLoading(true);
         setError(null);
-        console.log('[HR/me] Loading employee data for businessId:', businessId);
+        const isDev = process.env.NODE_ENV === 'development';
+        
+        if (isDev) {
+          console.log('[HR/me] Loading employee data for businessId:', businessId);
+        }
         
         const [profileRes, balanceRes, requestsRes] = await Promise.all([
           fetch(`/api/hr/me?businessId=${encodeURIComponent(businessId)}`),
@@ -242,11 +255,13 @@ export default function EmployeeSelfService() {
           fetch(`/api/hr/me/time-off/requests?businessId=${encodeURIComponent(businessId)}`)
         ]);
         
-        console.log('[HR/me] API responses:', {
-          profile: { status: profileRes.status, ok: profileRes.ok },
-          balance: { status: balanceRes.status, ok: balanceRes.ok },
-          requests: { status: requestsRes.status, ok: requestsRes.ok }
-        });
+        if (isDev) {
+          console.log('[HR/me] API responses:', {
+            profile: { status: profileRes.status, ok: profileRes.ok },
+            balance: { status: balanceRes.status, ok: balanceRes.ok },
+            requests: { status: requestsRes.status, ok: requestsRes.ok }
+          });
+        }
         
         if (!profileRes.ok) {
           const errorText = await profileRes.text();
@@ -255,7 +270,9 @@ export default function EmployeeSelfService() {
         }
         
         const profileJson = await profileRes.json();
-        console.log('[HR/me] Profile data received:', profileJson);
+        if (isDev) {
+          console.log('[HR/me] Profile data received:', profileJson);
+        }
         
         const resolvedUser = {
           name: session?.user?.name || 'Employee',
@@ -278,7 +295,9 @@ export default function EmployeeSelfService() {
           const balJson = await balanceRes.json();
           setBalance(balJson.balance);
         } else {
-          console.warn('[HR/me] Balance API failed:', balanceRes.status);
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[HR/me] Balance API failed:', balanceRes.status);
+          }
           setBalance({ pto: 0, sick: 0, personal: 0 });
         }
         
@@ -286,7 +305,9 @@ export default function EmployeeSelfService() {
           const rjson = await requestsRes.json();
           setRequests(rjson.requests || []);
         } else {
-          console.warn('[HR/me] Requests API failed:', requestsRes.status);
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[HR/me] Requests API failed:', requestsRes.status);
+          }
         }
       } catch (e: unknown) {
         const errorMsg = e instanceof Error ? e.message : 'Failed to load';
@@ -416,40 +437,47 @@ export default function EmployeeSelfService() {
   
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-6"></div>
-          <div className="space-y-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-24 bg-gray-200 rounded"></div>
-            ))}
+      <HRPageLayout businessId={businessId} currentView="my-profile">
+        <div className="p-6">
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-1/3 mb-6"></div>
+            <div className="space-y-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-24 bg-gray-200 rounded"></div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </HRPageLayout>
     );
   }
-  
+
   if (error) {
     return (
-      <div className="p-6">
-        <Alert type="error" title="Error Loading HR Data">
-          {error}
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="my-profile">
+        <div className="p-6">
+          <Alert type="error" title="Error Loading HR Data">
+            {error}
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
   
   if (!hrFeatures.hasHRAccess) {
     return (
-      <div className="p-6">
-        <Alert type="warning" title="HR Self-Service Not Available">
-          Your company needs Business Advanced or Enterprise tier to access HR features.
-        </Alert>
-      </div>
+      <HRPageLayout businessId={businessId} currentView="my-profile">
+        <div className="p-6">
+          <Alert type="warning" title="HR Self-Service Not Available">
+            Your company needs Business Advanced or Enterprise tier to access HR features.
+          </Alert>
+        </div>
+      </HRPageLayout>
     );
   }
   
   return (
+    <HRPageLayout businessId={businessId} currentView="my-profile">
     <div className="p-6 max-w-4xl">
       {/* Header */}
       <div className="mb-6">
@@ -524,81 +552,16 @@ export default function EmployeeSelfService() {
               description="Once HR assigns an onboarding plan, it will appear here."
             />
           ) : (
-            <div className="space-y-5">
-              {onboardingJourneys.map((journey) => {
-                const totalTasks = journey.tasks.length;
-                const completedTasks = journey.tasks.filter(
-                  (task) => task.status === 'COMPLETED'
-                ).length;
-                const progressPercent =
-                  totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
-                const actionableTasks = journey.tasks.filter(
-                  (task) =>
-                    task.ownerType === 'EMPLOYEE' &&
-                    task.status !== 'COMPLETED' &&
-                    task.status !== 'CANCELLED'
-                );
-
-                return (
-                  <div key={journey.id} className="border rounded-lg p-4 bg-gray-50">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-                      <div>
-                        <h3 className="text-lg font-semibold">
-                          {journey.onboardingTemplate?.name || 'Onboarding Journey'}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Started {new Date(journey.startDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="text-sm text-gray-700">
-                        <span className="font-medium">{completedTasks}</span> of{' '}
-                        <span className="font-medium">{totalTasks}</span> tasks completed ({progressPercent}
-                        %)
-                      </div>
-                    </div>
-
-                    {actionableTasks.length > 0 ? (
-                      <div className="space-y-2">
-                        {actionableTasks.map((task) => (
-                          <div
-                            key={task.id}
-                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border rounded-md bg-white px-4 py-3 text-sm"
-                          >
-                            <div>
-                              <div className="font-medium text-gray-900">{task.title}</div>
-                              {task.description && (
-                                <div className="text-gray-600 mt-0.5">{task.description}</div>
-                              )}
-                              <div className="text-xs text-gray-500 mt-1">
-                                {task.dueDate
-                                  ? `Due ${new Date(task.dueDate).toLocaleDateString()}`
-                                  : 'No due date'}
-                                {task.requiresApproval ? ' • Requires manager approval' : ''}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs uppercase tracking-wide text-gray-500">
-                                {task.status}
-                              </span>
-                              <button
-                                onClick={() => handleCompleteOnboardingTask(task.id)}
-                                disabled={completingTaskId === task.id}
-                                className="px-3 py-1 text-sm font-medium rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60"
-                              >
-                                {completingTaskId === task.id ? 'Completing…' : 'Mark Complete'}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-md bg-green-50 px-4 py-3 text-sm text-green-700 border border-green-100">
-                        You&apos;re up to date on this onboarding journey.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="space-y-6">
+              {onboardingJourneys.map((journey) => (
+                <EmployeeOnboardingJourneyView
+                  key={journey.id}
+                  journey={journey}
+                  businessId={businessId}
+                  onTaskComplete={handleCompleteOnboardingTask}
+                  completingTaskId={completingTaskId}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -870,6 +833,7 @@ export default function EmployeeSelfService() {
         </div>
       )}
     </div>
+    </HRPageLayout>
   );
 }
 

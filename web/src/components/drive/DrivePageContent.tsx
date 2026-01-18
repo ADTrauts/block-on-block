@@ -145,7 +145,7 @@ export function DrivePageContent({ className = '' }: DrivePageContentProps) {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className={`flex h-screen bg-gray-50 ${className}`}>
+      <div className={`flex h-full bg-gray-50 ${className}`}>
         {/* Drive Sidebar - Same for all users */}
         <DriveSidebar 
           onNewFolder={handleCreateFolder} 

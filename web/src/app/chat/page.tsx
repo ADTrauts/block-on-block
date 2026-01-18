@@ -98,7 +98,7 @@ export default function ChatPage() {
   const fileName = searchParams?.get('fileName');
 
   return (
-    <div className="flex h-screen bg-gray-50">
+      <div className="flex h-full bg-gray-50">
       {/* Use panel-based system with 94+ features including classification, governance, teams */}
       <ChatContent fileReference={fileId && fileName ? { fileId, fileName } : undefined} />
     </div>

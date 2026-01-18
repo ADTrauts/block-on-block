@@ -60,9 +60,16 @@ function SortableItem<T extends { id: string }>({
     <div 
       ref={setNodeRef} 
       style={style} 
-      {...attributes} 
+      {...attributes}
       {...listeners}
       className={`sortable-item ${isDragging ? 'dragging' : ''}`}
+      onMouseDown={(e) => {
+        // Prevent button clicks from triggering drag
+        if ((e.target as HTMLElement).tagName === 'BUTTON' || 
+            (e.target as HTMLElement).closest('button')) {
+          return;
+        }
+      }}
     >
       {renderItem(item, index, isDragging)}
     </div>
