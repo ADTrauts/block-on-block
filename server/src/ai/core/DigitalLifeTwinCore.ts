@@ -735,7 +735,7 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
     
     return {
       id: `priority_${Date.now()}`,
-      type: 'prioritize',
+      type: 'organize' as const,
       module: 'todo',
       description: isBulk 
         ? 'Analyze and prioritize all tasks' 
@@ -744,7 +744,7 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
         action: isBulk ? 'bulk_prioritize' : 'analyze_priorities',
         dashboardId: userContext.currentFocus?.dashboardId,
         businessId: userContext.currentFocus?.businessId,
-      },
+      } as LifeTwinActionData,
       requiresApproval: autonomySettings.taskCreation < 60, // Lower threshold for priority changes
       approvalReason: autonomySettings.taskCreation < 60 
         ? 'User prefers approval for priority changes' 

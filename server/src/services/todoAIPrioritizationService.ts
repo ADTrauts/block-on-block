@@ -101,7 +101,7 @@ export class TodoAIPrioritizationService {
         operation: 'todo_ai_prioritization',
         userId,
         dashboardId,
-        businessId: businessId || null,
+        businessId: businessId ?? undefined,
         suggestionCount: suggestions.length,
       });
 
@@ -113,7 +113,7 @@ export class TodoAIPrioritizationService {
         error: { message: err.message, stack: err.stack },
         userId,
         dashboardId,
-        businessId: businessId || null,
+        businessId: businessId ?? undefined,
       });
       throw error;
     }

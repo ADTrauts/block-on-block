@@ -607,7 +607,10 @@ export async function resolveAttendanceException({
     await logger.warn('Failed to send exception resolution notification', {
       operation: 'attendance_exception_notification_error',
       exceptionId: updatedException.id,
-      error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+      error: {
+        message: notificationError instanceof Error ? notificationError.message : 'Unknown error',
+        stack: notificationError instanceof Error ? notificationError.stack : undefined
+      }
     });
   }
 

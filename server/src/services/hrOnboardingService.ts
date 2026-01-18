@@ -606,7 +606,10 @@ export async function completeOnboardingTask(input: CompleteOnboardingTaskInput)
     await logger.warn('Failed to send onboarding notification', {
       operation: 'onboarding_notification_error',
       taskId: updatedTask.id,
-      error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+      error: {
+        message: notificationError instanceof Error ? notificationError.message : 'Unknown error',
+        stack: notificationError instanceof Error ? notificationError.stack : undefined
+      }
     });
   }
 
@@ -659,7 +662,10 @@ export async function completeOnboardingTask(input: CompleteOnboardingTaskInput)
       await logger.warn('Failed to send journey completion notification', {
         operation: 'onboarding_journey_completion_notification_error',
         journeyId: completedJourney.id,
-        error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+        error: {
+          message: notificationError instanceof Error ? notificationError.message : 'Unknown error',
+          stack: notificationError instanceof Error ? notificationError.stack : undefined
+        }
       });
     }
   }
