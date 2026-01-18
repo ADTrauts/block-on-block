@@ -45,7 +45,8 @@ export function SidebarFolderRenderer({
   const FolderIcon = folder.icon ? 
     (() => {
       // Map icon names to lucide-react icons (simplified)
-      const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const iconMap: Record<string, React.ComponentType<any>> = {
         grid: Folder,
         users: Folder,
         messageSquare: Folder,

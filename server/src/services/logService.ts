@@ -136,8 +136,6 @@ class LogService {
         updatedAt: new Date()
       };
     }
-    
-    return policy;
   }
 
   async storeClientLog(logEntry: Omit<LogEntry, 'id'>): Promise<void> {

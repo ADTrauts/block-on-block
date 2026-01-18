@@ -364,9 +364,10 @@ export class StripeService {
     });
 
     // Handle revenue sharing for module subscriptions
-    const subscriptionId = typeof invoice.subscription === 'string' 
-      ? invoice.subscription 
-      : (invoice.subscription as any)?.id || null;
+    const subscription = (invoice as any).subscription;
+    const subscriptionId = typeof subscription === 'string' 
+      ? subscription 
+      : subscription?.id || null;
     if (subscriptionId) {
       const moduleSubscription = await prisma.moduleSubscription.findFirst({
         where: { stripeSubscriptionId: subscriptionId },
@@ -422,9 +423,10 @@ export class StripeService {
     });
 
     // Update subscription status
-    const subscriptionId = typeof invoice.subscription === 'string' 
-      ? invoice.subscription 
-      : (invoice.subscription as any)?.id || null;
+    const subscription = (invoice as any).subscription;
+    const subscriptionId = typeof subscription === 'string' 
+      ? subscription 
+      : subscription?.id || null;
     if (subscriptionId) {
       await prisma.subscription.updateMany({
         where: { stripeSubscriptionId: subscriptionId },
@@ -539,5 +541,35 @@ export class StripeService {
     });
 
     return session;
+  }
+
+  /**
+   * Cancel a Stripe subscription
+   */
+  static async cancelSubscription(subscriptionId: string) {
+    if (!isStripeConfigured() || !stripe) {
+      throw new Error('Stripe is not configured');
+    }
+
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    return subscription;
+  }
+
+  /**
+   * Reactivate a Stripe subscription
+   */
+  static async reactivateSubscription(subscriptionId: string) {
+    if (!isStripeConfigured() || !stripe) {
+      throw new Error('Stripe is not configured');
+    }
+
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: false,
+    });
+
+    return subscription;
   }
 }

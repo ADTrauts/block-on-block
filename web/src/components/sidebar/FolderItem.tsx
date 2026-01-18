@@ -60,7 +60,7 @@ export function FolderItem({
   const FolderIcon = folder.icon ? 
     (() => {
       // Map icon names to lucide-react icons (simplified - you may want a proper mapping)
-      const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
+      const iconMap: Record<string, React.ComponentType<any>> = {
         grid: Folder,
         users: Folder,
         messageSquare: Folder,

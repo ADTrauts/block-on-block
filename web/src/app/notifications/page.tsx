@@ -19,15 +19,14 @@ import {
   UserCheck,
   List,
   Layers,
-  Clock,
   Zap
 } from 'lucide-react';
 import { Avatar, Button, Badge } from 'shared/components';
 import { useSafeSession } from '../../lib/useSafeSession';
 import { useRouter } from 'next/navigation';
-import { getNotifications, markAsRead, markAllAsRead, getModuleNotificationTypes, archiveNotification, archiveMultipleNotifications, deleteNotification, deleteMultipleNotifications, getGroupedNotifications, markGroupAsRead, type Notification, type NotificationGroup } from '../../api/notifications';
+import { getNotifications, markAsRead, markAllAsRead, getModuleNotificationTypes, archiveNotification, archiveMultipleNotifications, deleteNotification, deleteMultipleNotifications, getGroupedNotifications, markGroupAsRead, snoozeNotification, unsnoozeNotification, type Notification, type NotificationGroup } from '../../api/notifications';
 import { useNotificationSocket } from '../../lib/notificationSocket';
-import type { ModuleNotificationMetadata, ModuleNotificationType } from '../../../shared/src/types/module-notifications';
+import type { ModuleNotificationMetadata, ModuleNotificationType } from 'shared/types/module-notifications';
 
 interface NotificationCategory {
   id: string;
@@ -164,8 +163,7 @@ export default function NotificationsPage() {
             page: 1,
             limit: limit,
             sortBy: 'createdAt',
-            sortOrder: 'desc',
-            showArchived: showArchived
+            sortOrder: 'desc'
           });
           setNotifications(response.notifications);
           setHasMore(response.notifications.length === limit);
@@ -252,7 +250,12 @@ export default function NotificationsPage() {
   useEffect(() => {
     if (!mounted) return;
 
-    const handleNewNotification = (newNotification: Notification) => {
+    const handleNewNotification = (newNotification: import('../../lib/notificationSocket').NotificationEvent) => {
+      // Convert NotificationEvent to Notification by adding required 'deleted' property
+      const notification: Notification = {
+        ...newNotification,
+        deleted: false,
+      };
       if (viewMode === 'grouped') {
         // Reload groups when new notification arrives
         getGroupedNotifications(limit).then(response => {
@@ -260,7 +263,7 @@ export default function NotificationsPage() {
         }).catch(console.error);
       } else {
         // Add new notification to the top of the list
-        setNotifications(prev => [newNotification, ...prev]);
+        setNotifications(prev => [notification, ...prev]);
       }
     };
 
@@ -393,6 +396,129 @@ export default function NotificationsPage() {
     return categoryList;
   }, [notifications, groups, viewMode, categoryLabels, allCategories]);
 
+  // Calculate priority for notification based on module metadata
+  const getNotificationPriority = (notification: Notification): 'low' | 'normal' | 'high' | 'urgent' => {
+    // Use stored priority if available
+    if (notification.priority) {
+      return notification.priority;
+    }
+    
+    // Get priority from module metadata
+    for (const module of moduleMetadata) {
+      for (const notificationType of module.notificationTypes) {
+        if (notificationType.type === notification.type && notificationType.priority) {
+          return notificationType.priority;
+        }
+      }
+    }
+    
+    // Fallback to category-based priority
+    const category = getNormalizedType(notification.type);
+    if (category === 'mentions' || category === 'system') {
+      return 'high';
+    }
+    if (category === 'chat' || category === 'drive') {
+      return 'normal';
+    }
+    
+    return 'normal';
+  };
+
+  const filteredNotifications = notifications.filter(notification => {
+    // Category filter
+    if (selectedCategory !== 'all' && getNormalizedType(notification.type) !== selectedCategory) {
+      return false;
+    }
+    
+    // Priority filter
+    if (priorityFilter !== 'all') {
+      const priority = getNotificationPriority(notification);
+      if (priority !== priorityFilter) {
+        return false;
+      }
+    }
+    
+    // Read/unread filter
+    if (!showRead && notification.read) {
+      return false;
+    }
+    
+    // Search filter
+    if (searchQuery && !notification.title.toLowerCase().includes(searchQuery.toLowerCase()) && 
+        !notification.body?.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false;
+    }
+    
+    // Time range filter
+    if (timeRange !== 'all') {
+      const notificationDate = new Date(notification.createdAt);
+      const now = new Date();
+      const diffInDays = Math.floor((now.getTime() - notificationDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (timeRange === 'today' && diffInDays > 0) {
+        return false;
+      }
+      if (timeRange === 'week' && diffInDays > 7) {
+        return false;
+      }
+      if (timeRange === 'month' && diffInDays > 30) {
+        return false;
+      }
+    }
+    
+    // Filter out snoozed notifications
+    if (notification.snoozedUntil) {
+      const snoozeTime = new Date(notification.snoozedUntil);
+      if (snoozeTime > new Date()) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+
+  const filteredGroups = useMemo(() => {
+    return groups.filter(group => {
+      // Category filter
+      if (selectedCategory !== 'all' && getNormalizedType(group.type) !== selectedCategory) {
+        return false;
+      }
+      
+      // Read/unread filter
+      if (!showRead && group.isRead) {
+        return false;
+      }
+      
+      // Search filter
+      if (searchQuery) {
+        const matchesTitle = group.title.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesLatest = group.latestNotification.title.toLowerCase().includes(searchQuery.toLowerCase());
+        if (!matchesTitle && !matchesLatest) {
+          return false;
+        }
+      }
+      
+      // Time range filter
+      if (timeRange !== 'all') {
+        const groupDate = new Date(group.updatedAt);
+        const now = new Date();
+        const diffInDays = Math.floor((now.getTime() - groupDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (timeRange === 'today' && diffInDays > 0) {
+          return false;
+        }
+        if (timeRange === 'week' && diffInDays > 7) {
+          return false;
+        }
+        if (timeRange === 'month' && diffInDays > 30) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [groups, selectedCategory, showRead, searchQuery, timeRange]);
+
   // Handle quick actions
   const handleQuickAction = async (notification: Notification, action: string) => {
     try {
@@ -519,129 +645,6 @@ export default function NotificationsPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [focusedIndex, viewMode, filteredGroups, filteredNotifications, selectionMode]);
-
-  // Calculate priority for notification based on module metadata
-  const getNotificationPriority = (notification: Notification): 'low' | 'normal' | 'high' | 'urgent' => {
-    // Use stored priority if available
-    if (notification.priority) {
-      return notification.priority;
-    }
-    
-    // Get priority from module metadata
-    for (const module of moduleMetadata) {
-      for (const notificationType of module.notificationTypes) {
-        if (notificationType.type === notification.type && notificationType.priority) {
-          return notificationType.priority;
-        }
-      }
-    }
-    
-    // Fallback to category-based priority
-    const category = getNormalizedType(notification.type);
-    if (category === 'mentions' || category === 'system') {
-      return 'high';
-    }
-    if (category === 'chat' || category === 'drive') {
-      return 'normal';
-    }
-    
-    return 'normal';
-  };
-
-  const filteredNotifications = notifications.filter(notification => {
-    // Category filter
-    if (selectedCategory !== 'all' && getNormalizedType(notification.type) !== selectedCategory) {
-      return false;
-    }
-    
-    // Priority filter
-    if (priorityFilter !== 'all') {
-      const priority = getNotificationPriority(notification);
-      if (priority !== priorityFilter) {
-        return false;
-      }
-    }
-    
-    // Read/unread filter
-    if (!showRead && notification.read) {
-      return false;
-    }
-    
-    // Search filter
-    if (searchQuery && !notification.title.toLowerCase().includes(searchQuery.toLowerCase()) && 
-        !notification.body?.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
-    }
-    
-    // Time range filter
-    if (timeRange !== 'all') {
-      const notificationDate = new Date(notification.createdAt);
-      const now = new Date();
-      const diffInDays = Math.floor((now.getTime() - notificationDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (timeRange === 'today' && diffInDays > 0) {
-        return false;
-      }
-      if (timeRange === 'week' && diffInDays > 7) {
-        return false;
-      }
-      if (timeRange === 'month' && diffInDays > 30) {
-        return false;
-      }
-    }
-    
-    // Filter out snoozed notifications
-    if (notification.snoozedUntil) {
-      const snoozeTime = new Date(notification.snoozedUntil);
-      if (snoozeTime > new Date()) {
-        return false;
-      }
-    }
-    
-    return true;
-  });
-
-  const filteredGroups = useMemo(() => {
-    return groups.filter(group => {
-      // Category filter
-      if (selectedCategory !== 'all' && getNormalizedType(group.type) !== selectedCategory) {
-        return false;
-      }
-      
-      // Read/unread filter
-      if (!showRead && group.isRead) {
-        return false;
-      }
-      
-      // Search filter
-      if (searchQuery) {
-        const matchesTitle = group.title.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesLatest = group.latestNotification.title.toLowerCase().includes(searchQuery.toLowerCase());
-        if (!matchesTitle && !matchesLatest) {
-          return false;
-        }
-      }
-      
-      // Time range filter
-      if (timeRange !== 'all') {
-        const groupDate = new Date(group.updatedAt);
-        const now = new Date();
-        const diffInDays = Math.floor((now.getTime() - groupDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (timeRange === 'today' && diffInDays > 0) {
-          return false;
-        }
-        if (timeRange === 'week' && diffInDays > 7) {
-          return false;
-        }
-        if (timeRange === 'month' && diffInDays > 30) {
-          return false;
-        }
-      }
-      
-      return true;
-    });
-  }, [groups, selectedCategory, showRead, searchQuery, timeRange]);
 
   const getNotificationIcon = (type: string) => {
     const category = getNormalizedType(type);
@@ -1271,7 +1274,7 @@ export default function NotificationsPage() {
                                 <Badge 
                                   color={
                                     notification.priority === 'urgent' ? 'red' :
-                                    notification.priority === 'high' ? 'orange' :
+                                    notification.priority === 'high' ? 'yellow' :
                                     notification.priority === 'normal' ? 'blue' : 'gray'
                                   }
                                   size="sm"
@@ -1574,7 +1577,7 @@ function NotificationQuickActions({ notification, moduleMetadata, onAction }: No
   // Find notification type metadata
   let notificationType: ModuleNotificationType | null = null;
   for (const module of moduleMetadata) {
-    const found = module.notificationTypes.find(nt => nt.type === notification.type);
+    const found = module.notificationTypes.find((nt: ModuleNotificationType) => nt.type === notification.type);
     if (found) {
       notificationType = found;
       break;

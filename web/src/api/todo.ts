@@ -89,6 +89,14 @@ export interface TaskAttachment {
   mimeType?: string | null;
 }
 
+export interface TaskDependency {
+  id: string;
+  taskId: string;
+  dependsOnTaskId: string;
+  dependsOn?: Task;
+  task?: Task;
+}
+
 export interface CreateTaskInput {
   title: string;
   description?: string;
@@ -105,6 +113,8 @@ export interface CreateTaskInput {
   assignedToId?: string;
   parentTaskId?: string;
   projectId?: string;
+  recurrenceRule?: string;
+  recurrenceEndAt?: string;
 }
 
 export interface UpdateTaskInput {

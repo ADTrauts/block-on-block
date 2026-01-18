@@ -3739,7 +3739,7 @@ export async function getSchedulingSuggestions(req: Request, res: Response): Pro
       operation: 'todo_ai_schedule_suggestions',
       userId,
       dashboardId,
-      businessId: businessIdString || null,
+      businessId: businessIdString,
       suggestionCount: suggestions.length,
     });
 
@@ -3790,7 +3790,7 @@ export async function analyzeTaskScheduling(req: Request, res: Response): Promis
       operation: 'todo_ai_schedule_analyze',
       userId,
       dashboardId,
-      businessId: businessIdString || null,
+      businessId: businessIdString,
       taskCount: analysis.suggestions.length,
     });
 

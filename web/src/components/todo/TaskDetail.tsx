@@ -23,9 +23,7 @@ import {
   AlertCircle,
   Plus,
   Search,
-  File,
-  Link as LinkIcon,
-  ExternalLink
+  File
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Task, UpdateTaskInput, TaskDependency, TaskTimeLog, TimeLogsResponse } from '@/api/todo';
@@ -108,7 +106,7 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
           const allFiles = await driveAPI.listFiles(session.accessToken);
           const fileDetails = result.fileIds
             .map((fileId) => {
-              const file = allFiles.find(f => f.id === fileId);
+              const file = allFiles.find((f: driveAPI.File) => f.id === fileId);
               return file ? {
                 id: fileId,
                 name: file.name,
@@ -316,7 +314,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
       // Also refresh the current task data
       if (session?.accessToken) {
         const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-        onUpdate(updatedTask);
+        onUpdate({ 
+          title: updatedTask.title,
+          description: updatedTask.description || undefined,
+          status: updatedTask.status,
+          priority: updatedTask.priority,
+          dueDate: updatedTask.dueDate || undefined,
+          startDate: updatedTask.startDate || undefined,
+          completedAt: updatedTask.completedAt || undefined,
+          category: updatedTask.category || undefined,
+          timeEstimate: updatedTask.timeEstimate || undefined,
+          assignedToId: updatedTask.assignedToId || undefined,
+          projectId: updatedTask.projectId || undefined,
+          actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+        });
       }
     } catch (error) {
       console.error('Failed to create comment:', error);
@@ -352,7 +363,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
       // Also refresh the current task data
       if (session?.accessToken) {
         const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-        onUpdate(updatedTask);
+        onUpdate({ 
+          title: updatedTask.title,
+          description: updatedTask.description || undefined,
+          status: updatedTask.status,
+          priority: updatedTask.priority,
+          dueDate: updatedTask.dueDate || undefined,
+          startDate: updatedTask.startDate || undefined,
+          completedAt: updatedTask.completedAt || undefined,
+          category: updatedTask.category || undefined,
+          timeEstimate: updatedTask.timeEstimate || undefined,
+          assignedToId: updatedTask.assignedToId || undefined,
+          projectId: updatedTask.projectId || undefined,
+          actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+        });
       }
     } catch (error) {
       console.error('Failed to update comment:', error);
@@ -380,7 +404,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
       // Also refresh the current task data
       if (session?.accessToken) {
         const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-        onUpdate(updatedTask);
+        onUpdate({ 
+          title: updatedTask.title,
+          description: updatedTask.description || undefined,
+          status: updatedTask.status,
+          priority: updatedTask.priority,
+          dueDate: updatedTask.dueDate || undefined,
+          startDate: updatedTask.startDate || undefined,
+          completedAt: updatedTask.completedAt || undefined,
+          category: updatedTask.category || undefined,
+          timeEstimate: updatedTask.timeEstimate || undefined,
+          assignedToId: updatedTask.assignedToId || undefined,
+          projectId: updatedTask.projectId || undefined,
+          actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+        });
       }
     } catch (error) {
       console.error('Failed to delete comment:', error);
@@ -501,7 +538,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                     // Refresh task
                     if (session?.accessToken) {
                       const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                      onUpdate(updatedTask);
+                      onUpdate({ 
+                        title: updatedTask.title,
+                        description: updatedTask.description || undefined,
+                        status: updatedTask.status,
+                        priority: updatedTask.priority,
+                        dueDate: updatedTask.dueDate || undefined,
+                        startDate: updatedTask.startDate || undefined,
+                        completedAt: updatedTask.completedAt || undefined,
+                        category: updatedTask.category || undefined,
+                        timeEstimate: updatedTask.timeEstimate || undefined,
+                        assignedToId: updatedTask.assignedToId || undefined,
+                        projectId: updatedTask.projectId || undefined,
+                        actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                      });
                     }
                   } catch (error) {
                     console.error('Failed to create subtask:', error);
@@ -528,7 +578,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                   // Refresh task
                   if (session?.accessToken) {
                     const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                    onUpdate(updatedTask);
+                    onUpdate({ 
+                      title: updatedTask.title,
+                      description: updatedTask.description || undefined,
+                      status: updatedTask.status,
+                      priority: updatedTask.priority,
+                      dueDate: updatedTask.dueDate || undefined,
+                      startDate: updatedTask.startDate || undefined,
+                      completedAt: updatedTask.completedAt || undefined,
+                      category: updatedTask.category || undefined,
+                      timeEstimate: updatedTask.timeEstimate || undefined,
+                      assignedToId: updatedTask.assignedToId || undefined,
+                      projectId: updatedTask.projectId || undefined,
+                      actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                    });
                   }
                 } catch (error) {
                   console.error('Failed to create subtask:', error);
@@ -567,7 +630,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                           // Refresh task
                           if (session?.accessToken) {
                             const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                            onUpdate(updatedTask);
+                            onUpdate({ 
+                      title: updatedTask.title,
+                      description: updatedTask.description || undefined,
+                      status: updatedTask.status,
+                      priority: updatedTask.priority,
+                      dueDate: updatedTask.dueDate || undefined,
+                      startDate: updatedTask.startDate || undefined,
+                      completedAt: updatedTask.completedAt || undefined,
+                      category: updatedTask.category || undefined,
+                      timeEstimate: updatedTask.timeEstimate || undefined,
+                      assignedToId: updatedTask.assignedToId || undefined,
+                      projectId: updatedTask.projectId || undefined,
+                      actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                    });
                           }
                         } catch (error) {
                           console.error('Failed to toggle subtask:', error);
@@ -596,7 +672,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                                 // Refresh task
                                 if (session?.accessToken) {
                                   const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                                  onUpdate(updatedTask);
+                                  onUpdate({ 
+                      title: updatedTask.title,
+                      description: updatedTask.description || undefined,
+                      status: updatedTask.status,
+                      priority: updatedTask.priority,
+                      dueDate: updatedTask.dueDate || undefined,
+                      startDate: updatedTask.startDate || undefined,
+                      completedAt: updatedTask.completedAt || undefined,
+                      category: updatedTask.category || undefined,
+                      timeEstimate: updatedTask.timeEstimate || undefined,
+                      assignedToId: updatedTask.assignedToId || undefined,
+                      projectId: updatedTask.projectId || undefined,
+                      actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                    });
                                 }
                               } catch (error) {
                                 console.error('Failed to update subtask:', error);
@@ -647,7 +736,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                               // Refresh task
                               if (session?.accessToken) {
                                 const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                                onUpdate(updatedTask);
+                                onUpdate({ 
+                      title: updatedTask.title,
+                      description: updatedTask.description || undefined,
+                      status: updatedTask.status,
+                      priority: updatedTask.priority,
+                      dueDate: updatedTask.dueDate || undefined,
+                      startDate: updatedTask.startDate || undefined,
+                      completedAt: updatedTask.completedAt || undefined,
+                      category: updatedTask.category || undefined,
+                      timeEstimate: updatedTask.timeEstimate || undefined,
+                      assignedToId: updatedTask.assignedToId || undefined,
+                      projectId: updatedTask.projectId || undefined,
+                      actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                    });
                               }
                             } catch (error) {
                               console.error('Failed to delete subtask:', error);
@@ -703,7 +805,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                 // Refresh task
                 if (session?.accessToken) {
                   const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                  onUpdate(updatedTask);
+                  onUpdate({ 
+                    title: updatedTask.title,
+                    description: updatedTask.description || undefined,
+                    status: updatedTask.status,
+                    priority: updatedTask.priority,
+                    dueDate: updatedTask.dueDate || undefined,
+                    startDate: updatedTask.startDate || undefined,
+                    completedAt: updatedTask.completedAt || undefined,
+                    category: updatedTask.category || undefined,
+                    timeEstimate: updatedTask.timeEstimate || undefined,
+                    assignedToId: updatedTask.assignedToId || undefined,
+                    projectId: updatedTask.projectId || undefined,
+                    actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                  });
                 }
               } catch (error) {
                 console.error('Failed to upload attachment:', error);
@@ -760,7 +875,20 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                           // Refresh task
                           if (session?.accessToken) {
                             const updatedTask = await todoAPI.getTaskById(session.accessToken, task.id);
-                            onUpdate(updatedTask);
+                            onUpdate({ 
+                      title: updatedTask.title,
+                      description: updatedTask.description || undefined,
+                      status: updatedTask.status,
+                      priority: updatedTask.priority,
+                      dueDate: updatedTask.dueDate || undefined,
+                      startDate: updatedTask.startDate || undefined,
+                      completedAt: updatedTask.completedAt || undefined,
+                      category: updatedTask.category || undefined,
+                      timeEstimate: updatedTask.timeEstimate || undefined,
+                      assignedToId: updatedTask.assignedToId || undefined,
+                      projectId: updatedTask.projectId || undefined,
+                      actualTimeSpent: updatedTask.actualTimeSpent || undefined,
+                    });
                           }
                         } catch (error) {
                           console.error('Failed to delete attachment:', error);
@@ -943,7 +1071,7 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveDependency(dep.dependsOnTaskId, false)}
+                          onClick={() => handleRemoveDependency(dep.dependsOnTaskId)}
                           className="text-red-600 hover:text-red-700"
                         >
                           <X className="w-4 h-4" />
@@ -971,7 +1099,7 @@ export function TaskDetail({ task, onClose, onUpdate, onDelete, onComplete, onRe
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveDependency(dep.taskId, true)}
+                          onClick={() => handleRemoveDependency(dep.taskId)}
                           className="text-red-600 hover:text-red-700"
                         >
                           <X className="w-4 h-4" />

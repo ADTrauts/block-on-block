@@ -221,7 +221,8 @@ export function AIPrioritySuggestions({
                 >
                   {applying === 'all' ? (
                     <>
-                      <Spinner size={16} className="mr-2" />
+                      <Spinner size={16} />
+                      <span className="mr-2" />
                       Applying...
                     </>
                   ) : (
@@ -324,7 +325,8 @@ export function AIPrioritySuggestions({
                         >
                           {isApplying ? (
                             <>
-                              <Spinner size={14} className="mr-1" />
+                              <Spinner size={14} />
+                              <span className="mr-1" />
                               Applying...
                             </>
                           ) : (
@@ -363,7 +365,8 @@ export function AIPrioritySuggestions({
         >
           {loading ? (
             <>
-              <Spinner size={14} className="mr-2" />
+              <Spinner size={14} />
+              <span className="mr-2" />
               Refreshing...
             </>
           ) : (

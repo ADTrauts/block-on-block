@@ -149,7 +149,7 @@ export class TodoSmartSchedulingService {
       const suggestions: SchedulingSuggestion[] = [];
 
       for (const task of tasks) {
-        const suggestion = await this.analyzeTaskScheduling(
+        const suggestion = await this.analyzeSingleTaskScheduling(
           task,
           events,
           tasks,
@@ -174,7 +174,7 @@ export class TodoSmartSchedulingService {
   /**
    * Analyze scheduling for a single task
    */
-  private async analyzeTaskScheduling(
+  private async analyzeSingleTaskScheduling(
     task: any,
     events: Array<{ id: string; title: string; startAt: Date; endAt: Date; allDay: boolean }>,
     allTasks: any[],

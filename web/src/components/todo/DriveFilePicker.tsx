@@ -45,7 +45,7 @@ export function DriveFilePicker({
       const fetchedFiles = await driveAPI.listFiles(session.accessToken, currentFolderId);
       // Filter out already linked files
       const filteredFiles = fetchedFiles.filter(
-        file => !excludeFileIds.includes(file.id)
+        (file: DriveFile) => !excludeFileIds.includes(file.id)
       );
       setFiles(filteredFiles);
     } catch (error) {
@@ -171,17 +171,19 @@ export function DriveFilePicker({
                   <h4 className="text-xs font-medium text-gray-500 mb-2">Folders</h4>
                   <div className="space-y-1">
                     {filteredFolders.map((folder) => (
-                      <Card
+                      <div
                         key={folder.id}
-                        className="p-3 cursor-pointer hover:bg-gray-50 transition-colors"
                         onClick={() => handleFolderClick(folder)}
+                        className="cursor-pointer"
                       >
-                        <div className="flex items-center space-x-3">
-                          <Folder className="w-5 h-5 text-blue-500" />
-                          <span className="text-sm font-medium text-gray-900">{folder.name}</span>
-                          <ChevronRight className="w-4 h-4 text-gray-400 ml-auto" />
-                        </div>
-                      </Card>
+                        <Card className="p-3 hover:bg-gray-50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <Folder className="w-5 h-5 text-blue-500" />
+                            <span className="text-sm font-medium text-gray-900">{folder.name}</span>
+                            <ChevronRight className="w-4 h-4 text-gray-400 ml-auto" />
+                          </div>
+                        </Card>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -193,23 +195,25 @@ export function DriveFilePicker({
                   <h4 className="text-xs font-medium text-gray-500 mb-2 mt-4">Files</h4>
                   <div className="space-y-1">
                     {filteredFiles.map((file) => (
-                      <Card
+                      <div
                         key={file.id}
-                        className="p-3 cursor-pointer hover:bg-gray-50 transition-colors"
                         onClick={() => handleFileSelect(file)}
+                        className="cursor-pointer"
                       >
-                        <div className="flex items-center space-x-3">
-                          <File className="w-5 h-5 text-gray-500" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {file.name}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {file.type} • {(file.size / 1024).toFixed(1)} KB
-                            </p>
+                        <Card className="p-3 hover:bg-gray-50 transition-colors">
+                          <div className="flex items-center space-x-3">
+                            <File className="w-5 h-5 text-gray-500" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {file.name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {file.type} • {(file.size / 1024).toFixed(1)} KB
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </Card>
+                        </Card>
+                      </div>
                     ))}
                   </div>
                 </div>
