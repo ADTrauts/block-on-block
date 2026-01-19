@@ -78,16 +78,13 @@ RUN npx prisma generate
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
-# Create startup script that builds schema and runs migrations before starting server
+# Create startup script that builds schema and starts server
+# Note: Server code handles migrations, but we ensure schema is built first
 RUN printf '#!/bin/sh\n\
+set -e\n\
 echo "📦 Building Prisma schema from modules..."\n\
 if ! node scripts/build-prisma-schema.js; then\n\
   echo "❌ Schema build failed - starting anyway (using pre-built schema)"\n\
-fi\n\
-echo "🔄 Running database migrations..."\n\
-if ! npx prisma migrate deploy; then\n\
-  echo "⚠️ Migration failed - this may cause runtime errors!"\n\
-  echo "⚠️ Check /api/admin/fix-hr/check-db for database state"\n\
 fi\n\
 echo "✅ Starting server..."\n\
 exec node server/dist/index.js\n' > /app/start.sh && \
