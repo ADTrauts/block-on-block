@@ -124,6 +124,12 @@ const nextConfig = {
   },
   // Improve build output for Cloud Run
   output: 'standalone',
+  // Skip static generation for error pages to prevent Html import issues
+  // This prevents Next.js from trying to statically generate /404 and /500 pages
+  generateBuildId: async () => {
+    // Use a consistent build ID to avoid regeneration issues
+    return process.env.BUILD_ID || `build-${Date.now()}`;
+  },
   // Production optimizations
   ...(process.env.NODE_ENV === 'production' && {
     // Enable compression

@@ -2,6 +2,10 @@
 
 import Link from 'next/link';
 
+// Prevent static generation - this page must be dynamic
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
 export default function NotFound() {
   return (
     <div className="flex h-screen w-full bg-gray-50 items-center justify-center">

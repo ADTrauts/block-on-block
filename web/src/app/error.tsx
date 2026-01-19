@@ -2,6 +2,10 @@
 
 import { useEffect } from 'react';
 
+// Prevent static generation - this page must be dynamic
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
 interface ErrorProps {
   error: Error & { digest?: string };
   reset: () => void;
