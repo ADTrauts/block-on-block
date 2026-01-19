@@ -422,8 +422,7 @@ export default function GlobalHeaderTabs() {
           scheduleId: schedulingContext?.scheduleId,
         } : isInTodo ? {
           module: 'todo',
-          dashboardId: currentDashboardId,
-          businessId: currentDashboard?.businessId || undefined,
+          businessId: (currentDashboard as { business?: { id: string } })?.business?.id || undefined,
         } : undefined}
       />
     </header>

@@ -3,7 +3,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from 'shared/components';
 import { Download, Share, Edit, Move, Trash2, X, ChevronRight, ChevronLeft, ZoomIn, ZoomOut, Maximize2, RotateCw } from 'lucide-react';
-import { DriveItem } from '../modules/DriveModule';
+// DriveItem interface - matches DriveModule.tsx
+interface DriveItem {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  size?: number;
+  modifiedAt: string;
+  createdBy: string;
+  permissions: string[];
+  starred?: boolean;
+  shared?: boolean;
+  mimeType?: string;
+  thumbnail?: string;
+  url?: string;
+}
 import { PrismAsync as SyntaxHighlighter } from 'react-syntax-highlighter';
 
 interface DriveDetailsPanelProps {

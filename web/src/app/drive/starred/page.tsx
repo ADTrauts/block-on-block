@@ -819,22 +819,23 @@ const PinnedPage = () => {
           </div>
         )}
 
-        {/* Share Modal */}
+        {/* Share Modal - TODO: Implement proper ShareModal with correct API */}
         {shareModalOpen && shareItem && (
-          <ShareModal
-            isOpen={shareModalOpen}
-            onClose={() => {
-              setShareModalOpen(false);
-              setShareItem(null);
-            }}
-            itemId={shareItem.id}
-            itemType={shareItem.type}
-            itemName={shareItem.name}
-            onShareLink={(email, shareLink) => {
-              setShareLinkModal({ email, shareLink, itemName: shareItem.name, itemType: shareItem.type });
-              setShareModalOpen(false);
-            }}
-          />
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md">
+              <h2 className="text-lg font-semibold mb-4">Share {shareItem.name}</h2>
+              <p className="text-sm text-gray-600 mb-4">Share functionality coming soon</p>
+              <button
+                onClick={() => {
+                  setShareModalOpen(false);
+                  setShareItem(null);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Share Link Modal */}

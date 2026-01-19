@@ -742,8 +742,13 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
         : 'Analyze and suggest task priorities',
       data: {
         action: isBulk ? 'bulk_prioritize' : 'analyze_priorities',
-        dashboardId: userContext.currentFocus?.dashboardId,
-        businessId: userContext.currentFocus?.businessId,
+        targetId: undefined,
+        operation: undefined,
+        parameters: undefined,
+        context: {
+          dashboardId: (userContext as any).dashboardContext?.dashboardId,
+          businessId: (userContext as any).dashboardContext?.businessId,
+        },
       } as LifeTwinActionData,
       requiresApproval: autonomySettings.taskCreation < 60, // Lower threshold for priority changes
       approvalReason: autonomySettings.taskCreation < 60 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Avatar } from 'shared/components';
 import { 
   CheckSquare, 
@@ -169,12 +169,23 @@ export function TaskItem({ task, onSelect, onComplete, onReopen, onEdit, onDelet
   };
 
   // Combine refs for both dnd-kit and native drag
-  const combinedRef = (node: HTMLDivElement | null) => {
+  const combinedRef = useCallback((node: HTMLDivElement | null) => {
     if (draggableId) {
       setNodeRef(node);
     }
-    containerRef.current = node;
-  };
+    // containerRef is set via useEffect below
+    if (node && !draggableId) {
+      // Only set containerRef if not using dnd-kit (setNodeRef handles it in that case)
+      (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    }
+  }, [draggableId, setNodeRef]);
+  
+  // Set containerRef when using dnd-kit
+  useEffect(() => {
+    if (draggableId && containerRef.current) {
+      // containerRef is already set by setNodeRef in combinedRef
+    }
+  }, [draggableId]);
 
   return (
     <div
@@ -307,7 +318,7 @@ export function TaskItem({ task, onSelect, onComplete, onReopen, onEdit, onDelet
                   console.log('[TaskItem] Attachment icon clicked, onViewAttachments:', !!onViewAttachments);
                   if (onViewAttachments) {
                     console.log('[TaskItem] Calling onViewAttachments');
-                    onViewAttachments();
+                    onViewAttachments(task);
                   } else {
                     console.log('[TaskItem] onViewAttachments is not defined');
                   }
@@ -320,15 +331,15 @@ export function TaskItem({ task, onSelect, onComplete, onReopen, onEdit, onDelet
 
             {/* Project Badge */}
             {task.project && (
-              <Badge
-                className="text-xs"
+              <span
+                className="inline-block px-2 py-0.5 rounded text-xs font-semibold"
                 style={{
                   backgroundColor: task.project.color || '#3B82F6',
                   color: 'white',
                 }}
               >
                 {task.project.name}
-              </Badge>
+              </span>
             )}
 
             {/* Recurring Task Indicator */}
@@ -361,8 +372,8 @@ export function TaskItem({ task, onSelect, onComplete, onReopen, onEdit, onDelet
               <div className="flex items-center gap-1">
                 <Avatar 
                   src={task.assignedTo.image || undefined} 
-                  name={task.assignedTo.name || task.assignedTo.email}
-                  size="sm"
+                  nameOrEmail={task.assignedTo.name || task.assignedTo.email}
+                  size={24}
                 />
                 <span className="text-sm text-gray-600">{task.assignedTo.name || task.assignedTo.email}</span>
               </div>

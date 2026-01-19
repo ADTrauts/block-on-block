@@ -80,12 +80,13 @@ const RecentPage = () => {
     router.push(`/drive?dashboard=${dashboardId}`);
   }, [navigateToDashboard, router]);
 
-  const handleFolderSelect = useCallback((folder: { id: string; name: string } | null) => {
+  const handleFolderSelect = useCallback((folderId: string | null) => {
+    const folder = folderId ? { id: folderId, name: '' } : null;
     setSelectedFolder(folder);
-    if (folder) {
+    if (folderId) {
       const dashboardId = currentDashboard?.id;
       const basePath = '/drive';
-      const query = dashboardId ? `?dashboard=${dashboardId}&folder=${folder.id}` : `?folder=${folder.id}`;
+      const query = dashboardId ? `?dashboard=${dashboardId}&folder=${folderId}` : `?folder=${folderId}`;
       router.push(`${basePath}${query}`);
     }
   }, [currentDashboard, router]);

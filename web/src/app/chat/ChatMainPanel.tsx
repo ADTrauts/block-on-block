@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { Message, Conversation, FileReference, Thread } from 'shared/types/chat';
+import { Message, Conversation, FileReference as SharedFileReference, Thread } from 'shared/types/chat';
 import { chatAPI } from '../../api/chat';
 import { getMessages } from '../../api/chat';
 import { Button, Input, Avatar, Badge, Spinner } from 'shared/components';
-import { Send, Paperclip, Smile, MoreVertical, Download, Trash2, Share2, Users, MessageSquare, Reply, Plus, CheckCircle, Search, X, ChevronLeft, ChevronRight, Shield, FileText } from 'lucide-react';
+import { Send, Paperclip, Smile, MoreVertical, Download, Trash2, Share2, Users, MessageSquare, Reply, Plus, CheckCircle, Search, X, ChevronLeft, ChevronRight, Shield, FileText, Folder } from 'lucide-react';
 import ChatFileUpload from './ChatFileUpload';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
@@ -28,7 +28,7 @@ import { useRouter } from 'next/navigation';
 // Emoji data loaded: !!data
 // Emoji Picker component: !!Picker
 
-interface FileReference {
+interface LocalFileReference {
   fileId: string;
   fileName: string;
 }
@@ -40,7 +40,7 @@ interface ChatMainPanelProps {
   };
   onThreadSelect: (threadId: string | null) => void;
   onToggleRightPanel?: () => void;
-  fileReference?: FileReference;
+  fileReference?: LocalFileReference;
 }
 
 // Quick reaction emojis for common reactions
@@ -73,8 +73,8 @@ const MessageItem = React.memo(({
   onReply: (message: Message) => void;
   onReaction: (messageId: string, emoji: string) => void;
   onQuickReaction: (messageId: string, emoji: string) => void;
-  onFileDownload: (file: FileReference) => void;
-  onFilePreview: (file: FileReference) => void;
+  onFileDownload: (file: SharedFileReference) => void;
+  onFilePreview: (file: SharedFileReference) => void;
   showQuickReactionsFor: string | null;
   setShowQuickReactionsFor: (messageId: string | null) => void;
   formatTime: (timestamp: string) => string;
@@ -554,7 +554,7 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [loadingThreadMessages, setLoadingThreadMessages] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
-  const [fileReference, setFileReference] = useState<FileReference | undefined>(fileReferenceProp);
+  const [fileReference, setFileReference] = useState<LocalFileReference | undefined>(fileReferenceProp);
 
   // Handle file reference from Drive "Discuss in chat"
   useEffect(() => {
@@ -946,7 +946,7 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
   }, [addReaction]);
 
   // Handle file download
-  const handleFileDownload = useCallback(async (file: FileReference) => {
+  const handleFileDownload = useCallback(async (file: SharedFileReference) => {
     try {
       const response = await fetch(`/api/drive/download/${file.id}`, {
         headers: {
@@ -971,7 +971,7 @@ export default function ChatMainPanel({ panelState, onThreadSelect, onToggleRigh
   }, [accessToken]);
 
   // Handle file preview
-  const handleFilePreview = useCallback((file: FileReference) => {
+  const handleFilePreview = useCallback((file: SharedFileReference) => {
     // For now, just download the file
     // In the future, this could open a preview modal
     handleFileDownload(file);

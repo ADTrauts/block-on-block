@@ -291,14 +291,16 @@ export default function BusinessIntelligencePage() {
 
       {/* Separation Notice */}
       <Alert>
-        <BarChart3 className="h-4 w-4" />
-        <AlertDescription>
-          <strong>Note:</strong> This page focuses on business and strategic metrics. For system performance, uptime, and technical metrics, see{' '}
-          <a href="/admin-portal/analytics" className="text-blue-600 hover:underline font-medium">
-            Platform Analytics
-          </a>
-          .
-        </AlertDescription>
+        <div className="flex items-start space-x-2">
+          <BarChart3 className="h-4 w-4 mt-0.5" />
+          <div>
+            <strong>Note:</strong> This page focuses on business and strategic metrics. For system performance, uptime, and technical metrics, see{' '}
+            <a href="/admin-portal/analytics" className="text-blue-600 hover:underline font-medium">
+              Platform Analytics
+            </a>
+            .
+          </div>
+        </div>
       </Alert>
 
       {loading ? (

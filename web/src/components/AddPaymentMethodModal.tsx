@@ -92,7 +92,7 @@ function PaymentMethodForm({ onSuccess, onClose }: { onSuccess: () => void; onCl
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <Alert variant="error" title="Error">
+        <Alert type="error" title="Error">
           {error}
         </Alert>
       )}
@@ -124,7 +124,7 @@ function PaymentMethodForm({ onSuccess, onClose }: { onSuccess: () => void; onCl
         >
           {loading ? (
             <>
-              <Spinner size="sm" className="mr-2" />
+              <span className="mr-2"><Spinner size={16} /></span>
               Adding...
             </>
           ) : (
@@ -206,7 +206,7 @@ export default function AddPaymentMethodModal({
             <Spinner size={48} />
           </div>
         ) : error ? (
-          <Alert variant="error" title="Error">
+          <Alert type="error" title="Error">
             {error}
           </Alert>
         ) : clientSecret && stripePromise ? (
@@ -214,7 +214,7 @@ export default function AddPaymentMethodModal({
             <PaymentMethodForm onSuccess={handleSuccess} onClose={handleClose} />
           </Elements>
         ) : !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ? (
-          <Alert variant="error" title="Configuration Error">
+          <Alert type="error" title="Configuration Error">
             Stripe publishable key is not configured. Please set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.
           </Alert>
         ) : null}

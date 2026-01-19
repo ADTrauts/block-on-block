@@ -482,7 +482,7 @@ export default function AISystemPage() {
                 <div>
                   <p className="text-xs text-gray-700 mb-1">Total Insights</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {overview.unifiedInsights.length + overview.businessIntelligence.predictiveInsights}
+                    {(overview?.unifiedInsights?.length ?? 0) + (overview?.businessIntelligence?.predictiveInsights ?? 0)}
                   </p>
                   <p className="text-xs text-gray-700 mt-1">
                     Across all systems
@@ -497,7 +497,7 @@ export default function AISystemPage() {
                 <div>
                   <p className="text-xs text-gray-700 mb-1">Total Patterns</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {overview.unifiedPatterns.length}
+                    {overview?.unifiedPatterns?.length ?? 0}
                   </p>
                   <p className="text-xs text-gray-700 mt-1">
                     Discovered patterns
@@ -1080,7 +1080,7 @@ export default function AISystemPage() {
       )}
 
       {/* Unified Patterns & Insights Section */}
-      {(overview?.unifiedPatterns.length > 0 || overview?.unifiedInsights.length > 0) && (
+      {((overview?.unifiedPatterns?.length ?? 0) > 0 || (overview?.unifiedInsights?.length ?? 0) > 0) && (
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Patterns & Insights</h2>
@@ -1101,14 +1101,14 @@ export default function AISystemPage() {
                     <Target className="w-5 h-5 text-purple-600" />
                     <h3 className="text-lg font-semibold text-gray-900">Unified Patterns</h3>
                   </div>
-                  <Badge color="purple" size="sm">
-                    {overview.unifiedPatterns.length} patterns
+                  <Badge color="blue" size="sm">
+                    {overview?.unifiedPatterns?.length ?? 0} patterns
                   </Badge>
                 </div>
                 
-                {overview.unifiedPatterns.length > 0 ? (
+                {(overview?.unifiedPatterns?.length ?? 0) > 0 ? (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {overview.unifiedPatterns.slice(0, 5).map((pattern) => (
+                    {overview?.unifiedPatterns?.slice(0, 5).map((pattern) => (
                       <div key={pattern.id} className="border border-gray-200 rounded-lg p-3">
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex-1">
@@ -1131,10 +1131,10 @@ export default function AISystemPage() {
                         </div>
                       </div>
                     ))}
-                    {overview.unifiedPatterns.length > 5 && (
+                    {(overview?.unifiedPatterns?.length ?? 0) > 5 && (
                       <Link href="/admin-portal/business-ai">
                         <div className="text-center py-2 text-sm text-blue-600 hover:text-blue-700 font-medium">
-                          View all {overview.unifiedPatterns.length} patterns →
+                          View all {overview?.unifiedPatterns?.length ?? 0} patterns →
                         </div>
                       </Link>
                     )}
@@ -1152,13 +1152,13 @@ export default function AISystemPage() {
                     <h3 className="text-lg font-semibold text-gray-900">Unified Insights</h3>
                   </div>
                   <Badge color="yellow" size="sm">
-                    {overview.unifiedInsights.length} insights
+                    {overview?.unifiedInsights?.length ?? 0} insights
                   </Badge>
                 </div>
                 
-                {overview.unifiedInsights.length > 0 ? (
+                {(overview?.unifiedInsights?.length ?? 0) > 0 ? (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {overview.unifiedInsights.slice(0, 5).map((insight) => {
+                    {overview?.unifiedInsights?.slice(0, 5).map((insight) => {
                       const sourceColors = {
                         'business-intelligence': 'blue',
                         'business-ai': 'green',
@@ -1202,7 +1202,7 @@ export default function AISystemPage() {
                         </div>
                       );
                     })}
-                    {overview.unifiedInsights.length > 5 && (
+                    {(overview?.unifiedInsights?.length ?? 0) > 5 && (
                       <div className="text-center py-2 text-sm text-blue-600 hover:text-blue-700 font-medium">
                         <Link href="/admin-portal/business-intelligence">View all insights →</Link>
                       </div>

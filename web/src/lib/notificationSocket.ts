@@ -74,7 +74,7 @@ export const useNotificationSocket = (): NotificationSocketHook => {
     if (socketRef.current) {
       // Only disconnect if socket is actually connected or connecting
       // This prevents "closed before connection established" errors
-      if (socketRef.current.connected || socketRef.current.connecting) {
+      if (socketRef.current.connected) {
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
       }

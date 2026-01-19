@@ -227,7 +227,7 @@ export default function AdminDashboard() {
           value={`$${(stats?.monthlyRevenue || 0).toLocaleString()}`}
           trend={stats?.revenueGrowthTrend}
           icon={DollarSign}
-          color="purple"
+          color="blue"
         />
         <StatCard
           title="System Health"
@@ -355,8 +355,10 @@ export default function AdminDashboard() {
                   // If parsing fails, use the raw string
                 }
 
-                const userEmail = activity.user?.email || details.email || 'Unknown user';
-                const resourceInfo = activity.resourceType 
+                const userEmail = typeof activity.user?.email === 'string' 
+                  ? activity.user.email 
+                  : (typeof details.email === 'string' ? details.email : 'Unknown user');
+                const resourceInfo = activity.resourceType
                   ? `${activity.resourceType}${activity.resourceId ? ` #${activity.resourceId.substring(0, 8)}` : ''}`
                   : '';
 

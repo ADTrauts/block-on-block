@@ -450,21 +450,6 @@ class AdminApiService {
     return this.makeRequest(`/billing/invoices/${invoiceId}/enhanced`);
   }
 
-  async getDeveloperPayouts(params: {
-    page?: number;
-    limit?: number;
-    status?: string;
-  }) {
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        searchParams.append(key, value.toString());
-      }
-    });
-
-    return this.makeRequest(`/billing/payouts?${searchParams.toString()}`);
-  }
-
   // ============================================================================
   // SECURITY & COMPLIANCE
   // ============================================================================

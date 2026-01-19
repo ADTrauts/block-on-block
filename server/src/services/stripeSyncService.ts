@@ -36,7 +36,10 @@ export class StripeSyncService {
       const stripeSubscription = await stripe.subscriptions.retrieve(
         dbSubscription.stripeSubscriptionId,
         { expand: ['customer', 'items.data.price.product'] }
-      ) as Stripe.Subscription;
+      ) as unknown as Stripe.Subscription & {
+        current_period_start: number;
+        current_period_end: number;
+      };
 
       // Map Stripe status to our status
       const statusMap: Record<string, string> = {
@@ -65,7 +68,7 @@ export class StripeSyncService {
       await prisma.subscription.update({
         where: { id: dbSubscription.id },
         data: {
-          status: statusMap[stripeSubscription.status] || 'unpaid',
+          status: stripeSubscription.status ? (statusMap[stripeSubscription.status] || 'unpaid') : 'unpaid',
           currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
           currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
           cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end || false,
@@ -135,15 +138,18 @@ export class StripeSyncService {
       const stripeInvoice = await stripe.invoices.retrieve(
         dbInvoice.stripeInvoiceId,
         { expand: ['charge', 'payment_intent', 'subscription'] }
-      ) as Stripe.Invoice;
+      ) as Stripe.Invoice & {
+        charge?: string | Stripe.Charge | null;
+        payment_intent?: string | Stripe.PaymentIntent | null;
+      };
 
       // Get charge details if available (charge can be string ID or expanded Charge object)
-      const charge = typeof stripeInvoice.charge === 'string' 
+      const charge = typeof stripeInvoice.charge === 'string' || !stripeInvoice.charge
         ? null 
-        : (stripeInvoice.charge as Stripe.Charge | null);
-      const paymentIntent = typeof stripeInvoice.payment_intent === 'string'
+        : (stripeInvoice.charge as Stripe.Charge);
+      const paymentIntent = typeof stripeInvoice.payment_intent === 'string' || !stripeInvoice.payment_intent
         ? null
-        : (stripeInvoice.payment_intent as Stripe.PaymentIntent | null);
+        : (stripeInvoice.payment_intent as Stripe.PaymentIntent);
 
       // Calculate Stripe fees (if charge exists)
       let stripeFee = 0;
@@ -168,6 +174,8 @@ export class StripeSyncService {
 
         // Sync refunds to database
         for (const refund of refunds.data) {
+          if (!refund.id) continue; // Skip if no refund ID
+          
           await prisma.refund.upsert({
             where: { stripeRefundId: refund.id },
             create: {
@@ -175,14 +183,14 @@ export class StripeSyncService {
               amount: refund.amount / 100,
               currency: refund.currency,
               reason: refund.reason || null,
-              status: refund.status,
+              status: refund.status || 'pending',
               stripeRefundId: refund.id,
               stripeChargeId: charge?.id || null,
               createdAt: new Date(refund.created * 1000),
               processedAt: refund.status === 'succeeded' ? new Date(refund.created * 1000) : null
             },
             update: {
-              status: refund.status,
+              status: refund.status || undefined,
               processedAt: refund.status === 'succeeded' ? new Date(refund.created * 1000) : null
             }
           });
@@ -203,7 +211,7 @@ export class StripeSyncService {
         where: { id: dbInvoice.id },
         data: {
           amount: stripeInvoice.amount_paid / 100,
-          status: statusMap[stripeInvoice.status] || stripeInvoice.status,
+          status: stripeInvoice.status ? (statusMap[stripeInvoice.status] || stripeInvoice.status) : 'draft',
           dueDate: stripeInvoice.due_date ? new Date(stripeInvoice.due_date * 1000) : null,
           paidAt: stripeInvoice.status === 'paid' && stripeInvoice.status_transitions?.paid_at
             ? new Date(stripeInvoice.status_transitions.paid_at * 1000)

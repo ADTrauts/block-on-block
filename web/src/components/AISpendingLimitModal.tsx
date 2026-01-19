@@ -239,7 +239,7 @@ export default function AISpendingLimitModal({
               >
                 {saving ? (
                   <>
-                    <Spinner size={16} className="mr-2" />
+                    <span className="mr-2"><Spinner size={16} /></span>
                     Saving...
                   </>
                 ) : (

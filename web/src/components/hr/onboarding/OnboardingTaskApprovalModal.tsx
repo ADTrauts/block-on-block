@@ -62,7 +62,7 @@ export default function OnboardingTaskApprovalModal({
   };
 
   const hasDocument = (task.metadata as { documentFileId?: string })?.documentFileId;
-  const hasEquipmentRequest = (task.metadata as { equipmentRequest?: unknown })?.equipmentRequest;
+  const hasEquipmentRequest = !!(task.metadata as { equipmentRequest?: unknown })?.equipmentRequest;
 
   return (
     <Modal open={true} onClose={onClose} title="Review Onboarding Task">
@@ -125,14 +125,14 @@ export default function OnboardingTaskApprovalModal({
         </div>
 
         {/* Employee Submission */}
-        {task.notes && (
+        {task.notes && typeof task.notes === 'string' ? (
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-2">Employee Notes</h4>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-gray-700">{task.notes}</p>
             </div>
           </div>
-        )}
+        ) : null}
 
         {hasDocument && (
           <div>
@@ -195,7 +195,7 @@ export default function OnboardingTaskApprovalModal({
               >
                 {submitting && action === 'reject' ? (
                   <>
-                    <Spinner size={16} className="mr-2" />
+                    <span className="mr-2"><Spinner size={16} /></span>
                     Rejecting...
                   </>
                 ) : (
@@ -212,7 +212,7 @@ export default function OnboardingTaskApprovalModal({
               >
                 {submitting && action === 'approve' ? (
                   <>
-                    <Spinner size={16} className="mr-2" />
+                    <span className="mr-2"><Spinner size={16} /></span>
                     Approving...
                   </>
                 ) : (
@@ -231,7 +231,7 @@ export default function OnboardingTaskApprovalModal({
             >
               {submitting ? (
                 <>
-                  <Spinner size={16} className="mr-2" />
+                  <span className="mr-2"><Spinner size={16} /></span>
                   Completing...
                 </>
               ) : (

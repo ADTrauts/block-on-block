@@ -8,7 +8,7 @@ import type { ModuleConfig } from '../../config/modules';
 import { LayoutDashboard, Folder, MessageSquare, Users, BarChart3, Brain, Calendar, CheckSquare } from 'lucide-react';
 
 // Module icons mapping (mirrored from DashboardLayout)
-const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const MODULE_ICONS: Record<string, React.ComponentType<any>> = {
   dashboard: LayoutDashboard,
   drive: Folder,
   chat: MessageSquare,

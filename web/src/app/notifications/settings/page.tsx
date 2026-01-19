@@ -26,7 +26,7 @@ import PushNotificationSettings from '../../../components/PushNotificationSettin
 import EmailNotificationSettings from '../../../components/EmailNotificationSettings';
 import DoNotDisturbSettings from '../../../components/DoNotDisturbSettings';
 import QuietHoursSettings from '../../../components/QuietHoursSettings';
-import type { ModuleNotificationMetadata } from '../../../shared/src/types/module-notifications';
+import type { ModuleNotificationMetadata } from 'shared/types/module-notifications';
 import { toast } from 'react-hot-toast';
 
 interface NotificationPreference {
@@ -77,7 +77,7 @@ export default function NotificationSettingsPage() {
         ]);
         
         setModuleMetadata(moduleTypesResponse.modules);
-        const userPrefs = userPreferencesResponse.preferences || {};
+        const userPrefs: Record<string, any> = userPreferencesResponse.preferences || {};
         
         // Build preferences from module metadata
         const categoryMap = new Map<string, NotificationPreference>();

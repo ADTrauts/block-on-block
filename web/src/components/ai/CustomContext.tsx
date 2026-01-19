@@ -64,7 +64,7 @@ export default function CustomContext() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['personal', 'modules']));
   const [editingContext, setEditingContext] = useState<UserAIContext | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedScope, setSelectedScope] = useState<'personal' | 'business' | 'module' | 'folder'>('personal');
+  const [selectedScope, setSelectedScope] = useState<'personal' | 'business' | 'module' | 'folder' | 'project'>('personal');
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
@@ -288,7 +288,7 @@ export default function CustomContext() {
   return (
     <div className="space-y-6">
       {error && (
-        <Alert variant="error" onClose={() => setError(null)}>
+        <Alert type="error" onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
@@ -495,7 +495,7 @@ export default function CustomContext() {
               )}
               <Puzzle className="w-5 h-5 text-gray-600" />
               <h3 className="text-lg font-semibold text-gray-900">Personal Module Context</h3>
-              <Badge color="purple" size="sm">
+              <Badge color="blue" size="sm">
                 {getContextsByScope('module').filter(ctx => 
                   personalModules.some(m => m.id === ctx.moduleId)
                 ).length}
@@ -575,7 +575,7 @@ export default function CustomContext() {
               )}
               <Puzzle className="w-5 h-5 text-gray-600" />
               <h3 className="text-lg font-semibold text-gray-900">Business Module Context</h3>
-              <Badge color="purple" size="sm">
+              <Badge color="blue" size="sm">
                 {getContextsByScope('module').filter(ctx => 
                   ctx.scopeId && businesses.some(b => b.id === ctx.scopeId)
                 ).length}
@@ -669,7 +669,7 @@ export default function CustomContext() {
       {showAddModal && (
         <AddContextModal
           context={editingContext}
-          scope={selectedScope}
+          scope={selectedScope as 'personal' | 'business' | 'module' | 'folder'}
           moduleId={selectedModuleId}
           businessId={selectedBusinessId}
           personalModules={personalModules}
@@ -706,7 +706,7 @@ function ContextEntry({
               color={
                 context.contextType === 'instruction' ? 'blue' :
                 context.contextType === 'preference' ? 'green' :
-                context.contextType === 'workflow' ? 'purple' : 'gray'
+                context.contextType === 'workflow' ? 'blue' : 'gray'
               }
               size="sm"
             >
@@ -720,7 +720,7 @@ function ContextEntry({
           {context.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {context.tags.map(tag => (
-                <Badge key={tag} color="gray" size="sm" variant="outline">
+                <Badge key={tag} color="gray" size="sm">
                   <Tag className="w-3 h-3 mr-1" />
                   {tag}
                 </Badge>
@@ -772,7 +772,7 @@ function AddContextModal({
   const [tagInput, setTagInput] = useState('');
   const [priority, setPriority] = useState(context?.priority ?? 50);
   const [active, setActive] = useState(context?.active ?? true);
-  const [selectedScope, setSelectedScope] = useState(scope);
+  const [selectedScope, setSelectedScope] = useState<'personal' | 'business' | 'module' | 'folder' | 'project'>(scope);
   const [selectedModuleId, setSelectedModuleId] = useState(moduleId);
   const [selectedBusinessId, setSelectedBusinessId] = useState(businessId);
   const [saving, setSaving] = useState(false);

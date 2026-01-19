@@ -96,7 +96,7 @@ export default function UsageAlerts({ businessId, onAlertClick }: UsageAlertsPro
     return (
       <Card>
         <div className="p-6 text-center">
-          <Spinner size="md" />
+          <Spinner size={32} />
           <p className="mt-2 text-gray-700">Loading usage alerts...</p>
         </div>
       </Card>
@@ -105,7 +105,7 @@ export default function UsageAlerts({ businessId, onAlertClick }: UsageAlertsPro
 
   if (error) {
     return (
-      <Alert variant="error" title="Error">
+      <Alert type="error" title="Error">
         {error}
       </Alert>
     );
@@ -151,19 +151,17 @@ export default function UsageAlerts({ businessId, onAlertClick }: UsageAlertsPro
           return (
             <Alert
               key={`${alert.metric}-${index}`}
-              variant={severityColor}
-              title={
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    {getSeverityIcon(alert.severity)}
-                    <span className="font-semibold">{formatMetric(alert.metric)}</span>
-                  </div>
+              type={severityColor}
+              title={formatMetric(alert.metric)}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  {getSeverityIcon(alert.severity)}
                   <Badge color={alert.severity === 'critical' ? 'red' : alert.severity === 'warning' ? 'yellow' : 'blue'}>
                     {alert.percentageUsed.toFixed(0)}%
                   </Badge>
                 </div>
-              }
-            >
+              </div>
               <div className="space-y-2">
                 <p className="text-sm">{alert.message}</p>
                 

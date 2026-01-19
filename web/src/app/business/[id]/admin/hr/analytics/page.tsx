@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import HRPageLayout from '@/components/hr/HRPageLayout';
-import { Card, Spinner, Alert, Tabs } from 'shared/components';
+import { Card, Spinner, Alert, Tabs, TabsList, TabsTrigger } from 'shared/components';
 import { TrendingUp, Users, Clock, Calendar } from 'lucide-react';
 import OnboardingAnalyticsDashboard from '@/components/hr/analytics/OnboardingAnalyticsDashboard';
 import AttendanceAnalyticsDashboard from '@/components/hr/analytics/AttendanceAnalyticsDashboard';
@@ -38,25 +38,23 @@ export default function HRAnalyticsPage() {
 
         <Tabs
           value={activeTab}
-          onChange={(value) => setActiveTab(value as 'onboarding' | 'attendance' | 'time-off')}
-          tabs={[
-            {
-              id: 'onboarding',
-              label: 'Onboarding',
-              icon: Users,
-            },
-            {
-              id: 'attendance',
-              label: 'Attendance',
-              icon: Clock,
-            },
-            {
-              id: 'time-off',
-              label: 'Time-Off',
-              icon: Calendar,
-            },
-          ]}
-        />
+          onValueChange={(value) => setActiveTab(value as 'onboarding' | 'attendance' | 'time-off')}
+        >
+          <TabsList>
+            <TabsTrigger value="onboarding" className="flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Onboarding
+            </TabsTrigger>
+            <TabsTrigger value="attendance" className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Attendance
+            </TabsTrigger>
+            <TabsTrigger value="time-off" className="flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Time-Off
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <div className="mt-6">
           {activeTab === 'onboarding' && (

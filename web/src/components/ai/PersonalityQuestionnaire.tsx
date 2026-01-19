@@ -425,9 +425,9 @@ export default function PersonalityQuestionnaire({ onComplete, onSkip }: Persona
             personalityData: {
               traits: personalityData.traits,
               preferences: personalityData.preferences,
-              communicationStyle: personalityData.communicationStyle,
-              workStyle: personalityData.workStyle,
-              learningStyle: personalityData.learningStyle,
+              communicationStyle: (personalityData as PersonalityData).communicationStyle,
+              workStyle: (personalityData as PersonalityData).workStyle,
+              learningStyle: (personalityData as PersonalityData).learningStyle,
               answers: Object.values(answers),
               questionnaireCompleted: true,
               completedAt: new Date().toISOString()

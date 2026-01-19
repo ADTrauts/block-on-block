@@ -490,13 +490,13 @@ export default function OnboardingTemplatesPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="text-lg font-semibold text-gray-900">{template.name}</h3>
                       {template.isDefault && (
-                        <Badge variant="primary">Default</Badge>
+                        <Badge color="blue">Default</Badge>
                       )}
                       {!template.isActive && (
-                        <Badge variant="secondary">Inactive</Badge>
+                        <Badge color="gray">Inactive</Badge>
                       )}
                       {template.archivedAt && (
-                        <Badge variant="secondary">Archived</Badge>
+                        <Badge color="gray">Archived</Badge>
                       )}
                     </div>
                     {template.description && (
@@ -537,7 +537,7 @@ export default function OnboardingTemplatesPage() {
                     size="sm"
                     onClick={() => {
                       // TODO: Implement preview
-                      toast.info('Preview feature coming soon');
+                      toast('Preview feature coming soon', { icon: 'ℹ️' });
                     }}
                     className="flex-1"
                   >

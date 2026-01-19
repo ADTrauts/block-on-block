@@ -222,7 +222,7 @@ export default function OnboardingFormTask({
           >
             {saving ? (
               <>
-                <Spinner size={16} className="mr-2" />
+                <span className="mr-2"><Spinner size={16} /></span>
                 Saving...
               </>
             ) : (
@@ -240,7 +240,7 @@ export default function OnboardingFormTask({
           >
             {saving ? (
               <>
-                <Spinner size={16} className="mr-2" />
+                <span className="mr-2"><Spinner size={16} /></span>
                 Submitting...
               </>
             ) : (

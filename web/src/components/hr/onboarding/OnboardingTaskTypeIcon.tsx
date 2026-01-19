@@ -17,7 +17,7 @@ interface OnboardingTaskTypeIconProps {
   size?: number;
 }
 
-const TYPE_ICONS: Record<OnboardingTaskType, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
+const TYPE_ICONS: Record<OnboardingTaskType, React.ComponentType<any>> = {
   DOCUMENT: FileText,
   EQUIPMENT: Package,
   TRAINING: GraduationCap,

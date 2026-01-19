@@ -150,7 +150,7 @@ export default function PaymentMethodManager({ onUpdate }: PaymentMethodManagerP
           >
             {openingPortal ? (
               <>
-                <Spinner size="sm" className="mr-2" />
+                <span className="mr-2"><Spinner size={16} /></span>
                 Opening...
               </>
             ) : (
@@ -164,7 +164,7 @@ export default function PaymentMethodManager({ onUpdate }: PaymentMethodManagerP
       </div>
 
       {error && (
-        <Alert variant="error" title="Error">
+        <Alert type="error" title="Error">
           {error}
         </Alert>
       )}
@@ -222,7 +222,7 @@ export default function PaymentMethodManager({ onUpdate }: PaymentMethodManagerP
                     disabled={deleting === pm.id}
                   >
                     {deleting === pm.id ? (
-                      <Spinner size="sm" />
+                      <Spinner size={16} />
                     ) : (
                       <Trash2 className="h-4 w-4 text-red-600" />
                     )}
@@ -234,7 +234,7 @@ export default function PaymentMethodManager({ onUpdate }: PaymentMethodManagerP
         </div>
       )}
 
-      <Alert variant="info" title="Payment Method Management">
+      <Alert type="info" title="Payment Method Management">
         <p className="text-sm">
           Add payment methods directly here, or use the Stripe Customer Portal for advanced management. 
           All payment information is securely processed by Stripe and never stored on our servers.

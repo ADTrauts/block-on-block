@@ -9,6 +9,7 @@ import { authenticatedApiCall } from '../../lib/apiUtils';
 import { Button, Spinner } from 'shared/components';
 import { generateAISchedule } from '../../api/scheduling';
 import * as todoAPI from '../../api/todo';
+import type { SchedulingSuggestion } from '../../api/todo';
 import { 
   getConversations, 
   getConversation,
@@ -491,12 +492,12 @@ export default function AIChatDropdown({
       } else if (prompt.action === 'schedule') {
         // Fetch scheduling suggestions
         const result = await todoAPI.getSchedulingSuggestions(
-          session.accessToken,
-          dashboardId || '',
-          effectiveModuleContext?.businessId || undefined
+          dashboardId || 'default',
+          effectiveModuleContext?.businessId || undefined,
+          session.accessToken
         );
         
-        if (result.suggestions.length === 0) {
+        if (result.length === 0) {
           const aiItem: ConversationItem = {
             id: `ai_${Date.now()}`,
             type: 'ai',
@@ -506,11 +507,11 @@ export default function AIChatDropdown({
           setConversation(prev => [...prev, aiItem]);
         } else {
           // Format suggestions for display
-          const suggestionsText = result.suggestions.map((s, idx) => {
+          const suggestionsText = result.map((s: SchedulingSuggestion, idx: number) => {
             const currentDate = s.currentDueDate ? new Date(s.currentDueDate).toLocaleDateString() : 'No due date';
             const suggestedDate = new Date(s.suggestedDueDate).toLocaleDateString();
             const conflicts = s.conflicts && s.conflicts.length > 0 
-              ? `\n   - ⚠️ Conflicts: ${s.conflicts.map(c => c.title).join(', ')}`
+              ? `\n   - ⚠️ Conflicts: ${s.conflicts.map((c: { eventTitle: string }) => c.eventTitle).join(', ')}`
               : '';
             return `${idx + 1}. **${s.taskTitle}**\n   - Current: ${currentDate}\n   - Suggested: ${suggestedDate}\n   - Confidence: ${Math.round(s.confidence * 100)}%\n   - Reasoning: ${s.reasoning}${conflicts}`;
           }).join('\n\n');
@@ -518,13 +519,13 @@ export default function AIChatDropdown({
           const aiItem: ConversationItem = {
             id: `ai_${Date.now()}`,
             type: 'ai',
-            content: `📅 **Scheduling Suggestions**\n\nI found ${result.suggestions.length} task${result.suggestions.length > 1 ? 's' : ''} that could benefit from better scheduling:\n\n${suggestionsText}\n\nWould you like me to apply these suggestions?`,
+            content: `📅 **Scheduling Suggestions**\n\nI found ${result.length} task${result.length > 1 ? 's' : ''} that could benefit from better scheduling:\n\n${suggestionsText}\n\nWould you like me to apply these suggestions?`,
             timestamp: new Date(),
             aiResponse: {
               id: `ai-res-${Date.now()}`,
-              response: `Found ${result.suggestions.length} scheduling suggestions`,
+              response: `Found ${result.length} scheduling suggestions`,
               confidence: 0.8,
-              actions: result.suggestions.map(s => ({
+              actions: result.map((s: SchedulingSuggestion) => ({
                 type: 'update_schedule',
                 module: 'todo',
                 operation: `update_task_duedate`,

@@ -57,8 +57,9 @@ export default function OnboardingTaskCompletionModal({
     }
   };
 
-  const hasRequiredDocument = task.requiresDocument && documentFileId;
-  const canComplete = !task.requiresDocument || hasRequiredDocument;
+  const requiresDocument = (task.metadata as { requiresDocument?: boolean })?.requiresDocument || false;
+  const hasRequiredDocument = requiresDocument && documentFileId;
+  const canComplete = !requiresDocument || hasRequiredDocument;
 
   return (
     <Modal open={true} onClose={onClose} title="Complete Task">
@@ -70,7 +71,7 @@ export default function OnboardingTaskCompletionModal({
           )}
         </div>
 
-        {task.requiresDocument && (
+        {requiresDocument && (
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
               Required Document {hasRequiredDocument && <span className="text-green-600">✓</span>}
@@ -116,7 +117,7 @@ export default function OnboardingTaskCompletionModal({
           >
             {submitting ? (
               <>
-                <Spinner size={16} className="mr-2" />
+                <span className="mr-2"><Spinner size={16} /></span>
                 Completing...
               </>
             ) : (

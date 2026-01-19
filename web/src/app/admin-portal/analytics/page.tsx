@@ -378,14 +378,16 @@ export default function AnalyticsPage() {
 
           {/* Note about business metrics */}
           <Alert>
-            <BarChart3 className="h-4 w-4" />
-            <AlertDescription>
-              <strong>Note:</strong> For business metrics (user growth, revenue, engagement), see{' '}
-              <a href="/admin-portal/business-intelligence" className="text-blue-600 hover:underline font-medium">
-                Business Intelligence
-              </a>
-              {' '}page. This page focuses on system and technical performance metrics.
-            </AlertDescription>
+            <div className="flex items-start space-x-2">
+              <BarChart3 className="h-4 w-4 mt-0.5" />
+              <div>
+                <strong>Note:</strong> For business metrics (user growth, revenue, engagement), see{' '}
+                <a href="/admin-portal/business-intelligence" className="text-blue-600 hover:underline font-medium">
+                  Business Intelligence
+                </a>
+                {' '}page. This page focuses on system and technical performance metrics.
+              </div>
+            </div>
           </Alert>
         </div>
       )}

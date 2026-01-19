@@ -276,7 +276,7 @@ export default function PricingManagementPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleEdit(prices.monthly)}
+                              onClick={() => prices.monthly && handleEdit(prices.monthly)}
                               title="Edit Monthly Pricing"
                               className="flex items-center gap-1"
                             >
@@ -288,7 +288,7 @@ export default function PricingManagementPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                              onClick={() => handleEdit(prices.yearly)}
+                              onClick={() => prices.yearly && handleEdit(prices.yearly)}
                               title="Edit Yearly Pricing"
                               className="flex items-center gap-1"
                         >

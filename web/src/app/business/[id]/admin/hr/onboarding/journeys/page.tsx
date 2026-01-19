@@ -86,9 +86,8 @@ export default function OnboardingJourneysPage() {
   }, [statusFilter, journeys]);
 
   const getEmployeeName = (journey: EmployeeOnboardingJourney): string => {
-    return journey.employeeHrProfile?.employeePosition?.user?.name || 
-           journey.employeeHrProfile?.employeePosition?.user?.email || 
-           'Unknown Employee';
+    const employee = employees.find(emp => emp.hrProfile?.id === journey.employeeHrProfileId);
+    return employee?.user?.name || employee?.user?.email || 'Unknown Employee';
   };
 
   const getProgress = (journey: EmployeeOnboardingJourney): number => {
@@ -192,7 +191,7 @@ export default function OnboardingJourneysPage() {
             {filteredJourneys.map((journey) => {
               const progress = getProgress(journey);
               const employeeName = getEmployeeName(journey);
-              const startDate = journey.createdAt ? new Date(journey.createdAt).toLocaleDateString() : 'N/A';
+              const startDate = journey.startDate ? new Date(journey.startDate).toLocaleDateString() : 'N/A';
               const completedTasks = journey.tasks?.filter(t => t.status === 'COMPLETED').length || 0;
               const totalTasks = journey.tasks?.length || 0;
 
@@ -204,7 +203,7 @@ export default function OnboardingJourneysPage() {
                         <h3 className="text-lg font-semibold text-gray-900">
                           {employeeName}
                         </h3>
-                        <Badge variant={journey.status === 'COMPLETED' ? 'primary' : journey.status === 'CANCELLED' ? 'secondary' : 'secondary'}>
+                        <Badge color={journey.status === 'COMPLETED' ? 'green' : journey.status === 'CANCELLED' ? 'red' : 'blue'}>
                           {journey.status.replace('_', ' ')}
                         </Badge>
                       </div>

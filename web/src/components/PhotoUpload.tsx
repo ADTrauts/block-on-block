@@ -106,7 +106,11 @@ export default function PhotoUpload({
     }
   };
 
-  const handleCroppedUpload = async (result: { originalFile: File; crop: { x: number; y: number; width: number; height: number; rotation: number; zoom: number } }) => {
+  const handleCroppedUpload = async (result: { originalFile?: File; crop: { x: number; y: number; width: number; height: number; rotation: number; zoom: number } }) => {
+    if (!result.originalFile) {
+      toast.error('No file provided');
+      return;
+    }
     setIsUploading(true);
     try {
       // Backward compat: upload expects a single file; until profile settings migrates

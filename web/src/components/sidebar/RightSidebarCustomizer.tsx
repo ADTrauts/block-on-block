@@ -242,7 +242,7 @@ export function RightSidebarCustomizer({
             const moduleId = draggingId.replace('pinned-module-', '');
             const module = getModuleDetails(moduleId);
             if (!module) return null;
-            const Icon = MODULE_ICONS[module.id] || LayoutDashboard;
+            const Icon = MODULE_ICONS[module.id as keyof typeof MODULE_ICONS] || LayoutDashboard;
             return (
               <div className="bg-white border-2 border-blue-400 rounded-lg p-3 shadow-xl opacity-95 flex items-center gap-2 rotate-2">
                 <Icon size={18} className="text-gray-600" />
@@ -280,7 +280,7 @@ function PinnedModuleItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const Icon = MODULE_ICONS[module.id] || LayoutDashboard;
+  const Icon = MODULE_ICONS[module.id as keyof typeof MODULE_ICONS] || LayoutDashboard;
 
   return (
     <div

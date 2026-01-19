@@ -47,7 +47,7 @@ export default function AIPage() {
 
   // Sync tab with URL query parameter
   useEffect(() => {
-    const tab = searchParams.get('tab') || 'overview';
+    const tab = searchParams?.get('tab') || 'overview';
     setActiveTab(tab);
   }, [searchParams]);
 
@@ -87,7 +87,7 @@ export default function AIPage() {
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     // Update URL without page reload
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() || '');
     if (tab === 'overview') {
       params.delete('tab');
     } else {

@@ -119,7 +119,7 @@ export function TaskTimer({ taskId, activeTimer, onTimerStart, onTimerStop }: Ta
     }
   };
 
-  const hasActiveTimerOnOtherTask = activeTimer && activeTimer.isActive && activeTimer.taskId !== taskId;
+  const hasActiveTimerOnOtherTask = !!(activeTimer && activeTimer.isActive && activeTimer.taskId !== taskId);
 
   return (
     <Card className="p-4">

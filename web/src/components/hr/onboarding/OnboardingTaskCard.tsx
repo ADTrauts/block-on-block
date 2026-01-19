@@ -123,7 +123,7 @@ export default function OnboardingTaskCard({
             {/* Task Actions */}
             {isActionable && (
               <div className="flex items-center gap-2 mt-3 flex-wrap">
-                {task.requiresDocument && (
+                {(task.metadata as { requiresDocument?: boolean })?.requiresDocument && (
                   <Button
                     variant="secondary"
                     size="sm"
@@ -171,7 +171,7 @@ export default function OnboardingTaskCard({
                 >
                   {isCompleting ? (
                     <>
-                      <Spinner size={16} className="mr-1" />
+                      <span className="mr-1"><Spinner size={16} /></span>
                       Completing...
                     </>
                   ) : (
@@ -185,7 +185,7 @@ export default function OnboardingTaskCard({
             )}
 
             {/* Document Upload Section */}
-            {showDocumentUpload && task.requiresDocument && (
+            {showDocumentUpload && (task.metadata as { requiresDocument?: boolean })?.requiresDocument && (
               <div className="mt-3 pt-3 border-t border-gray-200">
                 <OnboardingDocumentUpload
                   businessId={businessId}
