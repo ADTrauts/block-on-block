@@ -306,7 +306,7 @@ export class SubscriptionService {
           item.price.id === pricingConfig.perEmployeeStripePriceId
         );
 
-        const itemsToUpdate: Array<{ id: string; price: string; quantity?: number }> = [];
+        const itemsToUpdate: Array<{ id?: string; price: string; quantity?: number }> = [];
 
         // Always include base price item
         if (basePriceItem) {

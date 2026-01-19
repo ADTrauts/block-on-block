@@ -453,7 +453,8 @@ export const updateModuleSubscription = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const updated = await moduleSubscriptionService.updateModuleSubscription(id, {
+    const updated = await moduleSubscriptionService.updateModuleSubscription({
+      subscriptionId: id,
       tier,
       status,
     });

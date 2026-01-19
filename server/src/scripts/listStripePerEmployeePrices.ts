@@ -51,6 +51,11 @@ async function listPerEmployeePrices() {
   for (const productId of products) {
     const tier = productIdToTier[productId] || 'unknown';
     
+    if (!stripe) {
+      console.error('❌ Stripe client not available');
+      continue;
+    }
+    
     try {
       // Get all prices for this product
       const prices = await stripe.prices.list({

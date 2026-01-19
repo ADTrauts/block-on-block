@@ -14,6 +14,7 @@ export interface PricingConfig {
   queryPackEnterprise?: number | null;
   baseAIAllowance?: number | null;
   stripePriceId?: string | null;
+  perEmployeeStripePriceId?: string | null;
   isActive: boolean;
   effectiveDate: Date;
   endDate?: Date | null;
@@ -78,8 +79,12 @@ export class PricingService {
 
       if (pricing) {
         // Update cache
-        this.updateCache(cacheKey, pricing);
-        return pricing as PricingConfig;
+        const pricingConfig: PricingConfig = {
+          ...pricing,
+          billingCycle: pricing.billingCycle as 'monthly' | 'yearly',
+        };
+        this.updateCache(cacheKey, pricingConfig);
+        return pricingConfig;
       }
 
       return null;

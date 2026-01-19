@@ -36,7 +36,7 @@ export class StripeSyncService {
       const stripeSubscription = await stripe.subscriptions.retrieve(
         dbSubscription.stripeSubscriptionId,
         { expand: ['customer', 'items.data.price.product'] }
-      );
+      ) as Stripe.Subscription;
 
       // Map Stripe status to our status
       const statusMap: Record<string, string> = {
@@ -135,11 +135,15 @@ export class StripeSyncService {
       const stripeInvoice = await stripe.invoices.retrieve(
         dbInvoice.stripeInvoiceId,
         { expand: ['charge', 'payment_intent', 'subscription'] }
-      );
+      ) as Stripe.Invoice;
 
-      // Get charge details if available
-      const charge = stripeInvoice.charge as Stripe.Charge | null;
-      const paymentIntent = stripeInvoice.payment_intent as Stripe.PaymentIntent | null;
+      // Get charge details if available (charge can be string ID or expanded Charge object)
+      const charge = typeof stripeInvoice.charge === 'string' 
+        ? null 
+        : (stripeInvoice.charge as Stripe.Charge | null);
+      const paymentIntent = typeof stripeInvoice.payment_intent === 'string'
+        ? null
+        : (stripeInvoice.payment_intent as Stripe.PaymentIntent | null);
 
       // Calculate Stripe fees (if charge exists)
       let stripeFee = 0;
@@ -173,7 +177,7 @@ export class StripeSyncService {
               reason: refund.reason || null,
               status: refund.status,
               stripeRefundId: refund.id,
-              stripeChargeId: charge.id,
+              stripeChargeId: charge?.id || null,
               createdAt: new Date(refund.created * 1000),
               processedAt: refund.status === 'succeeded' ? new Date(refund.created * 1000) : null
             },

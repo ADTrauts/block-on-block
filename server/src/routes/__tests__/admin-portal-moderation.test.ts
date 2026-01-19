@@ -25,7 +25,6 @@ describe('Admin Portal - Content Moderation', () => {
           contentType: 'message',
           contentId: 'test-content-id',
           reason: 'spam',
-          description: 'Test report description',
           status: 'pending'
         }
       });
