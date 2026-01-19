@@ -19,6 +19,9 @@ RUN pnpm install --frozen-lockfile
 COPY prisma/ ./prisma/
 COPY scripts/build-prisma-schema.js ./scripts/build-prisma-schema.js
 
+# Build Prisma schema from modules (REQUIRED before generate)
+RUN node scripts/build-prisma-schema.js
+
 # Generate Prisma client (cached unless schema changes)
 RUN npx prisma generate
 
@@ -65,6 +68,11 @@ COPY --from=base /app/server/package.json ./server/
 # Copy Prisma schema and build script from base stage
 COPY --from=base /app/prisma/ ./prisma/
 COPY --from=base /app/scripts/build-prisma-schema.js ./scripts/build-prisma-schema.js
+
+# Build Prisma schema from modules (REQUIRED before generate)
+RUN node scripts/build-prisma-schema.js
+
+# Generate Prisma client
 RUN npx prisma generate
 
 # Create uploads directory

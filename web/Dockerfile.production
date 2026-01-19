@@ -15,8 +15,12 @@ COPY web/package.json ./web/
 # Install dependencies (this layer is cached unless package files change)
 RUN pnpm install --frozen-lockfile
 
-# Copy Prisma schema (changes less frequently than source code)
+# Copy Prisma schema and build script (changes less frequently than source code)
 COPY prisma/ ./prisma/
+COPY scripts/build-prisma-schema.js ./scripts/build-prisma-schema.js
+
+# Build Prisma schema from modules (REQUIRED before generate)
+RUN node scripts/build-prisma-schema.js
 
 # Generate Prisma client (cached unless schema changes)
 RUN npx prisma generate
@@ -62,8 +66,14 @@ COPY --from=base /app/web/.next/standalone ./
 COPY --from=base /app/web/.next/static ./web/.next/static
 COPY --from=base /app/web/public ./web/public
 
-# Copy Prisma schema and generate client
-COPY prisma/ ./prisma/
+# Copy Prisma schema and build script from base stage
+COPY --from=base /app/prisma/ ./prisma/
+COPY --from=base /app/scripts/build-prisma-schema.js ./scripts/build-prisma-schema.js
+
+# Build Prisma schema from modules (REQUIRED before generate)
+RUN node scripts/build-prisma-schema.js
+
+# Generate Prisma client
 RUN npx prisma generate
 
 # Create non-root user

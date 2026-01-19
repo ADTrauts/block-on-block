@@ -75,6 +75,10 @@ steps:
         echo "📦 Installing dependencies..."
         pnpm install --frozen-lockfile
         
+        # Build Prisma schema from modules (REQUIRED before generate)
+        echo "🔨 Building Prisma schema from modules..."
+        node scripts/build-prisma-schema.js
+        
         # Generate Prisma client
         echo "🔨 Generating Prisma client..."
         npx prisma generate
