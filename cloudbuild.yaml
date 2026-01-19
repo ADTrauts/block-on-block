@@ -54,7 +54,6 @@ steps:
       - '-c'
       - |
         echo "🔄 Running Prisma migrations..."
-        set -e
         
         # Install dependencies
         apt-get update && apt-get install -y curl
@@ -87,9 +86,13 @@ steps:
         # Note: This will fail during build (no VPC access), but migrations run on container startup
         echo "🔄 Attempting database migrations..."
         export DATABASE_URL="postgresql://vssyl_user:ArthurGeorge116%21@172.30.0.15:5432/vssyl_production?connection_limit=5&pool_timeout=20"
-        npx prisma migrate deploy || echo "⚠️  Database not reachable during build - migrations will run on container startup"
+        if ! npx prisma migrate deploy; then
+          echo "⚠️  Database not reachable during build - migrations will run on container startup"
+        else
+          echo "✅ Migrations completed successfully"
+        fi
         
-        echo "✅ Build step completed (migrations will run on deployment)"
+        echo "✅ Build step completed"
     id: 'run-migrations'
     waitFor: ['build-server']
     env:
@@ -144,7 +147,17 @@ steps:
       - '--add-cloudsql-instances'
       - 'vssyl-472202:us-central1:vssyl-db-optimized'
       - '--set-env-vars'
-      - 'NODE_ENV=production,DATABASE_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,DIRECT_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,JWT_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,JWT_REFRESH_SECRET=/NkIB2sn75WZyqsWOmevzv1wgn9zHuFgmi9x8DTmVG4=,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
+      - 'NODE_ENV=production'
+      - '--set-env-vars'
+      - 'DATABASE_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20'
+      - '--set-env-vars'
+      - 'DIRECT_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20'
+      - '--set-env-vars'
+      - 'JWT_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,JWT_REFRESH_SECRET=/NkIB2sn75WZyqsWOmevzv1wgn9zHuFgmi9x8DTmVG4='
+      - '--set-env-vars'
+      - 'FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com'
+      - '--set-env-vars'
+      - 'STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
       - '--set-secrets'
       - 'OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
     id: 'deploy-server'
@@ -163,6 +176,8 @@ steps:
       - 'us-central1'
       - '--platform'
       - 'managed'
+      - '--project'
+      - '$PROJECT_ID'
       - '--allow-unauthenticated'
       - '--port'
       - '3000'
@@ -175,7 +190,13 @@ steps:
       - '--set-secrets'
       - 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=stripe-publishable-key:latest'
       - '--set-env-vars'
-      - 'NODE_ENV=production,NEXTAUTH_URL=https://vssyl.com,NEXTAUTH_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'                   
+      - 'NODE_ENV=production'
+      - '--set-env-vars'
+      - 'NEXTAUTH_URL=https://vssyl.com,NEXTAUTH_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI='
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app'
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'                   
     id: 'deploy-web'
     waitFor: ['push-web', 'push-web-latest']
 
