@@ -126,6 +126,8 @@ steps:
       - 'us-central1'
       - '--platform'
       - 'managed'
+      - '--project'
+      - '$PROJECT_ID'
       - '--allow-unauthenticated'
       - '--port'
       - '5000'
