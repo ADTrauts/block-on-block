@@ -23,7 +23,11 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || '';
+      // Use the same fallback logic as auth.ts for consistency
+      const isDevelopment = process.env.NODE_ENV !== 'production';
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 
+                      process.env.NEXT_PUBLIC_API_URL || 
+                      (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
       const res = await fetch(`${apiBase}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
