@@ -100,7 +100,11 @@ class Logger {
     } catch (error) {
       // Check if it's a database connection error
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
+      if (errorMessage.includes("Can't reach database") || 
+          errorMessage.includes('localhost:5432') ||
+          errorMessage.includes('empty host') ||
+          errorMessage.includes('database string is invalid') ||
+          errorMessage.includes('PrismaClientInitializationError')) {
         // Silently skip if database is not available - logs will still go to console
         return;
       }

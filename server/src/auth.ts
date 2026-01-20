@@ -82,11 +82,38 @@ export async function registerUser(
 ): Promise<User> {
   const hashedPassword = await bcrypt.hash(password, 10);
   
-  // Detect user location
-  const location = await geolocationService.detectUserLocation(clientIP);
+  // Detect user location with error handling
+  let location;
+  try {
+    location = await geolocationService.detectUserLocation(clientIP);
+  } catch (error) {
+    console.error('Geolocation error during registration, using default location:', error);
+    // Use default location if geolocation fails
+    location = {
+      country: 'United States',
+      region: 'New York',
+      city: 'New York',
+      countryCode: '1',
+      regionCode: '06'
+    };
+  }
   
-  // Generate user number
-  const userNumberData = await userNumberService.generateUserNumber(location);
+  // Generate user number with error handling
+  let userNumberData;
+  try {
+    userNumberData = await userNumberService.generateUserNumber(location);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('User number generation error during registration:', errorMessage);
+    
+    // If database error, provide more context
+    if (errorMessage.includes('database') || errorMessage.includes('connection') || errorMessage.includes('empty host')) {
+      throw new Error(`Database connection error during registration: ${errorMessage}. Please ensure the database is properly configured.`);
+    }
+    
+    // Re-throw other errors
+    throw error;
+  }
   
   const userData: Prisma.UserCreateInput = {
     email,
