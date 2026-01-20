@@ -1,7 +1,8 @@
 // Service Worker for Push Notifications
-const CACHE_NAME = 'vssyl-v1';
-const STATIC_CACHE = 'static-v1';
-const DYNAMIC_CACHE = 'dynamic-v1';
+// Increment version to force cache clear after deployment
+const CACHE_NAME = 'vssyl-v2';
+const STATIC_CACHE = 'static-v2';
+const DYNAMIC_CACHE = 'dynamic-v2';
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
@@ -52,17 +53,22 @@ self.addEventListener('activate', (event) => {
   
   event.waitUntil(
     caches.keys().then((cacheNames) => {
+      console.log('Found caches:', cacheNames);
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
+          // Delete all old caches (v1 and older)
+          if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE && cacheName !== CACHE_NAME) {
+            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
+          return Promise.resolve();
         })
       );
+    }).then(() => {
+      console.log('✅ Service Worker cache cleanup complete');
+      return self.clients.claim();
     })
   );
-  
-  self.clients.claim();
 });
 
 // Push notification event
@@ -189,11 +195,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle API requests
+  // Handle API requests - NEVER cache auth endpoints
   if (request.url.includes('/api/')) {
+    // Always bypass cache for authentication endpoints
+    if (request.url.includes('/api/auth/')) {
+      event.respondWith(fetch(request));
+      return;
+    }
+    // For other API requests, try network first but don't cache
     event.respondWith(
       fetch(request).catch(() => {
-        // Return cached response if available
+        // Only return cached response for non-auth API requests if network fails
         return caches.match(request);
       })
     );

@@ -87,8 +87,10 @@ export const authOptions: NextAuthOptions = {
           // In development, default to localhost if env var not set
           // In production, use environment variable or production fallback
           const isDevelopment = process.env.NODE_ENV !== 'production';
+          // Try multiple env var names for compatibility
           const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
-                               process.env.NEXT_PUBLIC_API_URL || 
+                               process.env.NEXT_PUBLIC_API_URL ||
+                               process.env.BACKEND_URL ||
                                (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
           
           const loginUrl = `${API_BASE_URL}/api/auth/login`;
@@ -96,7 +98,14 @@ export const authOptions: NextAuthOptions = {
             url: loginUrl, 
             email: credentials.email,
             isDevelopment,
-            API_BASE_URL
+            API_BASE_URL,
+            // Log which env vars are available (for debugging, not values)
+            envVars: {
+              hasNextPublicApiBaseUrl: !!process.env.NEXT_PUBLIC_API_BASE_URL,
+              hasNextPublicApiUrl: !!process.env.NEXT_PUBLIC_API_URL,
+              hasBackendUrl: !!process.env.BACKEND_URL,
+              nodeEnv: process.env.NODE_ENV,
+            }
           });
           
           let response: Response;
@@ -145,19 +154,32 @@ export const authOptions: NextAuthOptions = {
 
           if (!response.ok) {
             let errorMessage = 'Invalid credentials';
+            let errorData = null;
             try {
-              const error = await response.json();
-              errorMessage = error?.message && typeof error.message === 'string' && error.message.trim()
-                ? error.message
+              errorData = await response.json();
+              errorMessage = errorData?.message && typeof errorData.message === 'string' && errorData.message.trim()
+                ? errorData.message
                 : 'Invalid credentials';
             } catch (parseError) {
-              // If response is not JSON, use default message
+              // If response is not JSON, try to get text
+              try {
+                const text = await response.text();
+                console.error('NextAuth Authorize - Non-JSON error response:', text);
+              } catch (textError) {
+                // Ignore if we can't read text either
+              }
               errorMessage = `Login failed (${response.status})`;
             }
             console.error('NextAuth Authorize - Login failed:', {
               status: response.status,
               statusText: response.statusText,
-              errorMessage
+              errorMessage,
+              errorData,
+              url: loginUrl,
+              API_BASE_URL,
+              isDevelopment,
+              // Log environment for debugging (not secrets)
+              hasEnvVar: !!process.env.NEXT_PUBLIC_API_BASE_URL,
             });
             throw new Error(errorMessage);
           }
