@@ -1308,6 +1308,122 @@ class AdminApiService {
       return { data: data.success && data.data ? data.data : data };
     }).catch(error => ({ error: error.message }));
   }
+
+  // ============================================================================
+  // BUSINESS AI METHODS
+  // ============================================================================
+
+  async getBusinessAIGlobal(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/admin/business-ai/global', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
+  async getBusinessAIPatterns(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/admin/business-ai/patterns', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
+  // ============================================================================
+  // CENTRALIZED AI METHODS
+  // ============================================================================
+
+  async getCentralizedAIHealth(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/centralized-ai/health', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
+  async getCentralizedAIPatterns(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/centralized-ai/patterns', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
+  async getCentralizedAIInsights(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/centralized-ai/insights', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
+  async getCentralizedAIPrivacySettings(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/centralized-ai/privacy/settings', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
 }
 
 // Module stats interface

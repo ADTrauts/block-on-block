@@ -138,30 +138,16 @@ export default function AISystemPage() {
       // Note: Some endpoints may not exist yet, so we gracefully handle failures
       const [biRes, businessAIRes, patternsRes, analyticsRes] = await Promise.all([
         adminApiService.getBusinessIntelligence().catch(() => ({ data: null, error: null })),
-        fetch('/api/admin/business-ai/global', {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include'
-        })
-          .then(r => r.ok ? r.json() : null)
-          .catch(() => ({ success: false, data: null })),
-        fetch('/api/admin/business-ai/patterns', {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include'
-        })
-          .then(r => r.ok ? r.json() : null)
-          .catch(() => ({ success: false, data: null })),
+        adminApiService.getBusinessAIGlobal().catch(() => ({ data: null, error: null })),
+        adminApiService.getBusinessAIPatterns().catch(() => ({ data: null, error: null })),
         adminApiService.getAnalytics({ dateRange: dateRange, userType: 'all', metric: 'all' })
           .catch(() => ({ data: null, error: null }))
       ]);
 
       // Build overview from available data
       const biData = biRes.data as any;
-      const businessAIData = businessAIRes?.success ? businessAIRes.data : null;
-      const patternsData = patternsRes?.success ? patternsRes.data : null;
+      const businessAIData = businessAIRes.data as any;
+      const patternsData = patternsRes.data as any;
       const analyticsData = analyticsRes.data as any;
 
       // Combine patterns from different sources
@@ -179,6 +165,11 @@ export default function AISystemPage() {
             affectedBusinesses: p.affectedBusinesses || []
           });
         });
+      }
+      
+      // Handle case where patternsData might be null or have different structure
+      if (!patternsData && businessAIData?.globalMetrics) {
+        // If we have business AI data but no patterns, that's okay
       }
 
       // Combine insights from different sources

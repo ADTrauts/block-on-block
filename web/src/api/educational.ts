@@ -1,6 +1,8 @@
 import { getSession } from 'next-auth/react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://vssyl-server-235369681725.us-central1.run.app';
+// Use relative URLs to go through Next.js API proxy
+// This ensures all API calls go through the Next.js API proxy which handles authentication and CORS
+const API_BASE = '/api/educational';
 
 // Helper function to make authenticated API calls
 async function apiCall<T>(
@@ -8,7 +10,7 @@ async function apiCall<T>(
   options: RequestInit = {}, 
   token?: string
 ): Promise<T> {
-  const url = `${API_BASE_URL}/api/educational${endpoint}`;
+  const url = `${API_BASE}${endpoint}`;
   
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -22,6 +24,7 @@ async function apiCall<T>(
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: 'include', // Include cookies for authentication
   });
 
   if (!response.ok) {

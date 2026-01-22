@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, Badge, Button, Tabs, TabsList, TabsTrigger, TabsContent, ProgressBar, Alert } from 'shared/components';
+import { Card, Badge, Button, Tabs, TabsList, TabsTrigger, TabsContent, ProgressBar, Alert, Spinner } from 'shared/components';
 import { 
   Brain, 
   TrendingUp, 
@@ -16,8 +16,10 @@ import {
   Target,
   AlertTriangle,
   Download,
-  Play
+  Play,
+  Lightbulb
 } from 'lucide-react';
+import { adminApiService } from '../../../lib/adminApiService';
 
 // Simple component wrappers for the missing UI components
 const CardHeader = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
@@ -186,53 +188,38 @@ export default function AILearningAdminPage() {
       setLoading(true);
       setError(null);
       
-      // Use Promise.allSettled to handle individual failures gracefully
-      // Call through Next.js API proxy for proper authentication
-      const results = await Promise.allSettled([
-        fetch('/api/centralized-ai/health', { credentials: 'include' }).catch(() => null),
-        fetch('/api/centralized-ai/patterns', { credentials: 'include' }).catch(() => null),
-        fetch('/api/centralized-ai/insights', { credentials: 'include' }).catch(() => null),
-        fetch('/api/centralized-ai/privacy/settings', { credentials: 'include' }).catch(() => null)
+      // Use adminApiService for proper authentication
+      const [healthRes, patternsRes, insightsRes, privacyRes] = await Promise.allSettled([
+        adminApiService.getCentralizedAIHealth().catch(() => ({ data: null, error: null })),
+        adminApiService.getCentralizedAIPatterns().catch(() => ({ data: null, error: null })),
+        adminApiService.getCentralizedAIInsights().catch(() => ({ data: null, error: null })),
+        adminApiService.getCentralizedAIPrivacySettings().catch(() => ({ data: null, error: null }))
       ]);
 
       // Handle health response
-      if (results[0].status === 'fulfilled' && results[0].value?.ok) {
-        try {
-          const healthData = await results[0].value.json();
-          setHealthMetrics(healthData.data);
-        } catch (e) {
-          // Silently ignore JSON parsing errors
-        }
+      if (healthRes.status === 'fulfilled' && healthRes.value.data) {
+        setHealthMetrics(healthRes.value.data);
       }
 
       // Handle patterns response
-      if (results[1].status === 'fulfilled' && results[1].value?.ok) {
-        try {
-          const patternsData = await results[1].value.json();
-          setPatterns(patternsData.data || []);
-        } catch (e) {
-          // Silently ignore JSON parsing errors
-        }
+      if (patternsRes.status === 'fulfilled' && patternsRes.value.data) {
+        const patternsData = Array.isArray(patternsRes.value.data) 
+          ? patternsRes.value.data 
+          : patternsRes.value.data.patterns || [];
+        setPatterns(patternsData);
       }
 
       // Handle insights response
-      if (results[2].status === 'fulfilled' && results[2].value?.ok) {
-        try {
-          const insightsData = await results[2].value.json();
-          setInsights(insightsData.data || []);
-        } catch (e) {
-          // Silently ignore JSON parsing errors
-        }
+      if (insightsRes.status === 'fulfilled' && insightsRes.value.data) {
+        const insightsData = Array.isArray(insightsRes.value.data)
+          ? insightsRes.value.data
+          : insightsRes.value.data.insights || [];
+        setInsights(insightsData);
       }
 
       // Handle privacy settings response
-      if (results[3].status === 'fulfilled' && results[3].value?.ok) {
-        try {
-          const privacyData = await results[3].value.json();
-          setPrivacySettings(privacyData.data);
-        } catch (e) {
-          // Silently ignore JSON parsing errors
-        }
+      if (privacyRes.status === 'fulfilled' && privacyRes.value.data) {
+        setPrivacySettings(privacyRes.value.data);
       }
     } catch (err) {
       // Only set error for unexpected failures, not 404s
@@ -605,11 +592,43 @@ export default function AILearningAdminPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Global Patterns</h2>
             <div className="flex space-x-2">
-              <Button variant="secondary" size="sm">Filter</Button>
-              <Button variant="secondary" size="sm">Export</Button>
+              <Button 
+                variant="secondary" 
+                size="sm"
+                onClick={triggerPatternAnalysis}
+                disabled={loading}
+              >
+                {loading ? <Spinner size={16} /> : 'Analyze Patterns'}
+              </Button>
+              <Button variant="secondary" size="sm" disabled={patterns.length === 0}>Export</Button>
             </div>
           </div>
 
+          {loading && patterns.length === 0 ? (
+            <Card className="p-8">
+              <div className="text-center">
+                <Spinner size={32} />
+                <p className="mt-4 text-gray-700">Loading global patterns...</p>
+              </div>
+            </Card>
+          ) : patterns.length === 0 ? (
+            <Card className="p-8">
+              <div className="text-center">
+                <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Global Patterns Found</h3>
+                <p className="text-gray-700 mb-4">
+                  Global patterns are discovered by analyzing user behavior across the platform. 
+                  Patterns will appear here once enough data has been collected and analyzed.
+                </p>
+                <Button 
+                  variant="primary" 
+                  onClick={triggerPatternAnalysis}
+                >
+                  Run Pattern Analysis
+                </Button>
+              </div>
+            </Card>
+          ) : (
           <div className="grid gap-4">
             {patterns.map((pattern) => (
               <Card key={pattern.id}>
@@ -674,6 +693,7 @@ export default function AILearningAdminPage() {
               </Card>
             ))}
           </div>
+          )}
         </TabsContent>
 
         {/* Collective Insights Tab */}
@@ -681,11 +701,43 @@ export default function AILearningAdminPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Collective Insights</h2>
             <div className="flex space-x-2">
-              <Button variant="secondary" size="sm">Filter</Button>
-              <Button variant="secondary" size="sm">Export</Button>
+              <Button 
+                variant="secondary" 
+                size="sm"
+                onClick={triggerManualInsights}
+                disabled={loading}
+              >
+                {loading ? <Spinner size={16} /> : 'Generate Insights'}
+              </Button>
+              <Button variant="secondary" size="sm" disabled={insights.length === 0}>Export</Button>
             </div>
           </div>
 
+          {loading && insights.length === 0 ? (
+            <Card className="p-8">
+              <div className="text-center">
+                <Spinner size={32} />
+                <p className="mt-4 text-gray-700">Loading collective insights...</p>
+              </div>
+            </Card>
+          ) : insights.length === 0 ? (
+            <Card className="p-8">
+              <div className="text-center">
+                <Lightbulb className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Collective Insights Available</h3>
+                <p className="text-gray-700 mb-4">
+                  Collective insights are generated from global patterns discovered across all users. 
+                  Insights will appear here once patterns have been analyzed and insights generated.
+                </p>
+                <Button 
+                  variant="primary" 
+                  onClick={triggerManualInsights}
+                >
+                  Generate Insights
+                </Button>
+              </div>
+            </Card>
+          ) : (
           <div className="grid gap-4">
             {insights.map((insight) => (
               <Card key={insight.id}>
@@ -755,6 +807,7 @@ export default function AILearningAdminPage() {
               </Card>
             ))}
           </div>
+          )}
         </TabsContent>
 
         {/* System Health Tab */}
