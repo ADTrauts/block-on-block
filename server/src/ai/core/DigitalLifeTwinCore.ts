@@ -5,6 +5,7 @@ import { DecisionEngine } from './DecisionEngine';
 import { AdvancedLearningEngine } from '../learning/AdvancedLearningEngine';
 import { ActionExecutor } from './ActionExecutor';
 import { SmartPatternEngine } from '../intelligence/SmartPatternEngine';
+import { CentralizedLearningEngine } from '../learning/CentralizedLearningEngine';
 import { prisma as sharedPrisma } from '../../lib/prisma';
 
 export interface DigitalLifeTwinResponse {
@@ -93,6 +94,7 @@ export interface LifeTwinQuery {
   };
   userId: string;
   conversationHistory?: ConversationHistoryItem[];
+  preferredProvider?: 'auto' | 'openai' | 'anthropic';
 }
 
 export class DigitalLifeTwinCore {
@@ -103,6 +105,7 @@ export class DigitalLifeTwinCore {
   private learningEngine: AdvancedLearningEngine;
   private actionExecutor: ActionExecutor;
   private smartPatternEngine: SmartPatternEngine;
+  private centralizedLearning: CentralizedLearningEngine;
 
   constructor(contextEngine?: CrossModuleContextEngine, prismaClient?: PrismaClient) {
     this.prisma = prismaClient || sharedPrisma;
@@ -115,6 +118,7 @@ export class DigitalLifeTwinCore {
       this.learningEngine = new AdvancedLearningEngine(this.prisma);
       this.actionExecutor = new ActionExecutor(this.prisma);
       this.smartPatternEngine = new SmartPatternEngine(this.prisma);
+      this.centralizedLearning = new CentralizedLearningEngine(this.prisma);
     } catch (error) {
       console.error('Error initializing DigitalLifeTwinCore engines:', error);
       throw error; // Re-throw to prevent using uninitialized engines
@@ -189,6 +193,44 @@ export class DigitalLifeTwinCore {
       } catch (error) {
         console.warn('Error getting user-defined context:', error);
       }
+
+      // 2b. Get relevant global patterns (collective learning) - makes system smarter for everyone
+      let globalPatterns: Array<Record<string, unknown>> = [];
+      try {
+        if (this.centralizedLearning) {
+          // Get user's segment (business, personal, household, enterprise, or all)
+          const userSegment = query.context.dashboardType === 'business' ? 'business' : 
+                             query.context.dashboardType === 'household' ? 'household' : 'personal';
+          
+          // Get relevant global patterns from database
+          const patterns = await this.prisma.globalPattern.findMany({
+            where: {
+              OR: [
+                { userSegment: 'all' },
+                { userSegment: userSegment }
+              ],
+              confidence: { gte: 0.7 }, // Only high-confidence patterns
+              impact: { in: ['positive', 'neutral'] } // Only positive or neutral patterns
+            },
+            orderBy: [
+              { confidence: 'desc' },
+              { frequency: 'desc' }
+            ],
+            take: 5 // Top 5 most relevant global patterns
+          });
+          
+          globalPatterns = patterns.map(p => ({
+            type: p.patternType,
+            description: p.description,
+            frequency: p.frequency,
+            confidence: p.confidence,
+            recommendations: p.recommendations,
+            modules: p.modules
+          }));
+        }
+      } catch (error) {
+        console.warn('Error getting global patterns:', error);
+      }
       
       // 3. Get smart pattern analysis and predictions
       let smartAnalysis: Record<string, unknown> = { patterns: [], predictions: [], suggestions: [] };
@@ -219,8 +261,8 @@ export class DigitalLifeTwinCore {
       // 5. Analyze the query intent and determine response strategy (enhanced with patterns and semantics)
       const queryAnalysis = await this.analyzeQuery(query, userContext, personality, smartAnalysis, semanticEnhancement);
       
-      // 6. Generate Digital Life Twin response (enhanced with smart insights and semantics)
-      const response = await this.generateLifeTwinResponse(query, userContext, personality, queryAnalysis, smartAnalysis, semanticEnhancement, userDefinedContext);
+      // 6. Generate Digital Life Twin response (enhanced with smart insights, semantics, and collective learning)
+      const response = await this.generateLifeTwinResponse(query, userContext, personality, queryAnalysis, smartAnalysis, semanticEnhancement, userDefinedContext, globalPatterns);
       
       // 5. Identify cross-module connections and opportunities (with error handling)
       let connections: CrossModuleConnection[] = [];
@@ -391,13 +433,33 @@ export class DigitalLifeTwinCore {
     analysis: any,
     smartAnalysis?: any,
     semanticEnhancement?: any,
-    userDefinedContext?: Array<Record<string, unknown>>
+    userDefinedContext?: Array<Record<string, unknown>>,
+    globalPatterns?: Array<Record<string, unknown>>
   ) {
-    // Build context-aware prompt (enhanced with smart patterns and semantics)
-    const prompt = this.buildDigitalTwinPrompt(query, userContext, personality, analysis, smartAnalysis, semanticEnhancement, userDefinedContext);
+    // Build context-aware prompt (enhanced with smart patterns, semantics, and collective learning)
+    const prompt = this.buildDigitalTwinPrompt(query, userContext, personality, analysis, smartAnalysis, semanticEnhancement, userDefinedContext, globalPatterns);
     
-    // Use appropriate AI provider based on complexity and privacy
-    const provider = this.selectAIProvider((analysis as any)?.complexity || 'medium', query.query);
+    // Get user preference if not provided in query
+    let preferredProvider = query.preferredProvider;
+    if (!preferredProvider || preferredProvider === 'auto') {
+      try {
+        const userPref = await this.prisma.userPreference.findUnique({
+          where: { userId_key: { userId: query.userId, key: 'ai_preferred_provider' } }
+        });
+        if (userPref && userPref.value !== 'auto') {
+          preferredProvider = userPref.value as 'auto' | 'openai' | 'anthropic';
+        }
+      } catch (error) {
+        console.warn('Error getting user provider preference:', error);
+      }
+    }
+    
+    // Use appropriate AI provider based on complexity, privacy, and user preference
+    const provider = this.selectAIProvider(
+      (analysis as any)?.complexity || 'medium', 
+      query.query,
+      preferredProvider
+    );
     
     // Generate response
     const aiResponse = await this.callAIProvider(provider, prompt, {
@@ -425,7 +487,7 @@ export class DigitalLifeTwinCore {
    * Build comprehensive prompt for Digital Life Twin (enhanced with smart patterns and semantics)
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildDigitalTwinPrompt(query: LifeTwinQuery, userContext: UserContext, personality: any, analysis: any, smartAnalysis?: any, semanticEnhancement?: any, userDefinedContext?: Array<Record<string, unknown>>): string {
+  private buildDigitalTwinPrompt(query: LifeTwinQuery, userContext: UserContext, personality: any, analysis: any, smartAnalysis?: any, semanticEnhancement?: any, userDefinedContext?: Array<Record<string, unknown>>, globalPatterns?: Array<Record<string, unknown>>): string {
     const currentTime = new Date().toLocaleString();
     
     // Build user-defined context section
@@ -489,6 +551,14 @@ ${(semanticEnhancement as Record<string, any>)?.relatedQueries?.length > 0 ?
   '- Learning query patterns...'}
 - Suggested categories: ${semanticEnhancement?.suggestedCategories?.join(', ') || 'general'}
 - Context understanding boost: +${Math.round((semanticEnhancement?.confidenceBoost || 0) * 100)}%
+
+COLLECTIVE LEARNING (System-wide patterns from all users):
+${globalPatterns && globalPatterns.length > 0 ? 
+  globalPatterns.map((gp: Record<string, unknown>, idx: number) => 
+    `${idx + 1}. ${gp.description} (${Math.round((gp.confidence as number) * 100)}% confidence, ${gp.frequency} users)
+   Recommendations: ${Array.isArray(gp.recommendations) ? (gp.recommendations as string[]).slice(0, 2).join(', ') : 'N/A'}`
+  ).join('\n') : 
+  '- System is learning from collective user patterns...'}
 
 CURRENT CONTEXT:
 - Time: ${currentTime}
@@ -879,11 +949,21 @@ Respond naturally as if you ARE them, making decisions and suggestions they woul
   }
 
   // Provider and settings methods
-  private selectAIProvider(complexity: string, query: string): string {
-    // Route to appropriate provider based on complexity and content
+  private selectAIProvider(
+    complexity: string, 
+    query: string, 
+    preferredProvider?: 'auto' | 'openai' | 'anthropic'
+  ): string {
+    // Always check sensitive content first (highest priority - security)
     const sensitiveContent = this.containsSensitiveContent(query);
-    
     if (sensitiveContent) return 'local';
+    
+    // If user specified a provider preference, use it (unless sensitive content)
+    if (preferredProvider && preferredProvider !== 'auto') {
+      return preferredProvider;
+    }
+    
+    // Otherwise use existing intelligent selection logic
     if (complexity === 'high') return 'anthropic';
     return 'openai';
   }

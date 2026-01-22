@@ -1165,6 +1165,149 @@ class AdminApiService {
   async getTestCoverage(): Promise<ApiResponse<any>> {
     return this.makeRequest('/testing/coverage');
   }
+
+  // ============================================================================
+  // AI PROVIDER USAGE & EXPENSES
+  // ============================================================================
+
+  async getAIProviderUsageCombined(startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    // Call through Next.js API proxy which routes to /api/admin/ai-providers
+    return fetch(`/api/admin/ai-providers/usage/combined${params.toString() ? '?' + params.toString() : ''}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderUsageOpenAI(startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return fetch(`/api/admin/ai-providers/usage/openai${params.toString() ? '?' + params.toString() : ''}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderUsageAnthropic(startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return fetch(`/api/admin/ai-providers/usage/anthropic${params.toString() ? '?' + params.toString() : ''}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderExpensesOpenAI(period: string = 'month') {
+    return fetch(`/api/admin/ai-providers/expenses/openai?period=${period}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderExpensesAnthropic(startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return fetch(`/api/admin/ai-providers/expenses/anthropic${params.toString() ? '?' + params.toString() : ''}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderExpensesCombined(period: string = 'month', startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    params.append('period', period);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return fetch(`/api/admin/ai-providers/expenses/providers?${params.toString()}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderHistoricalUsage(provider: 'openai' | 'anthropic' | 'all' = 'all', startDate?: string, endDate?: string, groupBy: 'day' | 'week' | 'month' = 'day') {
+    const params = new URLSearchParams();
+    params.append('provider', provider);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (groupBy) params.append('groupBy', groupBy);
+    return fetch(`/api/admin/ai-providers/history/usage?${params.toString()}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
+
+  async getAIProviderHistoricalExpenses(provider: 'openai' | 'anthropic' | 'all' = 'all', period: 'day' | 'week' | 'month' | 'year' = 'month', startDate?: string, endDate?: string) {
+    const params = new URLSearchParams();
+    params.append('provider', provider);
+    params.append('period', period);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    return fetch(`/api/admin/ai-providers/history/expenses?${params.toString()}`, {
+      headers: await this.getAuthHeaders(),
+      credentials: 'include'
+    }).then(async res => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        return { error: error.error || `HTTP ${res.status}` };
+      }
+      const data = await res.json();
+      return { data: data.success && data.data ? data.data : data };
+    }).catch(error => ({ error: error.message }));
+  }
 }
 
 // Module stats interface
@@ -1222,8 +1365,6 @@ export interface ContentReport {
     name: string;
   };
 }
-
- 
 
 // Named instance export for use in admin portal pages
 export const adminApiService = new AdminApiService();

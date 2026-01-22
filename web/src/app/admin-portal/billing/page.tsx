@@ -19,6 +19,7 @@ import {
   Info
 } from 'lucide-react';
 import { adminApiService } from '../../../lib/adminApiService';
+import ProviderExpensesView from '../../../components/admin-portal/ProviderExpensesView';
 
 interface Subscription {
   id: string;
@@ -90,7 +91,7 @@ export default function FinancialManagement() {
   const [payouts, setPayouts] = useState<DeveloperPayout[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'subscriptions' | 'payments' | 'payouts'>('subscriptions');
+  const [activeTab, setActiveTab] = useState<'subscriptions' | 'payments' | 'payouts' | 'expenses'>('subscriptions');
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -353,6 +354,7 @@ export default function FinancialManagement() {
             { id: 'subscriptions', label: 'Subscriptions', count: subscriptions.length },
             { id: 'payments', label: 'Payments', count: payments.length },
             { id: 'payouts', label: 'Developer Payouts', count: payouts.length },
+            { id: 'expenses', label: 'Operating Expenses', count: 0 },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -672,6 +674,12 @@ export default function FinancialManagement() {
             </table>
           </div>
         </Card>
+      )}
+
+      {activeTab === 'expenses' && (
+        <div>
+          <ProviderExpensesView period="month" />
+        </div>
       )}
     </div>
   );

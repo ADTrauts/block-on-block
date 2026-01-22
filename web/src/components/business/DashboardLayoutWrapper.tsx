@@ -67,8 +67,18 @@ const MODULE_ICONS = {
 };
 
 function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperProps) {
-  const pathname = usePathname();
+  const nextPathname = usePathname();
   const router = useRouter();
+  const [pathname, setPathname] = useState<string>('/');
+  
+  // Handle pathname safely for SSR
+  useEffect(() => {
+    if (nextPathname) {
+      setPathname(nextPathname);
+    } else if (typeof window !== 'undefined') {
+      setPathname(window.location.pathname);
+    }
+  }, [nextPathname]);
   const { data: session, status } = useSession();
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -725,10 +735,10 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
           
           {/* Fixed Bottom: AI Assistant, Modules, Trash */}
           <button
-            className="flex items-center justify-center w-10 h-10 my-1 rounded-lg transition-colors hover:bg-gray-700 text-gray-300"
+            className={`flex items-center justify-center w-10 h-10 my-1 rounded-lg transition-colors ${pathname?.startsWith('/ai-chat') ? 'bg-purple-600' : 'hover:bg-gray-700'} ${pathname?.startsWith('/ai-chat') ? 'text-white' : 'text-gray-300'}`}
             style={{
-              background: 'transparent',
-              color: '#cbd5e1',
+              background: pathname?.startsWith('/ai-chat') ? '#9333ea' : 'transparent',
+              color: pathname?.startsWith('/ai-chat') ? '#fff' : '#cbd5e1',
               border: 'none',
               outline: 'none',
               cursor: 'pointer',
@@ -741,8 +751,15 @@ function DashboardLayoutWrapper({ business, children }: DashboardLayoutWrapperPr
               borderRadius: 8,
               transition: 'background 0.18s cubic-bezier(.4,1.2,.6,1)',
             }}
-            onClick={() => router.push('/ai')}
-            title="AI Assistant"
+            onClick={() => {
+              try {
+                router.push('/ai-chat');
+              } catch (error) {
+                console.error('Error navigating to AI chat:', error);
+                window.location.href = '/ai-chat';
+              }
+            }}
+            title="AI Chat"
           >
             <Brain size={22} />
           </button>

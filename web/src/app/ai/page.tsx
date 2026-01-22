@@ -20,6 +20,7 @@ import AutonomyControls from '../../components/ai/AutonomyControls';
 import PersonalityQuestionnaire from '../../components/ai/PersonalityQuestionnaire';
 import AutonomousActions from '../../components/ai/AutonomousActions';
 import CustomContext from '../../components/ai/CustomContext';
+import ProviderSettings from '../../components/ai/ProviderSettings';
 import { authenticatedApiCall } from '../../lib/apiUtils';
 
 interface AIStats {
@@ -125,10 +126,14 @@ export default function AIPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             Overview
+          </TabsTrigger>
+          <TabsTrigger value="provider" className="flex items-center gap-2">
+            <Brain className="w-4 h-4" />
+            Provider
           </TabsTrigger>
           <TabsTrigger value="autonomy" className="flex items-center gap-2">
             <Settings className="w-4 h-4" />
@@ -315,6 +320,11 @@ export default function AIPage() {
               </div>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Provider Tab */}
+        <TabsContent value="provider" className="mt-6">
+          <ProviderSettings />
         </TabsContent>
 
         {/* Autonomy Tab */}

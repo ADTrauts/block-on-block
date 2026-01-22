@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { Modal, Button, Card, Badge, Tabs } from 'shared/components';
 import { 
   CreditCard, 
@@ -11,7 +12,8 @@ import {
   Download,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Shield
 } from 'lucide-react';
 import { useFeatureGating } from '../hooks/useFeatureGating';
 import { authenticatedApiCall } from '../lib/apiUtils';
@@ -88,6 +90,8 @@ interface BillingModalProps {
 }
 
 export default function BillingModal({ isOpen, onClose, businessId }: BillingModalProps) {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'ADMIN';
   const [activeTab, setActiveTab] = useState('overview');
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [moduleSubscriptions, setModuleSubscriptions] = useState<ModuleSubscription[]>([]);
@@ -307,6 +311,15 @@ export default function BillingModal({ isOpen, onClose, businessId }: BillingMod
                           </Button>
                         )}
                       </div>
+                    </div>
+                  ) : isAdmin ? (
+                    <div className="text-center py-4">
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <Shield className="h-8 w-8 text-blue-600" />
+                        <h3 className="text-lg font-semibold text-gray-900">Admin Account</h3>
+                      </div>
+                      <p className="text-gray-600 mb-2">You have unlimited access to all features</p>
+                      <Badge color="blue" className="mt-2">Unlimited Access</Badge>
                     </div>
                   ) : (
                     <div className="text-center py-4">

@@ -69,6 +69,7 @@ import emailNotificationRouter from './routes/emailNotification';
 // import advancedNotificationRouter from './routes/advancedNotification'; // Temporarily disabled - functions not implemented
 import governanceRouter from './routes/governance';
 import aiRouter from './routes/ai';
+import aiPreferencesRouter from './routes/ai-preferences';
 import aiAutonomyRouter from './routes/ai-autonomy';
 import aiIntelligenceRouter from './routes/ai-intelligence';
 import aiCentralizedRouter from './routes/ai-centralized';
@@ -112,6 +113,7 @@ import adminHRSetupRouter from './routes/admin-hr-setup';
 import adminFixHRRouter from './routes/admin-fix-hr';
 import adminCreateHRTablesRouter from './routes/admin-create-hr-tables';
 import adminFixSubscriptionsRouter from './routes/admin-fix-subscriptions';
+import aiProviderUsageRouter from './routes/ai-provider-usage';
 import { authenticateJWT } from './middleware/auth';
 import { logger } from './lib/logger';
 
@@ -631,6 +633,7 @@ app.use('/api/email-notifications', authenticateJWT, emailNotificationRouter);
 // app.use('/api/advanced-notifications', authenticateJWT, advancedNotificationRouter); // Temporarily disabled - functions not implemented
 app.use('/api/governance', authenticateJWT, governanceRouter);
 app.use('/api/ai', authenticateJWT, aiRouter);
+app.use('/api/ai', authenticateJWT, aiPreferencesRouter);
 app.use('/api/ai/autonomy', authenticateJWT, aiAutonomyRouter);
 app.use('/api/ai/intelligence', authenticateJWT, aiIntelligenceRouter);
 app.use('/api/ai/autonomous', authenticateJWT, aiAutonomousRouter);
@@ -649,6 +652,7 @@ app.use('/api/location', locationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/admin-portal', adminPortalRouter);
 app.use('/api/admin-portal/testing', adminPortalTestingRouter);
+app.use('/api/admin/ai-providers', aiProviderUsageRouter);
 app.use('/api/org-chart', orgChartRouter);
 app.use('/api/calendar', authenticateJWT, calendarRouter);
 app.use('/api/business-ai', businessAIRouter);
@@ -914,6 +918,33 @@ const server = httpServer.listen(port, () => {
     console.log('✅ Daily overage billing job scheduled (3am daily)');
   } catch (e) {
     console.error('Failed to schedule overage billing job:', e);
+  }
+
+  // Sync AI provider usage/expense data daily at 4am
+  // This pulls latest data from OpenAI and Anthropic APIs
+  try {
+    const { ProviderSyncService } = await import('./services/aiProviderServices/providerSyncService');
+    const providerSyncService = new ProviderSyncService();
+    
+    cron.schedule('0 4 * * *', async () => {
+      console.log('🔄 Running daily AI provider data sync...');
+      try {
+        await providerSyncService.syncProviderData();
+        console.log('✅ AI provider data sync completed');
+      } catch (error) {
+        console.error('❌ Error syncing AI provider data:', error);
+      }
+    }, {
+      timezone: 'America/New_York'
+    });
+    console.log('✅ Daily AI provider data sync job scheduled (4am daily)');
+    
+    // Also run initial sync on startup (non-blocking)
+    providerSyncService.syncProviderData().catch(error => {
+      console.error('Initial provider sync failed (non-critical):', error);
+    });
+  } catch (e) {
+    console.error('Failed to schedule AI provider sync job:', e);
   }
 }).on('error', (err) => {
   console.error('Server startup error:', err);

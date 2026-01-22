@@ -124,6 +124,7 @@ export default function AIEnhancedSearchBar({
   const [isAIMode, setIsAIMode] = useState(false);
   const [isAILoading, setIsAILoading] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [selectedProvider, setSelectedProvider] = useState<'auto' | 'openai' | 'anthropic'>('auto');
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -132,7 +133,28 @@ export default function AIEnhancedSearchBar({
   // Ensure component is mounted for portal
   useEffect(() => {
     setIsMounted(true);
+    loadProviderPreference();
   }, []);
+
+  // Load user's provider preference
+  const loadProviderPreference = async () => {
+    if (!session?.accessToken) return;
+    
+    try {
+      const response = await authenticatedApiCall<{
+        success: boolean;
+        data: { preferredProvider: 'auto' | 'openai' | 'anthropic' };
+      }>('/api/ai/preferences', {
+        method: 'GET',
+      }, session.accessToken);
+      
+      if (response.success && response.data?.preferredProvider) {
+        setSelectedProvider(response.data.preferredProvider);
+      }
+    } catch (error) {
+      console.warn('Failed to load provider preference:', error);
+    }
+  };
 
   useEffect(() => {
     if (isAIMode && conversationEndRef.current) {
@@ -244,6 +266,7 @@ export default function AIEnhancedSearchBar({
           method: 'POST',
           body: JSON.stringify({
             query: userQuery,
+            provider: selectedProvider,
             context: {
               currentModule: 'search',
               dashboardType,

@@ -109,13 +109,15 @@ export class DigitalLifeTwinService {
       dashboardName?: string;
       recentActivity?: unknown[];
       urgency?: 'low' | 'medium' | 'high';
+      preferredProvider?: 'auto' | 'openai' | 'anthropic';
     } = {}
   ): Promise<DigitalLifeTwinResponse> {
     const lifeTwinQuery: LifeTwinQuery = {
       query,
       userId,
       context: context as any, // Context structure is runtime-determined
-      conversationHistory: [] // Could be populated from recent AI conversations
+      conversationHistory: [], // Could be populated from recent AI conversations
+      preferredProvider: context.preferredProvider // Pass provider preference
     };
 
     return await this.digitalLifeTwinCore.processAsDigitalTwin(lifeTwinQuery);

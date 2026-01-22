@@ -19,10 +19,13 @@ import {
   RefreshCw,
   DollarSign,
   Filter,
-  Layers
+  Layers,
+  Database,
+  Cloud
 } from 'lucide-react';
 import Link from 'next/link';
 import { adminApiService } from '../../../lib/adminApiService';
+import ProviderUsageView from '../../../components/admin-portal/ProviderUsageView';
 import { 
   ResponsiveContainer, 
   AreaChart, 
@@ -118,6 +121,7 @@ export default function AISystemPage() {
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set(['users', 'revenue', 'aiInteractions', 'patterns']));
   const [dateRange, setDateRange] = useState<string>('90d');
   const [showUnifiedTrends, setShowUnifiedTrends] = useState(true);
+  const [providerUsageTab, setProviderUsageTab] = useState<'combined' | 'openai' | 'anthropic'>('combined');
 
   useEffect(() => {
     if (status === 'authenticated' && session) {
@@ -1266,6 +1270,55 @@ export default function AISystemPage() {
             </Card>
           </Link>
         </div>
+      </div>
+
+      {/* Provider Usage Section */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Provider Usage</h2>
+            <p className="text-sm text-gray-600 mt-1">Official usage data from AI providers</p>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="-mb-px flex space-x-8">
+            {[
+              { id: 'combined', label: 'Combined View', icon: Database },
+              { id: 'openai', label: 'OpenAI Official', icon: Brain },
+              { id: 'anthropic', label: 'Anthropic Official', icon: Cloud }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = providerUsageTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setProviderUsageTab(tab.id as 'combined' | 'openai' | 'anthropic')}
+                  className={`
+                    flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                    ${isActive
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }
+                  `}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Provider Usage Content */}
+        <ProviderUsageView 
+          provider={providerUsageTab}
+          dateRange={dateRange ? {
+            startDate: new Date(Date.now() - (dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90) * 24 * 60 * 60 * 1000).toISOString(),
+            endDate: new Date().toISOString()
+          } : undefined}
+        />
       </div>
     </div>
   );

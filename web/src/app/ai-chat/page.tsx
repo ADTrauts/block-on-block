@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Brain, Send, Plus, Archive, Pin, Trash2, MessageSquare, Sparkles, Bot, User, Search, MoreVertical, Check, X } from 'lucide-react';
+import { Brain, Send, Plus, Archive, Pin, Trash2, MessageSquare, Sparkles, Bot, User, Search, MoreVertical, Check, X, Share2, Edit, Folder } from 'lucide-react';
 import { Button, Spinner } from 'shared/components';
 import { 
   getConversations, 
@@ -18,6 +18,7 @@ import { authenticatedApiCall } from '../../lib/apiUtils';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useGlobalTrash } from '../../contexts/GlobalTrashContext';
 import { toast } from 'react-hot-toast';
+import AIServicePicker, { type AIProvider } from '../../components/ai/AIServicePicker';
 
 interface ConversationItem {
   id: string;
@@ -44,8 +45,14 @@ export default function AIChat() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [conversationError, setConversationError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider>('auto');
+  const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState<string | null>(null);
+  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
+  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Auto-scroll to bottom of conversation
   useEffect(() => {
@@ -58,8 +65,29 @@ export default function AIChat() {
   useEffect(() => {
     if (session?.accessToken) {
       loadConversations();
+      loadProviderPreference();
     }
   }, [session?.accessToken, showArchived]);
+
+  // Load user's provider preference
+  const loadProviderPreference = async () => {
+    if (!session?.accessToken) return;
+    
+    try {
+      const response = await authenticatedApiCall<{
+        success: boolean;
+        data: { preferredProvider: AIProvider };
+      }>('/api/ai/preferences', {
+        method: 'GET',
+      }, session.accessToken);
+      
+      if (response.success && response.data?.preferredProvider) {
+        setSelectedProvider(response.data.preferredProvider);
+      }
+    } catch (error) {
+      console.warn('Failed to load provider preference:', error);
+    }
+  };
 
   const loadConversations = async () => {
     // Clear previous errors
@@ -234,6 +262,7 @@ export default function AIChat() {
           method: 'POST',
           body: JSON.stringify({
             query: userQuery,
+            provider: selectedProvider, // Include provider selection
             context: {
               currentModule: 'ai-chat',
               dashboardType: 'personal',
@@ -281,7 +310,12 @@ export default function AIChat() {
       
       // Check for specific error types
       if (error instanceof Error) {
-        if (error.message.includes('authentication') || error.message.includes('token')) {
+        // Check for 429 rate limit error
+        const errorData = (error as any)?.errorData;
+        if (errorData?.error === 'AI query limit exceeded' || error.message.includes('AI query limit exceeded')) {
+          const remaining = errorData?.remaining ?? 0;
+          errorMessage = `I apologize, but you've reached your AI query limit for this period. ${remaining > 0 ? `You have ${remaining} queries remaining.` : 'No queries remaining.'} Please upgrade your subscription or wait for your quota to reset to continue using AI features.`;
+        } else if (error.message.includes('authentication') || error.message.includes('token')) {
           setAuthError('Authentication failed. Please log in again.');
           errorMessage = 'Authentication error. Please refresh the page and try again.';
         } else if (error.message.includes('Invalid response structure')) {
@@ -320,41 +354,12 @@ export default function AIChat() {
     inputRef.current?.focus();
   };
 
-  const handleArchiveConversation = async () => {
-    if (!currentConversationId || !session?.accessToken) return;
 
-    try {
-      await updateConversation(currentConversationId, {
-        isArchived: !selectedConversation?.isArchived
-      }, session.accessToken);
-      
-      loadConversations();
-      handleNewConversation();
-      setShowMoreMenu(false);
-    } catch (error) {
-      console.error('Failed to archive conversation:', error);
-    }
-  };
-
-  const handlePinConversation = async () => {
-    if (!currentConversationId || !session?.accessToken) return;
-
-    try {
-      await updateConversation(currentConversationId, {
-        isPinned: !selectedConversation?.isPinned
-      }, session.accessToken);
-      
-      loadConversations();
-      setShowMoreMenu(false);
-    } catch (error) {
-      console.error('Failed to pin conversation:', error);
-    }
-  };
-
-  const handleDeleteConversation = async () => {
-    if (!currentConversationId || !session?.accessToken) return;
+  const handleDeleteConversation = async (conversationId?: string) => {
+    const targetId = conversationId || currentConversationId;
+    if (!targetId || !session?.accessToken) return;
     
-    const conversation = conversations.find(c => c.id === currentConversationId);
+    const conversation = conversations.find(c => c.id === targetId);
     if (!conversation) return;
     
     if (!confirm(`Are you sure you want to move "${conversation.title || 'this conversation'}" to trash?`)) return;
@@ -374,13 +379,126 @@ export default function AIChat() {
 
       toast.success(`${conversation.title || 'Conversation'} moved to trash`);
       loadConversations();
-      handleNewConversation();
+      if (targetId === currentConversationId) {
+        handleNewConversation();
+      }
       setShowMoreMenu(false);
+      setConversationMenuOpen(null);
     } catch (error) {
       console.error('Failed to move conversation to trash:', error);
       toast.error('Failed to move conversation to trash');
     }
   };
+
+  const handleRenameConversation = async (conversationId: string, newTitle: string) => {
+    if (!session?.accessToken || !newTitle.trim()) return;
+
+    try {
+      await updateConversation(conversationId, {
+        title: newTitle.trim()
+      }, session.accessToken);
+      
+      toast.success('Conversation renamed');
+      loadConversations();
+      setRenamingConversationId(null);
+      setRenameValue('');
+      setConversationMenuOpen(null);
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+      toast.error('Failed to rename conversation');
+    }
+  };
+
+  const handleShareConversation = async (conversationId: string) => {
+    // For now, copy conversation link to clipboard
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return;
+
+    const shareUrl = `${window.location.origin}/ai-chat?conversation=${conversationId}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('Conversation link copied to clipboard');
+      setConversationMenuOpen(null);
+    } catch (error) {
+      console.error('Failed to copy link:', error);
+      toast.error('Failed to copy link');
+    }
+  };
+
+  const handlePinConversation = async (conversationId: string) => {
+    if (!session?.accessToken) return;
+    
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return;
+
+    try {
+      await updateConversation(conversationId, {
+        isPinned: !conversation.isPinned
+      }, session.accessToken);
+      
+      toast.success(conversation.isPinned ? 'Conversation unpinned' : 'Conversation pinned');
+      loadConversations();
+      setConversationMenuOpen(null);
+    } catch (error) {
+      console.error('Failed to pin conversation:', error);
+      toast.error('Failed to pin conversation');
+    }
+  };
+
+  const handleArchiveConversation = async (conversationId: string) => {
+    if (!session?.accessToken) return;
+    
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return;
+
+    try {
+      await updateConversation(conversationId, {
+        isArchived: !conversation.isArchived
+      }, session.accessToken);
+      
+      toast.success(conversation.isArchived ? 'Conversation unarchived' : 'Conversation archived');
+      loadConversations();
+      if (conversationId === currentConversationId) {
+        handleNewConversation();
+      }
+      setConversationMenuOpen(null);
+    } catch (error) {
+      console.error('Failed to archive conversation:', error);
+      toast.error('Failed to archive conversation');
+    }
+  };
+
+  // Handle drag and drop to trash
+  const handleDragStart = (e: React.DragEvent, conversation: AIConversation) => {
+    const trashItemData = {
+      id: conversation.id,
+      name: conversation.title || 'Untitled Conversation',
+      type: 'ai_conversation',
+      moduleId: 'ai-chat',
+      moduleName: 'AI Chat',
+      metadata: {
+        dashboardId: currentDashboard?.id,
+      },
+    };
+    e.dataTransfer.setData('application/json', JSON.stringify(trashItemData));
+    e.dataTransfer.setData('text/plain', conversation.title || 'Untitled Conversation');
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (conversationMenuOpen) {
+        const menuElement = menuRefs.current[conversationMenuOpen];
+        if (menuElement && !menuElement.contains(event.target as Node)) {
+          setConversationMenuOpen(null);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [conversationMenuOpen]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -397,7 +515,7 @@ export default function AIChat() {
   const regularConversations = filteredConversations.filter(c => !c.isPinned);
 
   return (
-    <div className="h-screen flex bg-gray-50">
+    <div className="h-full flex bg-gray-50">
       {/* Sidebar - Conversations List */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
         {/* Sidebar Header */}
@@ -485,29 +603,150 @@ export default function AIChat() {
                     Pinned
                   </div>
                   {pinnedConversations.map((conv) => (
-                    <button
+                    <div
                       key={conv.id}
-                      onClick={() => loadConversationMessages(conv.id)}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-l-4 ${
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, conv)}
+                      onMouseEnter={() => setHoveredConversationId(conv.id)}
+                      onMouseLeave={() => {
+                        if (conversationMenuOpen !== conv.id) {
+                          setHoveredConversationId(null);
+                        }
+                      }}
+                      className={`group relative w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-l-4 cursor-pointer ${
                         currentConversationId === conv.id
                           ? 'border-purple-600 bg-purple-50'
                           : 'border-transparent'
                       }`}
+                      onClick={() => {
+                        if (renamingConversationId !== conv.id) {
+                          loadConversationMessages(conv.id);
+                        }
+                      }}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2">
-                            <Pin className="h-3 w-3 text-purple-600 flex-shrink-0" />
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {conv.title}
+                      {renamingConversationId === conv.id ? (
+                        <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleRenameConversation(conv.id, renameValue);
+                              } else if (e.key === 'Escape') {
+                                setRenamingConversationId(null);
+                                setRenameValue('');
+                              }
+                            }}
+                            autoFocus
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRenameConversation(conv.id, renameValue);
+                            }}
+                            className="p-1 text-green-600 hover:text-green-700"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingConversationId(null);
+                              setRenameValue('');
+                            }}
+                            className="p-1 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <Pin className="h-3 w-3 text-purple-600 flex-shrink-0" />
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {conv.title}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {conv.messageCount} messages • {new Date(conv.lastMessageAt).toLocaleDateString()}
                             </p>
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {conv.messageCount} messages • {new Date(conv.lastMessageAt).toLocaleDateString()}
-                          </p>
+                          {(hoveredConversationId === conv.id || conversationMenuOpen === conv.id) && (
+                            <div className="relative" ref={(el) => { menuRefs.current[conv.id] = el; }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConversationMenuOpen(conversationMenuOpen === conv.id ? null : conv.id);
+                                }}
+                                className="p-1 hover:bg-gray-200 rounded transition-colors"
+                              >
+                                <MoreVertical className="h-4 w-4 text-gray-600" />
+                              </button>
+                              {conversationMenuOpen === conv.id && (
+                                <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Share2 className="h-4 w-4" />
+                                    <span>Share</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setRenameValue(conv.title);
+                                      setRenamingConversationId(conv.id);
+                                      setConversationMenuOpen(null);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                    <span>Rename</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePinConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Pin className="h-4 w-4" />
+                                    <span>{conv.isPinned ? 'Unpin' : 'Pin'} chat</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleArchiveConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Archive className="h-4 w-4" />
+                                    <span>{conv.isArchived ? 'Unarchive' : 'Archive'}</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -521,22 +760,147 @@ export default function AIChat() {
                     </div>
                   )}
                   {regularConversations.map((conv) => (
-                    <button
+                    <div
                       key={conv.id}
-                      onClick={() => loadConversationMessages(conv.id)}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-l-4 ${
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, conv)}
+                      onMouseEnter={() => setHoveredConversationId(conv.id)}
+                      onMouseLeave={() => {
+                        if (conversationMenuOpen !== conv.id) {
+                          setHoveredConversationId(null);
+                        }
+                      }}
+                      className={`group relative w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-l-4 cursor-pointer ${
                         currentConversationId === conv.id
                           ? 'border-purple-600 bg-purple-50'
                           : 'border-transparent'
                       }`}
+                      onClick={() => {
+                        if (renamingConversationId !== conv.id) {
+                          loadConversationMessages(conv.id);
+                        }
+                      }}
                     >
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {conv.title}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {conv.messageCount} messages • {new Date(conv.lastMessageAt).toLocaleDateString()}
-                      </p>
-                    </button>
+                      {renamingConversationId === conv.id ? (
+                        <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleRenameConversation(conv.id, renameValue);
+                              } else if (e.key === 'Escape') {
+                                setRenamingConversationId(null);
+                                setRenameValue('');
+                              }
+                            }}
+                            autoFocus
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRenameConversation(conv.id, renameValue);
+                            }}
+                            className="p-1 text-green-600 hover:text-green-700"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingConversationId(null);
+                              setRenameValue('');
+                            }}
+                            className="p-1 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {conv.title}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {conv.messageCount} messages • {new Date(conv.lastMessageAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {(hoveredConversationId === conv.id || conversationMenuOpen === conv.id) && (
+                            <div className="relative" ref={(el) => { menuRefs.current[conv.id] = el; }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConversationMenuOpen(conversationMenuOpen === conv.id ? null : conv.id);
+                                }}
+                                className="p-1 hover:bg-gray-200 rounded transition-colors"
+                              >
+                                <MoreVertical className="h-4 w-4 text-gray-600" />
+                              </button>
+                              {conversationMenuOpen === conv.id && (
+                                <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Share2 className="h-4 w-4" />
+                                    <span>Share</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setRenameValue(conv.title);
+                                      setRenamingConversationId(conv.id);
+                                      setConversationMenuOpen(null);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                    <span>Rename</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePinConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Pin className="h-4 w-4" />
+                                    <span>{conv.isPinned ? 'Unpin' : 'Pin'} chat</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleArchiveConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                                  >
+                                    <Archive className="h-4 w-4" />
+                                    <span>{conv.isArchived ? 'Unarchive' : 'Archive'}</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteConversation(conv.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -561,15 +925,23 @@ export default function AIChat() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Chat Header */}
-        {selectedConversation && (
-          <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">{selectedConversation.title}</h2>
-              <p className="text-sm text-gray-500">
-                {selectedConversation.messageCount} messages
-              </p>
-            </div>
-            <div className="relative">
+        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          {selectedConversation ? (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">{selectedConversation.title}</h2>
+                <p className="text-sm text-gray-500">
+                  {selectedConversation.messageCount} messages
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <AIServicePicker
+                  value={selectedProvider}
+                  onChange={setSelectedProvider}
+                  compact={false}
+                  showLabel={true}
+                />
+                <div className="relative">
               <button
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -580,21 +952,21 @@ export default function AIChat() {
               {showMoreMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
                   <button
-                    onClick={handlePinConversation}
+                    onClick={() => currentConversationId && handlePinConversation(currentConversationId)}
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
                   >
                     <Pin className="h-4 w-4" />
                     <span>{selectedConversation.isPinned ? 'Unpin' : 'Pin'}</span>
                   </button>
                   <button
-                    onClick={handleArchiveConversation}
+                    onClick={() => currentConversationId && handleArchiveConversation(currentConversationId)}
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
                   >
                     <Archive className="h-4 w-4" />
                     <span>{selectedConversation.isArchived ? 'Unarchive' : 'Archive'}</span>
                   </button>
                   <button
-                    onClick={handleDeleteConversation}
+                    onClick={() => handleDeleteConversation()}
                     className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -602,9 +974,24 @@ export default function AIChat() {
                   </button>
                 </div>
               )}
-            </div>
-          </div>
-        )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">AI Assistant</h2>
+                <p className="text-sm text-gray-500">Start a new conversation</p>
+              </div>
+              <AIServicePicker
+                value={selectedProvider}
+                onChange={setSelectedProvider}
+                compact={false}
+                showLabel={true}
+              />
+            </>
+          )}
+        </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">

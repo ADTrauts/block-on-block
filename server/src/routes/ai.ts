@@ -17,7 +17,7 @@ const personalityEngine = new PersonalityEngine(prisma);
  */
 router.post('/twin', authenticateJWT, async (req, res) => {
   try {
-    const { query, context = {} } = req.body;
+    const { query, provider, context = {} } = req.body;
     const userId = req.user?.id;
     const businessId = context.businessId || null;
     
@@ -29,19 +29,29 @@ router.post('/twin', authenticateJWT, async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    // Check AI feature access (includes query balance check)
-    const featureCheck = await FeatureGatingService.checkFeatureAccess(
-      userId,
-      'unlimited_ai',
-      businessId || undefined
-    );
+    // Validate provider if provided
+    if (provider && !['auto', 'openai', 'anthropic'].includes(provider)) {
+      return res.status(400).json({ error: 'Invalid provider. Must be auto, openai, or anthropic' });
+    }
 
-    if (!featureCheck.hasAccess) {
-      return res.status(429).json({
-        error: 'AI query limit exceeded',
-        message: featureCheck.reason || 'No queries remaining',
-        remaining: featureCheck.usageInfo?.remaining || 0,
-      });
+    // Admin users bypass feature gating
+    const isAdmin = req.user?.role === 'ADMIN';
+    
+    // Check AI feature access (includes query balance check) - skip for admins
+    if (!isAdmin) {
+      const featureCheck = await FeatureGatingService.checkFeatureAccess(
+        userId,
+        'unlimited_ai',
+        businessId || undefined
+      );
+
+      if (!featureCheck.hasAccess) {
+        return res.status(429).json({
+          error: 'AI query limit exceeded',
+          message: featureCheck.reason || 'No queries remaining',
+          remaining: featureCheck.usageInfo?.remaining || 0,
+        });
+      }
     }
 
     // Use the revolutionary Digital Life Twin Core
@@ -53,20 +63,23 @@ router.post('/twin', authenticateJWT, async (req, res) => {
         dashboardType: context.dashboardType,
         dashboardName: context.dashboardName,
         recentActivity: context.recentActivity,
-        urgency: context.urgency || 'medium'
+        urgency: context.urgency || 'medium',
+        preferredProvider: provider // Pass provider preference
       }
     );
     
-    // Consume query (only after successful processing)
-    try {
-      const consumeResult = await AIQueryService.consumeQuery(userId, businessId, 1);
-      if (!consumeResult.success) {
-        // This shouldn't happen since we checked above, but handle gracefully
-        console.warn('Query consumption failed after processing:', consumeResult.error);
+    // Consume query (only after successful processing) - skip for admins
+    if (!isAdmin) {
+      try {
+        const consumeResult = await AIQueryService.consumeQuery(userId, businessId, 1);
+        if (!consumeResult.success) {
+          // This shouldn't happen since we checked above, but handle gracefully
+          console.warn('Query consumption failed after processing:', consumeResult.error);
+        }
+      } catch (consumeError) {
+        // Log error but don't fail the request since processing already succeeded
+        console.error('Error consuming query after processing:', consumeError);
       }
-    } catch (consumeError) {
-      // Log error but don't fail the request since processing already succeeded
-      console.error('Error consuming query after processing:', consumeError);
     }
 
     // Save conversation to history with enhanced cross-module data
@@ -89,6 +102,10 @@ router.post('/twin', authenticateJWT, async (req, res) => {
       }
     });
 
+    // Note: Fact extraction now happens in the learning engine (AdvancedLearningEngine.processLearningEvent)
+    // The learning engine processes the interaction and extracts facts as part of its learning flow
+    // This keeps all learning logic centralized in one place
+
     // Record any actions that require approval
     if (response.actions && response.actions.length > 0) {
       const actionsRequiringApproval = response.actions.filter(action => action.requiresApproval);
@@ -108,8 +125,20 @@ router.post('/twin', authenticateJWT, async (req, res) => {
       }
     }
 
-    // Get updated query balance for response
-    const updatedAvailability = await AIQueryService.checkQueryAvailability(userId, businessId);
+    // Get updated query balance for response (skip for admins)
+    let queryBalance = null;
+    if (!isAdmin) {
+      const updatedAvailability = await AIQueryService.checkQueryAvailability(userId, businessId);
+      queryBalance = {
+        remaining: updatedAvailability.remaining,
+        isUnlimited: updatedAvailability.isUnlimited,
+      };
+    } else {
+      queryBalance = {
+        remaining: -1, // Unlimited for admins
+        isUnlimited: true,
+      };
+    }
 
     res.json({
       success: true,
@@ -122,10 +151,7 @@ router.post('/twin', authenticateJWT, async (req, res) => {
         personalityAlignment: response.personalityAlignment,
         crossModuleConnections: response.crossModuleConnections,
         metadata: response.metadata,
-        queryBalance: {
-          remaining: updatedAvailability.remaining,
-          isUnlimited: updatedAvailability.isUnlimited,
-        }
+        queryBalance
       }
     });
   } catch (error) {

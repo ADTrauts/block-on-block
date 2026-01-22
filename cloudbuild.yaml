@@ -151,7 +151,7 @@ steps:
       - '--set-env-vars'
       - 'NODE_ENV=production,DATABASE_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,DIRECT_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,JWT_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,JWT_REFRESH_SECRET=/NkIB2sn75WZyqsWOmevzv1wgn9zHuFgmi9x8DTmVG4=,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
       - '--set-secrets'
-      - 'OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
+      - 'OPENAI_API_KEY=openai-api-key:latest,OPENAI_ADMIN_API_KEY=openai-admin-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
     id: 'deploy-server'
     waitFor: ['push-server', 'push-server-latest']  # Module registration happens on server startup
 

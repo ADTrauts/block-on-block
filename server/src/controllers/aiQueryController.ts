@@ -16,6 +16,7 @@ import { logger } from '../lib/logger';
 export async function getQueryBalance(req: Request, res: Response): Promise<void> {
   try {
     const userId = (req as any).user?.id;
+    const userRole = (req as any).user?.role;
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
@@ -23,6 +24,25 @@ export async function getQueryBalance(req: Request, res: Response): Promise<void
 
     const { businessId } = req.query;
     const businessIdParam = typeof businessId === 'string' ? businessId : null;
+
+    // Admin users get unlimited access
+    if (userRole === 'ADMIN') {
+      res.json({
+        success: true,
+        data: {
+          available: true,
+          remaining: -1, // -1 means unlimited
+          totalAvailable: -1,
+          breakdown: {
+            baseAllowance: -1,
+            purchased: 0,
+            rolledOver: 0,
+          },
+          isUnlimited: true,
+        },
+      });
+      return;
+    }
 
     const availability = await AIQueryService.checkQueryAvailability(userId, businessIdParam);
 

@@ -165,6 +165,34 @@ export class AdvancedLearningEngine {
     // Update personality based on event
     const personalityAdjustments = await this.updatePersonalityFromEvent(learningEvent);
     
+    // Extract and save explicit facts from conversation (if this is a conversation event)
+    // This complements pattern learning by capturing WHAT the user told us, not just HOW they behave
+    if (event.eventType === 'interaction') {
+      try {
+        const eventData = event.data as any;
+        // Check multiple possible data structures (request/response or userQuery/aiResponse)
+        const userQuery = eventData?.request?.query || eventData?.userQuery || eventData?.query;
+        const aiResponse = eventData?.response?.response || eventData?.aiResponse || eventData?.response;
+        
+        if (userQuery && aiResponse) {
+          // Import fact extraction service dynamically to avoid circular dependencies
+          const { factExtractionService } = await import('../../services/factExtractionService');
+          await factExtractionService.extractAndSaveFacts(
+            event.userId,
+            userQuery,
+            aiResponse,
+            eventData?.context || eventData?.request?.context
+          ).catch(err => {
+            // Log but don't fail - fact extraction is non-critical
+            console.warn('Fact extraction in learning engine failed:', err);
+          });
+        }
+      } catch (error) {
+        // Silently fail - fact extraction shouldn't break learning
+        console.warn('Error extracting facts in learning engine:', error);
+      }
+    }
+    
     // Generate new predictions
     const newPredictions = await this.generatePredictionsFromEvent(learningEvent);
     
