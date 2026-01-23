@@ -37,43 +37,43 @@ const prismaConfig: any = {
     : ['error'],
 };
 
-// Process DATABASE_URL for Cloud SQL Unix socket connections
-if (process.env.DATABASE_URL?.includes('/cloudsql/')) {
-  // For Cloud SQL Unix socket connections, Prisma requires the URL format:
-  // postgresql://user:password@/database?host=/cloudsql/project:region:instance
-  // The host is empty in the standard position and specified in the query parameter
+// Process DATABASE_URL - always set datasources to ensure Prisma uses our config
+// This is critical for both Unix socket and IP address connections
+if (process.env.DATABASE_URL) {
   let dbUrl = process.env.DATABASE_URL;
   
-  // Ensure connection pool parameters are present
-  // Use higher connection limit for production workloads (20 connections)
-  // Development can use lower limit (5 connections) to save resources
-  const connectionLimit = process.env.NODE_ENV === 'production' ? 20 : 5;
-  
-  // Check if URL already has connection parameters
-  const hasParams = dbUrl.includes('?');
-  const separator = hasParams ? '&' : '?';
-  
-  // Add connection pool parameters if not already present
-  if (!dbUrl.includes('connection_limit=')) {
-    dbUrl = `${dbUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=20&connect_timeout=60`;
+  // For Cloud SQL Unix socket connections, ensure connection pool parameters are present
+  if (dbUrl.includes('/cloudsql/')) {
+    // Use higher connection limit for production workloads (20 connections)
+    // Development can use lower limit (5 connections) to save resources
+    const connectionLimit = process.env.NODE_ENV === 'production' ? 20 : 5;
+    
+    // Check if URL already has connection parameters
+    const hasParams = dbUrl.includes('?');
+    const separator = hasParams ? '&' : '?';
+    
+    // Add connection pool parameters if not already present
+    if (!dbUrl.includes('connection_limit=')) {
+      dbUrl = `${dbUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=20&connect_timeout=60`;
+    }
   }
   
-  // CRITICAL: Set datasources config BEFORE creating PrismaClient
-  // This ensures Prisma uses this URL instead of parsing DATABASE_URL directly
-  // Prisma will use the datasources config and bypass URL validation
+  // CRITICAL: Always set datasources config BEFORE creating PrismaClient
+  // This ensures Prisma uses this URL instead of trying to parse DATABASE_URL directly
+  // This bypasses Prisma's URL validation which fails on Unix socket format
   prismaConfig.datasources = {
     db: {
       url: dbUrl
     }
   };
   
-  // Log the connection string format in development for debugging
+  // Log the connection type in development for debugging
   if (process.env.NODE_ENV === 'development') {
-    console.log('🔌 [PRISMA] Using Cloud SQL Unix socket connection');
-    console.log(`   Connection string format: ${dbUrl.substring(0, 50)}...`);
+    const connectionType = dbUrl.includes('/cloudsql/') ? 'Unix socket' : 'IP address';
+    console.log(`🔌 [PRISMA] Using ${connectionType} connection`);
+    console.log(`   Connection string: ${dbUrl.substring(0, 60)}...`);
   }
 }
-// Note: No special handling needed for localhost - it's a valid database URL
 
 // Store flag for whether database is configured (for use in startup messages)
 export const DATABASE_CONFIGURED = isDatabaseConfigured();
