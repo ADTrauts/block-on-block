@@ -542,14 +542,37 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
 app.post('/api/auth/login', (req: Request, res: Response, next: NextFunction) => {
   passport.authenticate('local', { session: false }, async (err: unknown, user: User | false, info: { message?: string } | undefined) => {
     if (err || !user) {
+      // Check if it's a database connection error
+      const errorMessage = err instanceof Error ? err.message : '';
+      if (errorMessage.includes('Database connection failed') || 
+          errorMessage.includes('Database temporarily unavailable')) {
+        // Log database connection error
+        try {
+          await logger.logSecurityEvent('login_database_error', 'high', {
+            operation: 'user_login',
+            email: req.body.email,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+            reason: 'Database connection failed'
+          });
+        } catch (logError) {
+          console.error('Failed to log login database error:', logError);
+        }
+        return res.status(503).json({ message: 'Database temporarily unavailable. Please try again.' });
+      }
+      
       // Log failed login attempt
-      await logger.logSecurityEvent('login_failed', 'medium', {
-        operation: 'user_login',
-        email: req.body.email,
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-        reason: info?.message || 'Invalid credentials'
-      });
+      try {
+        await logger.logSecurityEvent('login_failed', 'medium', {
+          operation: 'user_login',
+          email: req.body.email,
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
+          reason: info?.message || 'Invalid credentials'
+        });
+      } catch (logError) {
+        console.error('Failed to log login failure:', logError);
+      }
       
       return res.status(401).json({ message: info?.message || 'Unauthorized' });
     }

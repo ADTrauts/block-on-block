@@ -18,6 +18,16 @@ passport.use(new LocalStrategy(
   { usernameField: 'email' },
   async (email, password, done) => {
     try {
+      // Test database connection first
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+      } catch (dbError) {
+        const dbErrorMsg = dbError instanceof Error ? dbError.message : 'Unknown database error';
+        console.error('❌ [LOGIN] Database connection test failed:', dbErrorMsg);
+        // Return a specific error that can be caught by the login handler
+        return done(new Error('Database connection failed'), false, { message: 'Database temporarily unavailable. Please try again.' });
+      }
+      
       const user = await prisma.user.findUnique({
         where: { email },
         select: {
@@ -55,6 +65,20 @@ passport.use(new LocalStrategy(
 
       return done(null, user);
     } catch (error) {
+      // Check if it's a database connection error
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('Can\'t reach database') || 
+          errorMessage.includes('connection pool') ||
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('PrismaClientInitializationError') ||
+          (typeof error === 'object' && error && 'code' in error && 
+           ((error as Record<string, unknown>).code === 'P1001' || 
+            (error as Record<string, unknown>).code === 'P1002'))) {
+        console.error('❌ [LOGIN] Database error during authentication:', errorMessage);
+        return done(new Error('Database connection failed'), false, { message: 'Database temporarily unavailable. Please try again.' });
+      }
+      // For other errors, log and return generic error
+      console.error('❌ [LOGIN] Authentication error:', errorMessage);
       return done(error);
     }
   }
