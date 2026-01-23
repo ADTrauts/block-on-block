@@ -389,20 +389,28 @@ router.get('/impersonation/current', authenticateJWT, requireAdmin, async (req: 
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const impersonation = await prisma.adminImpersonation.findFirst({
-      where: {
-        adminId: adminUser.id,
-        endedAt: null
-      },
-      include: {
-        targetUser: {
-          select: { id: true, email: true, name: true }
+    // Use query timeout to prevent hanging requests (10 second timeout)
+    const impersonation = await Promise.race([
+      prisma.adminImpersonation.findFirst({
+        where: {
+          adminId: adminUser.id,
+          endedAt: null
         },
-        business: {
-          select: { id: true, name: true }
+        include: {
+          targetUser: {
+            select: { id: true, email: true, name: true }
+          },
+          business: {
+            select: { id: true, name: true }
+          }
         }
-      }
-    });
+      }),
+      new Promise<null>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Database query timeout after 10 seconds'));
+        }, 10000);
+      })
+    ]);
 
     if (!impersonation) {
       return res.json({ active: false });

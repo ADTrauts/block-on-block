@@ -542,7 +542,9 @@ router.post(
  * POST /api/admin/modules/ai/register-built-ins
  * 
  * This endpoint allows admins to manually register the built-in modules
- * (Drive, Chat, Calendar) if the automatic registration during deployment failed.
+ * if the automatic registration during deployment failed or if new modules were added.
+ * 
+ * Uses the same registration logic as startup, which will only register missing modules.
  */
 router.post(
   '/admin/modules/ai/register-built-ins',
@@ -551,206 +553,33 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       console.log('🤖 Admin-triggered manual module registration starting...');
-
-      const modulesToRegister = [
-        {
-          moduleId: 'drive',
-          aiContext: {
-            purpose: 'File and folder storage with organization, sharing, and versioning capabilities',
-            category: 'PRODUCTIVITY',
-            keywords: ['file', 'folder', 'document', 'storage', 'drive', 'file hub', 'upload', 'download', 'share', 'organize'],
-            patterns: [
-              'files? (in|from|on) (my )?(drive|file hub)',
-              'folders? (in|from|on) (my )?(drive|file hub)',
-              'upload (a |the )?file',
-              'create (a )?folder',
-              'share (this |the )?file',
-              'storage space',
-              'recent (files?|documents?)',
-            ],
-            concepts: ['file management', 'cloud storage', 'document organization', 'sharing', 'collaboration'],
-            entities: [
-              { name: 'File', pluralName: 'Files', description: 'A file stored in File Hub' },
-              { name: 'Folder', pluralName: 'Folders', description: 'A folder for organizing files' },
-              { name: 'File Hub', pluralName: 'File Hubs', description: 'Cloud storage space' },
-            ],
-            actions: [
-              { name: 'create_folder', description: 'Create a new folder', permissions: ['drive:write'] },
-              { name: 'upload_file', description: 'Upload a file to File Hub', permissions: ['drive:write'] },
-              { name: 'download_file', description: 'Download a file from File Hub', permissions: ['drive:read'] },
-              { name: 'share_file', description: 'Share a file with others', permissions: ['drive:write', 'drive:share'] },
-              { name: 'delete_file', description: 'Delete a file or folder', permissions: ['drive:delete'] },
-            ],
-            contextProviders: [
-              {
-                name: 'recent_files',
-                description: 'Get user\'s recently accessed or modified files',
-                endpoint: '/api/drive/ai/context/recent',
-                cacheDuration: 300000, // 5 minutes in milliseconds
-              },
-              {
-                name: 'storage_overview',
-                description: 'Get storage usage and quota information',
-                endpoint: '/api/drive/ai/context/storage',
-                cacheDuration: 900000, // 15 minutes
-              },
-              {
-                name: 'file_count',
-                description: 'Query file and folder counts',
-                endpoint: '/api/drive/ai/query/count',
-                cacheDuration: 600000, // 10 minutes
-              },
-            ],
-          }
-        },
-        {
-          moduleId: 'chat',
-          aiContext: {
-            purpose: 'Real-time messaging and communication between users',
-            category: 'COMMUNICATION',
-            keywords: ['message', 'chat', 'conversation', 'talk', 'send', 'reply', 'unread'],
-            patterns: [
-              'messages?',
-              'chats?',
-              'conversations?',
-              'unread messages?',
-              'send (a )?message',
-              'talk to',
-              'contact',
-            ],
-            concepts: ['messaging', 'communication', 'conversations', 'real-time chat'],
-            entities: [
-              { name: 'Message', pluralName: 'Messages', description: 'A chat message' },
-              { name: 'Conversation', pluralName: 'Conversations', description: 'A chat conversation thread' },
-              { name: 'Chat', pluralName: 'Chats', description: 'Real-time messaging system' },
-            ],
-            actions: [
-              { name: 'send_message', description: 'Send a message to a user', permissions: ['chat:write'] },
-              { name: 'read_messages', description: 'Read chat messages', permissions: ['chat:read'] },
-              { name: 'start_conversation', description: 'Start a new conversation', permissions: ['chat:write'] },
-            ],
-            contextProviders: [
-              {
-                name: 'recent_conversations',
-                description: 'Get user\'s recent chat conversations',
-                endpoint: '/api/chat/ai/context/recent',
-                cacheDuration: 120000, // 2 minutes
-              },
-              {
-                name: 'unread_messages',
-                description: 'Get count and preview of unread messages',
-                endpoint: '/api/chat/ai/context/unread',
-                cacheDuration: 60000, // 1 minute
-              },
-              {
-                name: 'conversation_history',
-                description: 'Query conversation history with a specific user',
-                endpoint: '/api/chat/ai/query/history',
-                cacheDuration: 300000, // 5 minutes
-              },
-            ],
-          }
-        },
-        {
-          moduleId: 'calendar',
-          aiContext: {
-            purpose: 'Event scheduling and calendar management',
-            category: 'PRODUCTIVITY',
-            keywords: ['event', 'calendar', 'meeting', 'appointment', 'schedule', 'availability', 'busy', 'free'],
-            patterns: [
-              'events?',
-              'meetings?',
-              'appointments?',
-              'calendar',
-              'schedule',
-              'availability',
-              'free time',
-              'busy',
-              'today',
-              'tomorrow',
-              'this week',
-            ],
-            concepts: ['time management', 'scheduling', 'event planning', 'availability'],
-            entities: [
-              { name: 'Event', pluralName: 'Events', description: 'A calendar event' },
-              { name: 'Meeting', pluralName: 'Meetings', description: 'A scheduled meeting' },
-              { name: 'Appointment', pluralName: 'Appointments', description: 'A scheduled appointment' },
-            ],
-            actions: [
-              { name: 'create_event', description: 'Create a calendar event', permissions: ['calendar:write'] },
-              { name: 'schedule_meeting', description: 'Schedule a meeting', permissions: ['calendar:write'] },
-              { name: 'check_availability', description: 'Check user availability', permissions: ['calendar:read'] },
-              { name: 'cancel_event', description: 'Cancel an event', permissions: ['calendar:write'] },
-            ],
-            contextProviders: [
-              {
-                name: 'upcoming_events',
-                description: 'Get user\'s upcoming calendar events',
-                endpoint: '/api/calendar/ai/context/upcoming',
-                cacheDuration: 300000, // 5 minutes
-              },
-              {
-                name: 'today_events',
-                description: 'Get events scheduled for today',
-                endpoint: '/api/calendar/ai/context/today',
-                cacheDuration: 900000, // 15 minutes
-              },
-              {
-                name: 'availability',
-                description: 'Check user availability for a given time period',
-                endpoint: '/api/calendar/ai/query/availability',
-                cacheDuration: 600000, // 10 minutes
-              },
-            ],
-          }
-        },
-      ];
-
-      const results = [];
-
-      for (const { moduleId, aiContext } of modulesToRegister) {
-        try {
-          console.log(`📝 Registering: ${moduleId}...`);
-          
-          const result = await moduleAIContextService.registerModuleContext(
-            moduleId,
-            moduleId.charAt(0).toUpperCase() + moduleId.slice(1), // moduleName
-            aiContext as any // Type mismatch - entities/actions need proper format, but this is for manual registration only
-          );
-
-          results.push({
-            moduleId,
-            success: true,
-            result,
-          });
-
-          console.log(`✅ Registered: ${moduleId}`);
-        } catch (error: unknown) {
-          const err = error as Error;
-          console.error(`❌ Error registering ${moduleId}:`, err.message);
-          results.push({
-            moduleId,
-            success: false,
-            error: err.message,
-          });
-        }
-      }
-
-      const successCount = results.filter(r => r.success).length;
-      const failCount = results.filter(r => !r.success).length;
-
-      console.log(`\n✅ Registration complete: ${successCount} succeeded, ${failCount} failed\n`);
-
-      res.json({
-        success: successCount > 0,
-        message: `Registered ${successCount} of ${modulesToRegister.length} modules`,
-        results,
+      
+      // Import and call the startup registration function
+      // This will check which modules are missing and register only those
+      const { registerBuiltInModulesOnStartup } = await import('../startup/registerBuiltInModules');
+      
+      // Call the registration function
+      await registerBuiltInModulesOnStartup();
+      
+      // Get updated status
+      const registryCount = await prisma.moduleAIContextRegistry.count();
+      const allModules = await prisma.module.findMany({
+        select: { id: true },
       });
-
+      
+      res.json({
+        success: true,
+        message: 'Module registration completed',
+        registeredCount: registryCount,
+        totalModules: allModules.length,
+      });
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error in manual module registration:', error);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ 
+        success: false,
+        error: err.message 
+      });
     }
   }
 );

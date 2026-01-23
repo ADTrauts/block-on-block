@@ -713,6 +713,29 @@ class AdminApiService {
     }
   }
 
+  async registerBuiltInModules(): Promise<ApiResponse<any>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch('/api/admin/modules/ai/register-built-ins', {
+        method: 'POST',
+        headers,
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return { error: errorData.error || `HTTP ${response.status}` };
+      }
+
+      const responseData = await response.json();
+      const data = responseData.success && responseData.data ? responseData.data : responseData;
+      return { data };
+    } catch (error) {
+      console.error('Error in registerBuiltInModules:', error);
+      return { error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   async reviewModuleSubmission(
     submissionId: string, 
     action: 'approve' | 'reject', 

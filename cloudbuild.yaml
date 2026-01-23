@@ -82,11 +82,14 @@ steps:
         echo "🔨 Generating Prisma client..."
         npx prisma generate
         
-        # Run Prisma migration (using URL-encoded password)
+        # Run Prisma migration
         # Note: This will fail during build (no VPC access), but migrations run on container startup
+        # Database URL is fetched from Secret Manager for security (uses IP address for build-time access)
         echo "🔄 Attempting database migrations..."
-        export DATABASE_URL="postgresql://vssyl_user:ArthurGeorge116%21@172.30.0.15:5432/vssyl_production?connection_limit=5&pool_timeout=20"
-        if ! npx prisma migrate deploy; then
+        export DATABASE_URL=$(gcloud secrets versions access latest --secret="database-url-migration" --project="$PROJECT_ID" 2>/dev/null || echo "")
+        if [ -z "$DATABASE_URL" ]; then
+          echo "⚠️  Could not fetch database URL from Secret Manager - migrations will run on container startup"
+        elif ! npx prisma migrate deploy; then
           echo "⚠️  Database not reachable during build - migrations will run on container startup"
         else
           echo "✅ Migrations completed successfully"
@@ -149,9 +152,9 @@ steps:
       - '--add-cloudsql-instances'
       - 'vssyl-472202:us-central1:vssyl-db-optimized'
       - '--set-env-vars'
-      - 'NODE_ENV=production,DATABASE_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,DIRECT_URL=postgresql://vssyl_user:ArthurGeorge116%21@/vssyl_production?host=/cloudsql/vssyl-472202:us-central1:vssyl-db-optimized&connection_limit=5&pool_timeout=20,JWT_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,JWT_REFRESH_SECRET=/NkIB2sn75WZyqsWOmevzv1wgn9zHuFgmi9x8DTmVG4=,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
+      - 'NODE_ENV=production,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
       - '--set-secrets'
-      - 'OPENAI_API_KEY=openai-api-key:latest,OPENAI_ADMIN_API_KEY=openai-admin-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
+      - 'DATABASE_URL=database-url:latest,DIRECT_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,OPENAI_API_KEY=openai-api-key:latest,OPENAI_ADMIN_API_KEY=openai-admin-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
     id: 'deploy-server'
     waitFor: ['push-server', 'push-server-latest']  # Module registration happens on server startup
 
@@ -180,9 +183,9 @@ steps:
       - '--max-instances'
       - '20'
       - '--set-secrets'
-      - 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=stripe-publishable-key:latest'
+      - 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=stripe-publishable-key:latest,NEXTAUTH_SECRET=nextauth-secret:latest'
       - '--set-env-vars'
-      - 'NODE_ENV=production,NEXTAUTH_URL=https://vssyl.com,NEXTAUTH_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI=,NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'                   
+      - 'NODE_ENV=production,NEXTAUTH_URL=https://vssyl.com,NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'                   
     id: 'deploy-web'
     waitFor: ['push-web', 'push-web-latest']
 

@@ -158,6 +158,12 @@ export default function AdminModulesPage() {
   const [aiContextSummary, setAiContextSummary] = useState<ModuleAIStatusSummary | null>(null);
   const [aiContextSearch, setAiContextSearch] = useState('');
   const [aiContextFilter, setAiContextFilter] = useState<'all' | 'registered' | 'not-registered'>('all');
+  const [registering, setRegistering] = useState(false);
+  const [selectedModule, setSelectedModule] = useState<ModuleAIStatus | null>(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showTestProvidersModal, setShowTestProvidersModal] = useState(false);
+  const [testingProviders, setTestingProviders] = useState(false);
+  const [providerTestResults, setProviderTestResults] = useState<Record<string, { success: boolean; error?: string; data?: unknown }>>({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -312,6 +318,94 @@ export default function AdminModulesPage() {
     } finally {
       setAiContextLoading(false);
     }
+  }, []);
+
+  const handleRegisterMissingModules = useCallback(async () => {
+    setRegistering(true);
+    setAiContextError(null);
+    
+    try {
+      const response = await adminApiService.registerBuiltInModules();
+      
+      if (response.error) {
+        setAiContextError(`Registration failed: ${response.error}`);
+        return;
+      }
+      
+      // Reload data after registration
+      await loadAIContextData();
+      
+      // Show success message
+      alert('Module registration completed! Check the summary above for details.');
+    } catch (err) {
+      console.error('Error registering modules:', err);
+      setAiContextError('Failed to register modules. Please try again.');
+    } finally {
+      setRegistering(false);
+    }
+  }, [loadAIContextData]);
+
+  const handleTestProviders = useCallback(async (module: ModuleAIStatus) => {
+    if (!module.aiContext || !module.aiContext.contextProviders || module.aiContext.contextProviders.length === 0) {
+      setProviderTestResults({});
+      return;
+    }
+
+    setTestingProviders(true);
+    setProviderTestResults({});
+
+    const results: Record<string, { success: boolean; error?: string; data?: unknown }> = {};
+
+    // Test each context provider endpoint
+    for (const provider of module.aiContext.contextProviders) {
+      try {
+        const endpoint = provider.endpoint;
+        
+        // Endpoints are stored as `/api/calendar/ai/context/upcoming` etc.
+        // The Next.js proxy expects `/api/...` so we need to use the endpoint as-is
+        // But if it doesn't start with `/api/`, we need to add it
+        let testUrl: string;
+        if (endpoint.startsWith('/api/')) {
+          // Already has /api/ prefix, use as-is
+          testUrl = endpoint;
+        } else if (endpoint.startsWith('/')) {
+          // Starts with / but not /api/, add /api prefix
+          testUrl = `/api${endpoint}`;
+        } else {
+          // No leading slash, add both
+          testUrl = `/api/${endpoint}`;
+        }
+        
+        // Note: Most context providers require a businessId query parameter
+        // For testing, we'll try without it first and show the error if needed
+        const response = await fetch(testUrl, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          results[provider.name] = { success: true, data };
+        } else {
+          const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+          results[provider.name] = { 
+            success: false, 
+            error: errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}` 
+          };
+        }
+      } catch (error) {
+        results[provider.name] = { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    }
+
+    setProviderTestResults(results);
+    setTestingProviders(false);
   }, []);
 
   // Load data
@@ -972,6 +1066,16 @@ export default function AdminModulesPage() {
                   <RefreshCw className={`w-4 h-4 mr-2 ${aiContextLoading ? 'animate-spin' : ''}`} />
                   Refresh
                 </Button>
+                {aiContextSummary && aiContextSummary.notRegistered > 0 && (
+                  <Button 
+                    variant="primary" 
+                    onClick={handleRegisterMissingModules} 
+                    disabled={registering || aiContextLoading}
+                  >
+                    <Brain className={`w-4 h-4 mr-2 ${registering ? 'animate-pulse' : ''}`} />
+                    Register Missing ({aiContextSummary.notRegistered})
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
@@ -1088,17 +1192,37 @@ export default function AdminModulesPage() {
                         <div className="flex flex-col gap-2 ml-4">
                           {module.aiContextRegistered ? (
                             <>
-                              <Button variant="secondary" size="sm">
+                              <Button 
+                                variant="secondary" 
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedModule(module);
+                                  setShowDetailsModal(true);
+                                }}
+                              >
                                 <Eye className="w-4 h-4 mr-2" />
                                 View Details
                               </Button>
-                              <Button variant="secondary" size="sm">
-                                <Zap className="w-4 h-4 mr-2" />
-                                Test Providers
+                              <Button 
+                                variant="secondary" 
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedModule(module);
+                                  setShowTestProvidersModal(true);
+                                  handleTestProviders(module);
+                                }}
+                                disabled={testingProviders}
+                              >
+                                <Zap className={`w-4 h-4 mr-2 ${testingProviders ? 'animate-pulse' : ''}`} />
+                                {testingProviders ? 'Testing...' : 'Test Providers'}
                               </Button>
                             </>
                           ) : (
-                            <Button variant="primary" size="sm">
+                            <Button 
+                              variant="primary" 
+                              size="sm"
+                              onClick={handleRegisterMissingModules}
+                            >
                               <Brain className="w-4 h-4 mr-2" />
                               Register Now
                             </Button>
@@ -1121,6 +1245,250 @@ export default function AdminModulesPage() {
         size="large"
       >
         <SecurityDashboard onClose={() => setShowSecurityDashboard(false)} />
+      </Modal>
+
+      {/* AI Context Details Modal */}
+      <Modal
+        open={showDetailsModal}
+        onClose={() => {
+          setShowDetailsModal(false);
+          setSelectedModule(null);
+        }}
+        size="large"
+      >
+        {selectedModule && selectedModule.aiContext && (
+          <div className="p-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              AI Context Details: {selectedModule.moduleName}
+            </h2>
+            
+            <div className="space-y-6">
+              {/* Purpose */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Purpose</h3>
+                <p className="text-gray-900">{selectedModule.aiContext.purpose}</p>
+              </div>
+
+              {/* Category */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Category</h3>
+                <Badge color="gray" size="sm">{selectedModule.aiContext.category}</Badge>
+              </div>
+
+              {/* Keywords */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                  Keywords ({selectedModule.aiContext.keywords.length})
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedModule.aiContext.keywords.map((keyword, idx) => (
+                    <Badge key={idx} color="blue" size="sm">{keyword}</Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Patterns */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                  Patterns ({selectedModule.aiContext.patterns.length})
+                </h3>
+                <div className="space-y-1">
+                  {selectedModule.aiContext.patterns.map((pattern, idx) => (
+                    <div key={idx} className="p-2 bg-purple-50 rounded text-sm text-purple-900 font-mono">
+                      {pattern}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Concepts */}
+              {selectedModule.aiContext.concepts && selectedModule.aiContext.concepts.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Concepts ({selectedModule.aiContext.concepts.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedModule.aiContext.concepts.map((concept, idx) => (
+                      <Badge key={idx} color="green" size="sm">{concept}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Entities */}
+              {selectedModule.aiContext.entities && selectedModule.aiContext.entities.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Entities ({selectedModule.aiContext.entities.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedModule.aiContext.entities.map((entity: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-gray-50 rounded">
+                        <div className="font-medium text-gray-900">{entity.name} / {entity.pluralName}</div>
+                        <div className="text-sm text-gray-600">{entity.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              {selectedModule.aiContext.actions && selectedModule.aiContext.actions.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                    Actions ({selectedModule.aiContext.actions.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedModule.aiContext.actions.map((action: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-gray-50 rounded">
+                        <div className="font-medium text-gray-900">{action.name}</div>
+                        <div className="text-sm text-gray-600">{action.description}</div>
+                        {action.permissions && action.permissions.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {action.permissions.map((perm: string, pIdx: number) => (
+                              <Badge key={pIdx} color="yellow" size="sm">{perm}</Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Context Providers */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                  Context Providers ({selectedModule.aiContext.contextProviders.length})
+                </h3>
+                <div className="space-y-3">
+                  {selectedModule.aiContext.contextProviders.map((provider, idx) => (
+                    <div key={idx} className="p-4 bg-green-50 border border-green-200 rounded">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-medium text-green-900">{provider.name}</div>
+                        <Badge color="green" size="sm">{provider.endpoint}</Badge>
+                      </div>
+                      <div className="text-sm text-green-700">{provider.description}</div>
+                      {provider.cacheDuration && (
+                        <div className="text-xs text-green-600 mt-1">
+                          Cache: {Math.round(provider.cacheDuration / 1000)}s
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => {
+                setShowDetailsModal(false);
+                setSelectedModule(null);
+              }}>
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Test Providers Modal */}
+      <Modal
+        open={showTestProvidersModal}
+        onClose={() => {
+          setShowTestProvidersModal(false);
+          setSelectedModule(null);
+          setProviderTestResults({});
+        }}
+        size="large"
+      >
+        {selectedModule && selectedModule.aiContext && (
+          <div className="p-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              Test Context Providers: {selectedModule.moduleName}
+            </h2>
+            
+            {selectedModule.aiContext.contextProviders.length === 0 ? (
+              <div className="text-center py-8">
+                <AlertTriangle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                <p className="text-gray-600">This module has no context providers to test.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {selectedModule.aiContext.contextProviders.map((provider, idx) => {
+                  const result = providerTestResults[provider.name];
+                  return (
+                    <div key={idx} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="font-medium text-gray-900">{provider.name}</div>
+                          <div className="text-sm text-gray-600">{provider.endpoint}</div>
+                        </div>
+                        {result ? (
+                          result.success ? (
+                            <Badge color="green" size="sm">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Success
+                            </Badge>
+                          ) : (
+                            <Badge color="red" size="sm">
+                              <XCircle className="w-3 h-3 mr-1" />
+                              Failed
+                            </Badge>
+                          )
+                        ) : testingProviders ? (
+                          <Spinner size={16} />
+                        ) : (
+                          <Badge color="gray" size="sm">Not Tested</Badge>
+                        )}
+                      </div>
+                      
+                      {result && (
+                        <div className="mt-3">
+                          {result.success ? (
+                            <div className="p-3 bg-green-50 rounded text-sm">
+                              <div className="font-medium text-green-900 mb-1">Response:</div>
+                              <pre className="text-xs text-green-700 overflow-auto max-h-32">
+                                {JSON.stringify(result.data, null, 2)}
+                              </pre>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-red-50 rounded text-sm">
+                              <div className="font-medium text-red-900 mb-1">Error:</div>
+                              <div className="text-xs text-red-700">{result.error}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button 
+                variant="secondary"
+                onClick={() => {
+                  setShowTestProvidersModal(false);
+                  setSelectedModule(null);
+                  setProviderTestResults({});
+                }}
+              >
+                Close
+              </Button>
+              {selectedModule.aiContext.contextProviders.length > 0 && (
+                <Button 
+                  onClick={() => selectedModule && handleTestProviders(selectedModule)}
+                  disabled={testingProviders}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${testingProviders ? 'animate-spin' : ''}`} />
+                  {testingProviders ? 'Testing...' : 'Test All Providers'}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

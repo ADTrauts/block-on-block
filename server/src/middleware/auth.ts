@@ -153,6 +153,8 @@ export async function authenticateJWT(req: Request, res: Response, next: NextFun
     authRequest.user = user;
 
     // Handle impersonation if present
+    // Optimization: Only check impersonation if token is provided AND user is admin
+    // This avoids unnecessary database queries for non-admin users or when no impersonation token exists
     if (impersonationToken && user.role === 'ADMIN') {
       const impersonationTokenHash = crypto.createHash('sha256').update(impersonationToken).digest('hex');
 

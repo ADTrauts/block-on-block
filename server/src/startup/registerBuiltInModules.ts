@@ -552,20 +552,35 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
       throw dbError;
     }
 
+    // Get list of already registered module IDs
+    const registeredModuleIds = new Set<string>();
     if (registryCount > 0) {
-      console.log(`✅ Registry already populated (${registryCount} modules registered)`);
-      console.log('   Skipping built-in module registration\n');
+      const registered = await prisma.moduleAIContextRegistry.findMany({
+        select: { moduleId: true },
+      });
+      registered.forEach(r => registeredModuleIds.add(r.moduleId));
+      console.log(`📋 Found ${registryCount} already registered modules`);
+    }
+
+    // Check which modules need registration
+    const modulesToRegister = BUILT_IN_MODULES.filter(
+      ({ moduleId }) => !registeredModuleIds.has(moduleId)
+    );
+
+    if (modulesToRegister.length === 0) {
+      console.log(`✅ All built-in modules already registered (${registryCount} modules)`);
+      console.log('   No new modules to register\n');
       return;
     }
 
-    console.log('📦 Registry is empty, registering built-in modules...\n');
+    console.log(`📦 Registering ${modulesToRegister.length} missing module(s)...\n`);
 
-    // Register each built-in module
+    // Register each missing built-in module
     let successCount = 0;
     let skipCount = 0;
     let errorCount = 0;
 
-    for (const { moduleId, moduleName, aiContext } of BUILT_IN_MODULES) {
+    for (const { moduleId, moduleName, aiContext } of modulesToRegister) {
       try {
         const success = await registerModule(moduleId, moduleName, aiContext);
         if (success) {
@@ -609,16 +624,19 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
     }
 
     console.log('\n📊 Registration Summary:');
-    console.log(`   ✅ Registered: ${successCount}`);
+    console.log(`   ✅ Newly Registered: ${successCount}`);
+    console.log(`   ✅ Already Registered: ${registryCount}`);
     if (skipCount > 0) console.log(`   ⚠️  Skipped: ${skipCount} (modules not found in database)`);
     if (errorCount > 0) console.log(`   ❌ Errors: ${errorCount}`);
     console.log('');
 
     if (successCount > 0) {
-      console.log('✅ Built-in modules registered successfully!');
-      console.log('   AI can now access File Hub, Chat, and Calendar context.\n');
+      console.log(`✅ Successfully registered ${successCount} new module(s)!`);
+      console.log(`   Total registered modules: ${registryCount + successCount}\n`);
+    } else if (skipCount > 0 || errorCount > 0) {
+      console.warn('⚠️  Some modules could not be registered. Check database for module entries.\n');
     } else {
-      console.warn('⚠️  No modules were registered. Check database for module entries.\n');
+      console.log('✅ All built-in modules are already registered.\n');
     }
   } catch (error) {
     console.error('❌ Error during module registration startup:');

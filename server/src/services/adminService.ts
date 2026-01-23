@@ -1764,8 +1764,12 @@ export class AdminService {
         };
       }
 
+      // Add pagination to prevent loading too many records at once
+      const limit = 100; // Limit to 100 most recent submissions
+      
       const submissions = await prisma.moduleSubmission.findMany({
         where: whereClause,
+        take: limit, // Limit results
         include: {
           module: {
             include: {
@@ -1819,7 +1823,7 @@ export class AdminService {
         approvedToday,
         rejectedToday,
         totalRevenue,
-        activeDevelopers,
+        modulesWithDevelopers,
         averageRating,
         topCategory
       ] = await Promise.all([
@@ -1851,12 +1855,10 @@ export class AdminService {
             status: 'active'
           }
         }),
-        prisma.user.count({
-          where: {
-            modules: {
-              some: {}
-            }
-          }
+        // Optimize: Count distinct developers (more efficient than checking all users)
+        prisma.module.findMany({
+          select: { developerId: true },
+          distinct: ['developerId']
         }),
         prisma.module.aggregate({
           _avg: {
@@ -1880,13 +1882,16 @@ export class AdminService {
         })
       ]);
 
+      // Count distinct developers
+      const activeDevelopers = modulesWithDevelopers.length;
+
       return {
         totalSubmissions,
         pendingReviews,
         approvedToday,
         rejectedToday,
         totalRevenue: totalRevenue._sum.amount || 0,
-        activeDevelopers,
+        activeDevelopers, // Now calculated from distinct developers
         averageRating: averageRating._avg.rating || 0,
         topCategory: topCategory[0]?.category || 'N/A'
       };

@@ -37,12 +37,17 @@ const prismaConfig: any = {
     : ['error'],
 };
 
-// If using Cloud SQL Unix socket connection, configure the client accordingly
+// Process DATABASE_URL for Cloud SQL Unix socket connections
 if (process.env.DATABASE_URL?.includes('/cloudsql/')) {
-  // For Cloud SQL Unix socket connections, the URL format is:
-  // postgresql://user:password@/database?host=/cloudsql/...
-  // We need to handle this carefully as new URL() may fail on this format
+  // For Cloud SQL Unix socket connections, Prisma requires the URL format:
+  // postgresql://user:password@/database?host=/cloudsql/project:region:instance
+  // The host is empty in the standard position and specified in the query parameter
   let dbUrl = process.env.DATABASE_URL;
+  
+  // Ensure connection pool parameters are present
+  // Use higher connection limit for production workloads (20 connections)
+  // Development can use lower limit (5 connections) to save resources
+  const connectionLimit = process.env.NODE_ENV === 'production' ? 20 : 5;
   
   // Check if URL already has connection parameters
   const hasParams = dbUrl.includes('?');
@@ -50,14 +55,23 @@ if (process.env.DATABASE_URL?.includes('/cloudsql/')) {
   
   // Add connection pool parameters if not already present
   if (!dbUrl.includes('connection_limit=')) {
-    dbUrl += `${separator}connection_limit=5&pool_timeout=20&connect_timeout=60`;
+    dbUrl = `${dbUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=20&connect_timeout=60`;
   }
   
+  // CRITICAL: Set datasources config BEFORE creating PrismaClient
+  // This ensures Prisma uses this URL instead of parsing DATABASE_URL directly
+  // Prisma will use the datasources config and bypass URL validation
   prismaConfig.datasources = {
     db: {
       url: dbUrl
     }
   };
+  
+  // Log the connection string format in development for debugging
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔌 [PRISMA] Using Cloud SQL Unix socket connection');
+    console.log(`   Connection string format: ${dbUrl.substring(0, 50)}...`);
+  }
 }
 // Note: No special handling needed for localhost - it's a valid database URL
 

@@ -94,6 +94,7 @@ model AdminImpersonation {
   @@index([targetUserId])
   @@index([startedAt])
   @@index([businessId])
+  @@index([adminId, endedAt]) // Composite index for common query pattern: find active impersonations by admin
   @@map("admin_impersonations")
 }
 

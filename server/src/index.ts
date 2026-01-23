@@ -164,6 +164,18 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use(express.json());
 app.use(passport.initialize() as express.RequestHandler);
 
+// Request timeout middleware - prevents hanging requests
+// Set timeout to 30 seconds for most requests, 2 minutes for file uploads
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const timeoutDuration = req.path.includes('/upload') || req.path.includes('/file') ? 120000 : 30000;
+  req.setTimeout(timeoutDuration, () => {
+    if (!res.headersSent) {
+      res.status(504).json({ error: 'Gateway Timeout', message: 'Request timeout' });
+    }
+  });
+  next();
+});
+
 // Global request logger for debugging POST requests to scheduling
 // This MUST be after body parser but before routes
 app.use((req: Request, res: Response, next: NextFunction) => {
