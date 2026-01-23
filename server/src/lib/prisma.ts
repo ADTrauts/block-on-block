@@ -40,7 +40,19 @@ const prismaConfig: any = {
 // Process DATABASE_URL - always set datasources to ensure Prisma uses our config
 // This is critical for both Unix socket and IP address connections
 if (process.env.DATABASE_URL) {
-  let dbUrl = process.env.DATABASE_URL;
+  let dbUrl = process.env.DATABASE_URL.trim();
+  
+  // Validate DATABASE_URL format before using it
+  if (!dbUrl || dbUrl.length === 0) {
+    console.error('❌ [PRISMA] DATABASE_URL is empty or whitespace only');
+    throw new Error('DATABASE_URL environment variable is empty. Please set a valid database connection string.');
+  }
+  
+  // Check for common malformed URL patterns
+  if (dbUrl.includes('@/') && !dbUrl.includes('host=') && !dbUrl.includes('/cloudsql/')) {
+    console.error('❌ [PRISMA] DATABASE_URL appears to be malformed (empty host):', dbUrl.substring(0, 50) + '...');
+    throw new Error('DATABASE_URL has an empty host. For Cloud SQL, use format: postgresql://user:pass@/db?host=/cloudsql/project:region:instance');
+  }
   
   // For Cloud SQL Unix socket connections, ensure connection pool parameters are present
   if (dbUrl.includes('/cloudsql/')) {
@@ -56,6 +68,21 @@ if (process.env.DATABASE_URL) {
     if (!dbUrl.includes('connection_limit=')) {
       dbUrl = `${dbUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=20&connect_timeout=60`;
     }
+  } else {
+    // For IP address connections, validate the URL format
+    try {
+      const url = new URL(dbUrl);
+      if (!url.hostname || url.hostname.length === 0) {
+        console.error('❌ [PRISMA] DATABASE_URL has empty hostname:', dbUrl.substring(0, 50) + '...');
+        throw new Error('DATABASE_URL has an empty hostname. Please check your connection string format.');
+      }
+    } catch (urlError) {
+      // If URL parsing fails, it might be a Cloud SQL format - that's OK
+      if (!dbUrl.includes('/cloudsql/')) {
+        console.error('❌ [PRISMA] DATABASE_URL format is invalid:', dbUrl.substring(0, 50) + '...');
+        throw new Error(`DATABASE_URL format is invalid: ${urlError instanceof Error ? urlError.message : 'Unknown error'}`);
+      }
+    }
   }
   
   // CRITICAL: Always set datasources config BEFORE creating PrismaClient
@@ -67,11 +94,21 @@ if (process.env.DATABASE_URL) {
     }
   };
   
-  // Log the connection type in development for debugging
+  // Log the connection type (in both dev and production for debugging)
+  const connectionType = dbUrl.includes('/cloudsql/') ? 'Unix socket' : 'IP address';
+  console.log(`🔌 [PRISMA] Using ${connectionType} connection`);
   if (process.env.NODE_ENV === 'development') {
-    const connectionType = dbUrl.includes('/cloudsql/') ? 'Unix socket' : 'IP address';
-    console.log(`🔌 [PRISMA] Using ${connectionType} connection`);
     console.log(`   Connection string: ${dbUrl.substring(0, 60)}...`);
+  } else {
+    // In production, log a sanitized version (no passwords)
+    const sanitized = dbUrl.replace(/:([^:@]+)@/, ':****@');
+    console.log(`   Connection string: ${sanitized.substring(0, 80)}...`);
+  }
+} else {
+  // In production, DATABASE_URL must be set
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ [PRISMA] DATABASE_URL is not set in production environment');
+    throw new Error('DATABASE_URL environment variable is required in production. Please set it in Cloud Run environment variables.');
   }
 }
 
