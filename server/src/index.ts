@@ -284,14 +284,56 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
                     req.connection.remoteAddress || 
                     req.socket.remoteAddress;
     
-    const user = await registerUser(email, password, name, clientIP as string);
+    let user: User;
+    try {
+      user = await registerUser(email, password, name, clientIP as string);
+    } catch (registerError) {
+      // Log registration error with details
+      const errorMessage = registerError instanceof Error ? registerError.message : 'Unknown error';
+      const errorStack = registerError instanceof Error ? registerError.stack : undefined;
+      
+      // Check for specific error types
+      if (typeof registerError === 'object' && registerError && 'code' in registerError) {
+        const errorCode = (registerError as Record<string, unknown>).code;
+        if (errorCode === 'P2002') {
+          // Unique constraint violation (email already exists)
+          return res.status(409).json({ message: 'Email already in use' });
+        }
+      }
+      
+      // Log the error (but don't fail if logging fails)
+      try {
+        await logger.error('User registration failed in registerUser function', {
+          operation: 'user_registration',
+          email: email,
+          ipAddress: clientIP as string,
+          userAgent: req.get('user-agent'),
+          error: {
+            message: errorMessage,
+            stack: errorStack
+          }
+        });
+      } catch (logError) {
+        // If logging fails, at least log to console
+        console.error('Failed to log registration error:', logError);
+        console.error('Original registration error:', registerError);
+      }
+      
+      // Re-throw to be caught by outer catch block
+      throw registerError;
+    }
     
-    // Log successful registration
-    await logger.logUserAction(user.id, 'user_registered', {
-      email: user.email,
-      ipAddress: clientIP as string,
-      userAgent: req.get('user-agent')
-    });
+    // Log successful registration (non-blocking)
+    try {
+      await logger.logUserAction(user.id, 'user_registered', {
+        email: user.email,
+        ipAddress: clientIP as string,
+        userAgent: req.get('user-agent')
+      });
+    } catch (logError) {
+      // Don't fail registration if logging fails
+      console.error('Failed to log user action during registration:', logError);
+    }
     
     // Send verification email if SMTP is configured, otherwise auto-verify
     try {
@@ -422,33 +464,46 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
       user: createUserResponse(user)
     });
   } catch (err: unknown) {
-    // Log registration error
-    await logger.error('User registration failed', {
-      operation: 'user_registration',
-      email: email,
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-      error: {
-        message: err instanceof Error ? err.message : 'Unknown error',
-        stack: err instanceof Error ? err.stack : undefined
-      }
-    });
+    // Log registration error (but don't fail if logging fails)
+    try {
+      await logger.error('User registration failed', {
+        operation: 'user_registration',
+        email: email,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        error: {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined
+        }
+      });
+    } catch (logError) {
+      // If logging fails, at least log to console
+      console.error('Failed to log registration error:', logError);
+      console.error('Original registration error:', err);
+    }
     
+    // Handle Prisma unique constraint violations (email already exists)
     if (typeof err === 'object' && err && 'code' in err && (err as Record<string, unknown>).code === 'P2002') {
-      res.status(409).json({ message: 'Email already in use' });
-      return;
+      return res.status(409).json({ message: 'Email already in use' });
     }
     
     // Handle database connection errors
     if (typeof err === 'object' && err && 'message' in err) {
       const errorMessage = (err as Record<string, unknown>).message as string;
-      if (errorMessage.includes('connection pool') || errorMessage.includes('timeout')) {
-        res.status(503).json({ message: 'Database temporarily unavailable. Please try again.' });
-        return;
+      if (errorMessage.includes('connection pool') || 
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('Can\'t reach database') ||
+          errorMessage.includes('PrismaClientInitializationError')) {
+        return res.status(503).json({ message: 'Database temporarily unavailable. Please try again.' });
       }
     }
     
-    res.status(500).json({ message: 'Registration failed. Please try again.' });
+    // Generic error response
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    return res.status(500).json({ 
+      message: 'Registration failed. Please try again.',
+      ...(process.env.NODE_ENV === 'development' && { error: errorMessage })
+    });
   }
 }));
 
