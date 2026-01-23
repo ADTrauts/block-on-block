@@ -189,26 +189,20 @@ self.addEventListener('periodicsync', (event) => {
 // Fetch event - network first with cache fallback
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const url = new URL(request.url);
   
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
+  // CRITICAL: NEVER intercept API requests of any kind
+  // This includes /api/* routes for all HTTP methods (GET, POST, PUT, DELETE, etc.)
+  // API requests must go through Next.js proxy without any service worker interference
+  // This prevents CORS issues, authentication problems, and ensures proper routing
+  if (url.pathname.startsWith('/api/')) {
+    // Explicitly do nothing - let browser handle request normally
+    // Don't call event.respondWith() - this allows the request to bypass service worker
     return;
   }
-
-  // Handle API requests - NEVER cache auth endpoints
-  if (request.url.includes('/api/')) {
-    // Always bypass cache for authentication endpoints
-    if (request.url.includes('/api/auth/')) {
-      event.respondWith(fetch(request));
-      return;
-    }
-    // For other API requests, try network first but don't cache
-    event.respondWith(
-      fetch(request).catch(() => {
-        // Only return cached response for non-auth API requests if network fails
-        return caches.match(request);
-      })
-    );
+  
+  // Skip non-GET requests for non-API routes
+  if (request.method !== 'GET') {
     return;
   }
 
