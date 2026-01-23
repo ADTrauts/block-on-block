@@ -286,19 +286,51 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
     
     let user: User;
     try {
+      // Test database connection before attempting registration
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+      } catch (dbTestError) {
+        const dbErrorMsg = dbTestError instanceof Error ? dbTestError.message : 'Unknown error';
+        console.error('❌ [REGISTRATION] Database connection test failed:', dbErrorMsg);
+        return res.status(503).json({ 
+          message: 'Database connection failed. Please try again later.',
+          ...(process.env.NODE_ENV === 'development' && { error: dbErrorMsg })
+        });
+      }
+      
       user = await registerUser(email, password, name, clientIP as string);
     } catch (registerError) {
       // Log registration error with details
       const errorMessage = registerError instanceof Error ? registerError.message : 'Unknown error';
       const errorStack = registerError instanceof Error ? registerError.stack : undefined;
       
-      // Check for specific error types
+      // Check for specific Prisma error types
       if (typeof registerError === 'object' && registerError && 'code' in registerError) {
         const errorCode = (registerError as Record<string, unknown>).code;
         if (errorCode === 'P2002') {
           // Unique constraint violation (email already exists)
           return res.status(409).json({ message: 'Email already in use' });
         }
+        if (errorCode === 'P1001' || errorCode === 'P1002') {
+          // Database connection errors
+          return res.status(503).json({ 
+            message: 'Database connection failed. Please try again later.',
+            ...(process.env.NODE_ENV === 'development' && { error: errorMessage, code: errorCode })
+          });
+        }
+      }
+      
+      // Check for database connection error messages
+      if (errorMessage.includes('Can\'t reach database') || 
+          errorMessage.includes('connection pool') ||
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('PrismaClientInitializationError') ||
+          errorMessage.includes('P1001') ||
+          errorMessage.includes('P1002')) {
+        return res.status(503).json({ 
+          message: 'Database temporarily unavailable. Please try again.',
+          ...(process.env.NODE_ENV === 'development' && { error: errorMessage })
+        });
       }
       
       // Log the error (but don't fail if logging fails)
