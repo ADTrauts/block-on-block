@@ -18,7 +18,7 @@ const PROVIDER_OPTIONS: Array<{
   value: AIProvider;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
+  icon: React.ComponentType<{ className?: string; size?: number | string }>;
 }> = [
   {
     value: 'auto',
