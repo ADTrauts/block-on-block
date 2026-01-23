@@ -69,12 +69,11 @@ export default function PricingManagementPage() {
   const loadPriceHistory = async () => {
     try {
       setError(null);
-      const response = await fetch('/api/pricing/history/all');
-      if (!response.ok) {
-        throw new Error('Failed to load price history');
+      const result = await adminApiService.getPriceHistory();
+      if (result.error) {
+        throw new Error(result.error);
       }
-      const data = await response.json();
-      setPriceHistory(data.history || []);
+      setPriceHistory(result.data?.history || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load price history');
     }

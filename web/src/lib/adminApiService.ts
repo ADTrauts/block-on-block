@@ -392,6 +392,24 @@ class AdminApiService {
     return this.makeRequest(`/billing/subscriptions?${searchParams.toString()}`);
   }
 
+  async getPriceHistory(): Promise<ApiResponse<any>> {
+    const headers = await this.getAuthHeaders();
+    const response = await fetch('/api/pricing/history/all', {
+      method: 'GET',
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return { error: errorData.error || `HTTP ${response.status}` };
+    }
+
+    const responseData = await response.json();
+    const data = responseData.success && responseData.data ? responseData.data : responseData;
+    return { data };
+  }
+
   async getPayments(params: {
     page?: number;
     limit?: number;

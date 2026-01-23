@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { getSession } from 'next-auth/react';
 import { Card } from 'shared/components';
 import { 
   Shield, 
@@ -53,12 +54,26 @@ export default function AdminOverridesPage() {
     }
   }, [status, session]);
 
+  const getAuthHeaders = async () => {
+    const session = await getSession();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (session?.accessToken) {
+      headers['Authorization'] = `Bearer ${session.accessToken}`;
+    }
+    
+    return headers;
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
+      const headers = await getAuthHeaders();
       const [usersRes, businessesRes] = await Promise.all([
-        fetch('/api/admin-override/users'),
-        fetch('/api/admin-override/businesses')
+        fetch('/api/admin-override/users', { headers }),
+        fetch('/api/admin-override/businesses', { headers })
       ]);
 
       if (!usersRes.ok || !businessesRes.ok) {
@@ -86,7 +101,11 @@ export default function AdminOverridesPage() {
   const makeAdmin = async (userId: string, userEmail: string) => {
     if (!confirm(`Grant admin access to ${userEmail}?`)) return;
     try {
-      const res = await fetch(`/api/admin-override/users/${userId}/make-admin`, { method: 'POST' });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/admin-override/users/${userId}/make-admin`, { 
+        method: 'POST',
+        headers 
+      });
       if (!res.ok) throw new Error('Failed to grant admin');
       showMessage('success', `${userEmail} is now an admin`);
       loadData();
@@ -99,7 +118,11 @@ export default function AdminOverridesPage() {
   const revokeAdmin = async (userId: string, userEmail: string) => {
     if (!confirm(`Revoke admin access from ${userEmail}?`)) return;
     try {
-      const res = await fetch(`/api/admin-override/users/${userId}/revoke-admin`, { method: 'POST' });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/admin-override/users/${userId}/revoke-admin`, { 
+        method: 'POST',
+        headers 
+      });
       if (!res.ok) throw new Error('Failed to revoke admin');
       showMessage('success', `Admin access revoked from ${userEmail}`);
       loadData();
@@ -112,9 +135,10 @@ export default function AdminOverridesPage() {
   const setBusinessTier = async (businessId: string, businessName: string, tier: string) => {
     if (!confirm(`Set "${businessName}" to ${tier.toUpperCase()} tier?`)) return;
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/admin-override/businesses/${businessId}/set-tier`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ tier })
       });
       if (!res.ok) throw new Error('Failed to set tier');
