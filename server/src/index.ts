@@ -294,23 +294,90 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
     });
     
     // Send verification email if SMTP is configured, otherwise auto-verify
-    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-      // Create and send verification email
-      const verificationToken = await createEmailVerificationToken(user.id);
-      await sendVerificationEmail(user.email, verificationToken);
-      
-      // Send welcome email
-      await sendWelcomeEmail(user.email, user.name || 'there');
-    } else {
-      // Auto-verify email if SMTP is not configured
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { emailVerified: new Date() }
+    try {
+      if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        // Create and send verification email
+        try {
+          const verificationToken = await createEmailVerificationToken(user.id);
+          await sendVerificationEmail(user.email, verificationToken);
+        } catch (emailError) {
+          await logger.warn('Failed to send verification email during registration', {
+            operation: 'user_registration',
+            userId: user.id,
+            email: user.email,
+            error: {
+              message: emailError instanceof Error ? emailError.message : 'Unknown error',
+              stack: emailError instanceof Error ? emailError.stack : undefined
+            }
+          });
+          // Continue - email verification can be resent later
+        }
+        
+        // Send welcome email (non-critical, don't fail registration if this fails)
+        try {
+          await sendWelcomeEmail(user.email, user.name || 'there');
+        } catch (welcomeEmailError) {
+          await logger.warn('Failed to send welcome email during registration', {
+            operation: 'user_registration',
+            userId: user.id,
+            email: user.email,
+            error: {
+              message: welcomeEmailError instanceof Error ? welcomeEmailError.message : 'Unknown error'
+            }
+          });
+          // Continue - welcome email is not critical
+        }
+      } else {
+        // Auto-verify email if SMTP is not configured
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: new Date() }
+        });
+      }
+    } catch (emailConfigError) {
+      // If email configuration fails, auto-verify and continue
+      await logger.warn('Email configuration error during registration, auto-verifying email', {
+        operation: 'user_registration',
+        userId: user.id,
+        email: user.email,
+        error: {
+          message: emailConfigError instanceof Error ? emailConfigError.message : 'Unknown error'
+        }
       });
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: new Date() }
+        });
+      } catch (updateError) {
+        // Log but don't fail - email verification is not critical for registration
+        await logger.error('Failed to auto-verify email during registration', {
+          operation: 'user_registration',
+          userId: user.id,
+          error: {
+            message: updateError instanceof Error ? updateError.message : 'Unknown error'
+          }
+        });
+      }
     }
     
     const token = issueJWT(user);
-    const refreshToken = await createRefreshToken(user.id);
+    let refreshToken: string;
+    try {
+      refreshToken = await createRefreshToken(user.id);
+    } catch (refreshTokenError) {
+      // If refresh token creation fails, log but continue - user can still login
+      await logger.error('Failed to create refresh token during registration', {
+        operation: 'user_registration',
+        userId: user.id,
+        error: {
+          message: refreshTokenError instanceof Error ? refreshTokenError.message : 'Unknown error',
+          stack: refreshTokenError instanceof Error ? refreshTokenError.stack : undefined
+        }
+      });
+      // Set empty string as fallback - user will need to login again to get refresh token
+      refreshToken = '';
+    }
 
     // Ensure a personal main calendar exists named after the first tab (use "My Dashboard" as fallback)
     try {
@@ -351,7 +418,7 @@ app.post('/api/auth/register', asyncHandler(async (req: Request, res: Response) 
 
     res.status(201).json({ 
       token,
-      refreshToken,
+      refreshToken: refreshToken || '', // Return empty string if refresh token creation failed
       user: createUserResponse(user)
     });
   } catch (err: unknown) {
