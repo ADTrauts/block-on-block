@@ -99,13 +99,13 @@ export default function ProviderSettings() {
         </div>
 
         {error && (
-          <Alert className="mb-4" variant="error">
+          <Alert className="mb-4" type="error">
             {error}
           </Alert>
         )}
 
         {success && (
-          <Alert className="mb-4" variant="success">
+          <Alert className="mb-4" type="success">
             Preferences saved successfully!
           </Alert>
         )}

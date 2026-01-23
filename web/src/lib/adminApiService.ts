@@ -690,6 +690,29 @@ class AdminApiService {
     });
   }
 
+  async getModuleAIStatus(): Promise<ApiResponse<any>> {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch('/api/admin/modules/ai/status', {
+        method: 'GET',
+        headers,
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return { error: errorData.error || `HTTP ${response.status}` };
+      }
+
+      const responseData = await response.json();
+      const data = responseData.success && responseData.data ? responseData.data : responseData;
+      return { data };
+    } catch (error) {
+      console.error('Error in getModuleAIStatus:', error);
+      return { error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   async reviewModuleSubmission(
     submissionId: string, 
     action: 'approve' | 'reject', 
@@ -1332,39 +1355,49 @@ class AdminApiService {
   // ============================================================================
 
   async getBusinessAIGlobal(): Promise<ApiResponse<any>> {
-    const headers = await this.getAuthHeaders();
-    const response = await fetch('/api/admin/business-ai/global', {
-      method: 'GET',
-      headers,
-      credentials: 'include'
-    });
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch('/api/admin/business-ai/global', {
+        method: 'GET',
+        headers,
+        credentials: 'include'
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return { error: errorData.error || `HTTP ${response.status}` };
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return { error: errorData.error || `HTTP ${response.status}` };
+      }
+
+      const responseData = await response.json();
+      const data = responseData.success && responseData.data ? responseData.data : responseData;
+      return { data };
+    } catch (error) {
+      console.error('Error in getBusinessAIGlobal:', error);
+      return { error: error instanceof Error ? error.message : 'Unknown error' };
     }
-
-    const responseData = await response.json();
-    const data = responseData.success && responseData.data ? responseData.data : responseData;
-    return { data };
   }
 
   async getBusinessAIPatterns(): Promise<ApiResponse<any>> {
-    const headers = await this.getAuthHeaders();
-    const response = await fetch('/api/admin/business-ai/patterns', {
-      method: 'GET',
-      headers,
-      credentials: 'include'
-    });
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch('/api/admin/business-ai/patterns', {
+        method: 'GET',
+        headers,
+        credentials: 'include'
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return { error: errorData.error || `HTTP ${response.status}` };
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return { error: errorData.error || `HTTP ${response.status}` };
+      }
+
+      const responseData = await response.json();
+      const data = responseData.success && responseData.data ? responseData.data : responseData;
+      return { data };
+    } catch (error) {
+      console.error('Error in getBusinessAIPatterns:', error);
+      return { error: error instanceof Error ? error.message : 'Unknown error' };
     }
-
-    const responseData = await response.json();
-    const data = responseData.success && responseData.data ? responseData.data : responseData;
-    return { data };
   }
 
   // ============================================================================

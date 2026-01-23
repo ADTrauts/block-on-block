@@ -253,6 +253,130 @@ router.get(
 );
 
 /**
+ * Get all modules with AI context status (admin only)
+ * GET /api/admin/modules/ai/status
+ * 
+ * Returns comprehensive status of all modules including:
+ * - Which modules are registered in AI context registry
+ * - AI context details (keywords, patterns, context providers)
+ * - Health status summary
+ */
+router.get(
+  '/admin/modules/ai/status',
+  authenticateJWT,
+  requireRole('ADMIN'),
+  async (req: Request, res: Response) => {
+    try {
+      // Get all modules from database
+      const allModules = await prisma.module.findMany({
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
+          status: true,
+          version: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      // Get all registered AI contexts
+      const registeredContexts = await prisma.moduleAIContextRegistry.findMany({
+        select: {
+          moduleId: true,
+          moduleName: true,
+          purpose: true,
+          category: true,
+          keywords: true,
+          patterns: true,
+          concepts: true,
+          entities: true,
+          actions: true,
+          contextProviders: true,
+          relationships: true,
+          version: true,
+          createdAt: true,
+          lastUpdated: true,
+        },
+      });
+
+      // Create a map of registered contexts by moduleId
+      const contextMap = new Map(
+        registeredContexts.map(ctx => [ctx.moduleId, ctx])
+      );
+
+      // Combine modules with their AI context status
+      const modulesWithStatus = allModules.map(module => {
+        const aiContext = contextMap.get(module.id);
+        
+        return {
+          moduleId: module.id,
+          moduleName: module.name,
+          description: module.description,
+          category: module.category,
+          status: module.status,
+          version: module.version,
+          createdAt: module.createdAt,
+          updatedAt: module.updatedAt,
+          // AI Context Status
+          aiContextRegistered: !!aiContext,
+          aiContext: aiContext ? {
+            purpose: aiContext.purpose,
+            category: aiContext.category,
+            keywords: aiContext.keywords || [],
+            patterns: aiContext.patterns || [],
+            concepts: aiContext.concepts || [],
+            entities: aiContext.entities || [],
+            actions: aiContext.actions || [],
+            contextProviders: (aiContext.contextProviders as any[]) || [],
+            relationships: aiContext.relationships || [],
+            version: aiContext.version,
+            registeredAt: aiContext.createdAt,
+            lastUpdated: aiContext.lastUpdated,
+          } : null,
+        };
+      });
+
+      // Calculate summary
+      const registeredCount = modulesWithStatus.filter(m => m.aiContextRegistered).length;
+      const notRegisteredCount = modulesWithStatus.filter(m => !m.aiContextRegistered).length;
+      
+      // Determine health status
+      let healthStatus: 'good' | 'warning' | 'critical' = 'good';
+      const totalModules = modulesWithStatus.length;
+      const registrationRate = totalModules > 0 ? registeredCount / totalModules : 1;
+      
+      if (registrationRate < 0.5) {
+        healthStatus = 'critical';
+      } else if (registrationRate < 0.8 || notRegisteredCount > 3) {
+        healthStatus = 'warning';
+      }
+
+      res.json({
+        success: true,
+        modules: modulesWithStatus,
+        summary: {
+          totalModules: totalModules,
+          registered: registeredCount,
+          notRegistered: notRegisteredCount,
+          registrationRate: Math.round(registrationRate * 100),
+          healthStatus,
+        },
+      });
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error('Error getting module AI status:', error);
+      res.status(500).json({ 
+        success: false,
+        error: err.message 
+      });
+    }
+  }
+);
+
+/**
  * Get module analytics (admin only)
  * GET /api/admin/modules/:moduleId/ai/analytics
  */
