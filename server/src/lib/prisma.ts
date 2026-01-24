@@ -92,19 +92,24 @@ if (process.env.DATABASE_URL) {
     // If it's Cloud SQL but in the else block, that's fine - Prisma will handle it
   }
   
+  // CRITICAL: For Unix socket connections, we need to trick Prisma
+  // Prisma validates DATABASE_URL during initialization, so we temporarily
+  // set it to a valid format, then override with datasources
+  if (dbUrl.includes('/cloudsql/')) {
+    // Temporarily set DATABASE_URL to a valid format that Prisma can parse
+    // This prevents the "empty host" validation error
+    // We'll override it with datasources.url which has the correct Unix socket format
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db';
+  }
+  
   // CRITICAL: Always set datasources config BEFORE creating PrismaClient
-  // This ensures Prisma uses this URL instead of trying to parse DATABASE_URL directly
+  // This ensures Prisma uses this URL instead of the temporary DATABASE_URL
   // This bypasses Prisma's URL validation which fails on Unix socket format
   prismaConfig.datasources = {
     db: {
       url: dbUrl
     }
   };
-  
-  // CRITICAL: Temporarily remove DATABASE_URL from process.env to prevent Prisma
-  // from trying to parse it. Prisma will use datasources.url instead.
-  // We'll restore it after PrismaClient is created in case other code needs it.
-  delete process.env.DATABASE_URL;
   
   // Log the connection type (in both dev and production for debugging)
   const connectionType = dbUrl.includes('/cloudsql/') ? 'Unix socket' : 'IP address';
@@ -182,7 +187,7 @@ if (process.env.NODE_ENV === 'development' && !DATABASE_CONFIGURED) {
 
 export const prisma = global.prisma || new PrismaClient(prismaConfig);
 
-// Restore DATABASE_URL to process.env after PrismaClient is created
+// Restore original DATABASE_URL to process.env after PrismaClient is created
 // (in case other code needs it, though Prisma will use datasources.url)
 if (typeof originalDatabaseUrl !== 'undefined') {
   process.env.DATABASE_URL = originalDatabaseUrl;
