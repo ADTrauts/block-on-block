@@ -151,6 +151,8 @@ steps:
       - '300s'
       - '--add-cloudsql-instances'
       - 'vssyl-472202:us-central1:vssyl-db-optimized'
+      - '--vpc-egress'
+      - 'all-traffic'
       - '--set-env-vars'
       - 'NODE_ENV=production,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
       - '--set-secrets'
