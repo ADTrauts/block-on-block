@@ -86,7 +86,7 @@ steps:
         # Note: This will fail during build (no VPC access), but migrations run on container startup
         # Database URL is fetched from Secret Manager for security (uses IP address for build-time access)
         echo "🔄 Attempting database migrations..."
-        export DATABASE_URL=$$(gcloud secrets versions access latest --secret="database-url-migration" --project="$PROJECT_ID" 2>/dev/null || echo "")
+        export DATABASE_URL=$$(gcloud secrets versions access latest --secret="database-url" --project="$PROJECT_ID" 2>/dev/null || echo "")
         if [ -z "$$DATABASE_URL" ]; then
           echo "⚠️  Could not fetch database URL from Secret Manager - migrations will run on container startup"
         elif ! npx prisma migrate deploy; then
