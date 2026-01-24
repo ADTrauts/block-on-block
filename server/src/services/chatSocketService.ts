@@ -65,6 +65,8 @@ export class ChatSocketService {
           'https://vssyl-web-235369681725.us-central1.run.app', // Cloud Run web service
           'wss://vssyl.com', // WebSocket origin
           'wss://vssyl-web-235369681725.us-central1.run.app', // WebSocket origin
+          'http://localhost:3000', // Dev: browser Origin from Next.js
+          'http://localhost:3002', // Dev: alternate Next.js port
           'ws://localhost:3000', // Development WebSocket
           'ws://localhost:3002' // Development WebSocket
         ];
