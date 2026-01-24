@@ -92,19 +92,10 @@ if (process.env.DATABASE_URL) {
     // If it's Cloud SQL but in the else block, that's fine - Prisma will handle it
   }
   
-  // CRITICAL: For Unix socket connections, we need to trick Prisma
-  // Prisma validates DATABASE_URL during initialization, so we temporarily
-  // set it to a valid format, then override with datasources
-  if (dbUrl.includes('/cloudsql/')) {
-    // Temporarily set DATABASE_URL to a valid format that Prisma can parse
-    // This prevents the "empty host" validation error
-    // We'll override it with datasources.url which has the correct Unix socket format
-    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db';
-  }
-  
   // CRITICAL: Always set datasources config BEFORE creating PrismaClient
-  // This ensures Prisma uses this URL instead of the temporary DATABASE_URL
-  // This bypasses Prisma's URL validation which fails on Unix socket format
+  // For Unix socket connections, the URL format must be:
+  // postgresql://user:pass@localhost/db?host=/cloudsql/project:region:instance
+  // The 'localhost' is required by Prisma but ignored - the actual connection uses the host parameter
   prismaConfig.datasources = {
     db: {
       url: dbUrl
