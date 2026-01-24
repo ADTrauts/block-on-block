@@ -149,6 +149,8 @@ steps:
       - '10'
       - '--timeout'
       - '300s'
+      - '--add-cloudsql-instances'
+      - 'vssyl-472202:us-central1:vssyl-db-optimized'
       - '--vpc-egress'
       - 'all-traffic'
       - '--network'
