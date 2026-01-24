@@ -39,8 +39,10 @@ const prismaConfig: any = {
 
 // Process DATABASE_URL - always set datasources to ensure Prisma uses our config
 // This is critical for both Unix socket and IP address connections
+let originalDatabaseUrl: string | undefined;
 if (process.env.DATABASE_URL) {
   let dbUrl = process.env.DATABASE_URL.trim();
+  originalDatabaseUrl = process.env.DATABASE_URL;
   
   // Validate DATABASE_URL format before using it
   if (!dbUrl || dbUrl.length === 0) {
@@ -98,6 +100,11 @@ if (process.env.DATABASE_URL) {
       url: dbUrl
     }
   };
+  
+  // CRITICAL: Temporarily remove DATABASE_URL from process.env to prevent Prisma
+  // from trying to parse it. Prisma will use datasources.url instead.
+  // We'll restore it after PrismaClient is created in case other code needs it.
+  delete process.env.DATABASE_URL;
   
   // Log the connection type (in both dev and production for debugging)
   const connectionType = dbUrl.includes('/cloudsql/') ? 'Unix socket' : 'IP address';
@@ -174,6 +181,12 @@ if (process.env.NODE_ENV === 'development' && !DATABASE_CONFIGURED) {
 }
 
 export const prisma = global.prisma || new PrismaClient(prismaConfig);
+
+// Restore DATABASE_URL to process.env after PrismaClient is created
+// (in case other code needs it, though Prisma will use datasources.url)
+if (typeof originalDatabaseUrl !== 'undefined') {
+  process.env.DATABASE_URL = originalDatabaseUrl;
+}
 
 if (process.env.NODE_ENV !== 'production') {
   global.prisma = prisma;
