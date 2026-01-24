@@ -84,36 +84,18 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          // In development, default to localhost if env var not set
-          // In production, use environment variable or production fallback
-          const isDevelopment = process.env.NODE_ENV !== 'production';
-          // Try multiple env var names for compatibility
-          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
-                               process.env.NEXT_PUBLIC_API_URL ||
-                               process.env.BACKEND_URL ||
-                               (isDevelopment ? 'http://localhost:5000' : 'https://vssyl-server-235369681725.us-central1.run.app');
-          
-          const loginUrl = `${API_BASE_URL}/api/auth/login`;
-          console.log('NextAuth Authorize - Attempting login:', { 
-            url: loginUrl, 
-            email: credentials.email,
-            isDevelopment,
-            API_BASE_URL,
-            // Log which env vars are available (for debugging, not values)
-            envVars: {
-              hasNextPublicApiBaseUrl: !!process.env.NEXT_PUBLIC_API_BASE_URL,
-              hasNextPublicApiUrl: !!process.env.NEXT_PUBLIC_API_URL,
-              hasBackendUrl: !!process.env.BACKEND_URL,
-              nodeEnv: process.env.NODE_ENV,
-            }
-          });
-          
+          // Use same-origin proxy (/api/proxy-login) instead of direct backend fetch.
+          // Proxy forwards to backend /api/auth/login. Avoids CORS, env mismatches,
+          // and keeps auth flow consistent with API proxy pattern.
+          const baseUrl = process.env.NEXTAUTH_URL || 
+            (process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : 'https://vssyl.com');
+          const loginUrl = `${baseUrl.replace(/\/$/, '')}/api/proxy-login`;
+
           let response: Response;
           try {
-            // Add timeout for fetch in case backend is slow or unreachable
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-            
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
             response = await fetch(loginUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -123,98 +105,53 @@ export const authOptions: NextAuthOptions = {
               }),
               signal: controller.signal,
             });
-            
+
             clearTimeout(timeoutId);
           } catch (fetchError) {
             const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
             const isAborted = fetchError instanceof Error && fetchError.name === 'AbortError';
-            const isNetworkError = errorMessage.includes('fetch') || 
-                                  errorMessage.includes('ECONNREFUSED') ||
-                                  errorMessage.includes('ENOTFOUND') ||
-                                  errorMessage.includes('network');
-            
-            console.error('NextAuth Authorize - Fetch error:', {
-              error: errorMessage,
-              isAborted,
-              isNetworkError,
-              stack: fetchError instanceof Error ? fetchError.stack : undefined,
-              url: loginUrl,
-              isDevelopment,
-              API_BASE_URL
-            });
-            
+            const isNetwork =
+              errorMessage.includes('fetch') ||
+              errorMessage.includes('ECONNREFUSED') ||
+              errorMessage.includes('ENOTFOUND') ||
+              errorMessage.includes('network');
+
             if (isAborted) {
-              throw new Error('Connection timeout. Please check if the backend server is running.');
-            } else if (isNetworkError) {
-              throw new Error(`Cannot connect to server at ${API_BASE_URL}. Please ensure the backend is running.`);
-            } else {
-              throw new Error(`Login failed: ${errorMessage}`);
+              throw new Error('Connection timeout. Please try again.');
             }
+            if (isNetwork) {
+              throw new Error('Cannot connect to server. Please try again later.');
+            }
+            throw new Error(`Login failed: ${errorMessage}`);
           }
 
+          const data = await response.json().catch(() => ({}));
+          const backendMessage =
+            data?.message && typeof data.message === 'string' && data.message.trim()
+              ? data.message.trim()
+              : null;
+
           if (!response.ok) {
-            let errorMessage = 'Invalid credentials';
-            let errorData = null;
-            try {
-              errorData = await response.json();
-              errorMessage = errorData?.message && typeof errorData.message === 'string' && errorData.message.trim()
-                ? errorData.message
-                : 'Invalid credentials';
-            } catch (parseError) {
-              // If response is not JSON, try to get text
-              try {
-                const text = await response.text();
-                console.error('NextAuth Authorize - Non-JSON error response:', text);
-              } catch (textError) {
-                // Ignore if we can't read text either
-              }
-              errorMessage = `Login failed (${response.status})`;
-            }
-            console.error('NextAuth Authorize - Login failed:', {
-              status: response.status,
-              statusText: response.statusText,
-              errorMessage,
-              errorData,
-              url: loginUrl,
-              API_BASE_URL,
-              isDevelopment,
-              // Log environment for debugging (not secrets)
-              hasEnvVar: !!process.env.NEXT_PUBLIC_API_BASE_URL,
-            });
+            const errorMessage = backendMessage || 'Invalid credentials';
             throw new Error(errorMessage);
           }
 
-          const data = await response.json();
-          console.log('NextAuth Authorize - Backend response:', { 
-            hasData: !!data, 
-            hasToken: !!data?.token, 
-            userId: data?.user?.id,
-            userEmail: data?.user?.email 
-          });
-          
-          if (data && data.token) {
-            const user = {
-              id: data.user.id,
-              email: data.user.email,
-              name: data.user.name,
-              role: data.user.role,
-              userNumber: data.user.userNumber,
-              accessToken: data.token,
-              refreshToken: data.refreshToken,
-              emailVerified: !!data.user.emailVerified,
-            } as any;
-            
-            console.log('NextAuth Authorize - Returning user:', { 
-              id: user.id, 
-              email: user.email, 
-              hasAccessToken: !!user.accessToken 
-            });
-            
-            return user;
+          if (!data || !data.token) {
+            throw new Error(backendMessage || 'Invalid credentials. Please check your email and password.');
           }
-          
-          console.log('NextAuth Authorize - No token in response');
-          throw new Error('Invalid credentials. Please check your email and password.');
+
+          const user = {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name,
+            role: data.user.role,
+            userNumber: data.user.userNumber,
+            accessToken: data.token,
+            refreshToken: data.refreshToken,
+            emailVerified: !!data.user.emailVerified,
+          } as any;
+
+          return user;
         } catch (error: unknown) {
           console.error('Auth error:', error);
           let errorMessage = 'Invalid credentials';

@@ -48,8 +48,11 @@ if (process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL environment variable is empty. Please set a valid database connection string.');
   }
   
-  // Check for common malformed URL patterns
-  if (dbUrl.includes('@/') && !dbUrl.includes('host=') && !dbUrl.includes('/cloudsql/')) {
+  // Check for common malformed URL patterns (only for non-Cloud SQL URLs)
+  // Cloud SQL Unix socket format has @/ but includes /cloudsql/ in the host parameter
+  // Skip validation if it's clearly a Cloud SQL connection
+  const isCloudSQL = dbUrl.includes('/cloudsql/') || dbUrl.includes('?host=/cloudsql/') || dbUrl.includes('&host=/cloudsql/');
+  if (!isCloudSQL && dbUrl.includes('@/') && !dbUrl.includes('host=')) {
     console.error('❌ [PRISMA] DATABASE_URL appears to be malformed (empty host):', dbUrl.substring(0, 50) + '...');
     throw new Error('DATABASE_URL has an empty host. For Cloud SQL, use format: postgresql://user:pass@/db?host=/cloudsql/project:region:instance');
   }
@@ -70,19 +73,21 @@ if (process.env.DATABASE_URL) {
     }
   } else {
     // For IP address connections, validate the URL format
-    try {
-      const url = new URL(dbUrl);
-      if (!url.hostname || url.hostname.length === 0) {
-        console.error('❌ [PRISMA] DATABASE_URL has empty hostname:', dbUrl.substring(0, 50) + '...');
-        throw new Error('DATABASE_URL has an empty hostname. Please check your connection string format.');
-      }
-    } catch (urlError) {
-      // If URL parsing fails, it might be a Cloud SQL format - that's OK
-      if (!dbUrl.includes('/cloudsql/')) {
+    // Only validate if it's clearly not a Cloud SQL connection
+    if (!isCloudSQL) {
+      try {
+        const url = new URL(dbUrl);
+        if (!url.hostname || url.hostname.length === 0) {
+          console.error('❌ [PRISMA] DATABASE_URL has empty hostname:', dbUrl.substring(0, 50) + '...');
+          throw new Error('DATABASE_URL has an empty hostname. Please check your connection string format.');
+        }
+      } catch (urlError) {
+        // If URL parsing fails and it's not Cloud SQL, that's an error
         console.error('❌ [PRISMA] DATABASE_URL format is invalid:', dbUrl.substring(0, 50) + '...');
         throw new Error(`DATABASE_URL format is invalid: ${urlError instanceof Error ? urlError.message : 'Unknown error'}`);
       }
     }
+    // If it's Cloud SQL but in the else block, that's fine - Prisma will handle it
   }
   
   // CRITICAL: Always set datasources config BEFORE creating PrismaClient
