@@ -28,31 +28,46 @@ passport.use(new LocalStrategy(
         return done(new Error('Database connection failed'), false, { message: 'Database temporarily unavailable. Please try again.' });
       }
       
-      const user = await prisma.user.findUnique({
-        where: { email },
-        select: {
-          id: true,
-          email: true,
-          password: true,
-          name: true,
-          role: true,
-          emailVerified: true,
-          userNumber: true,
-          createdAt: true,
-          updatedAt: true,
-          image: true,
-          personalPhoto: true,
-          businessPhoto: true,
-          personalPhotoId: true,
-          businessPhotoId: true,
-          stripeCustomerId: true,
-          countryId: true,
-          regionId: true,
-          townId: true,
-          locationDetectedAt: true,
-          locationUpdatedAt: true
+      // Query user - try full query first, fallback to explicit select if columns missing
+      let user;
+      try {
+        user = await prisma.user.findUnique({
+          where: { email }
+        });
+      } catch (schemaError) {
+        // If query fails due to missing columns (personalPhotoId/businessPhotoId),
+        // retry with explicit select excluding those fields
+        const errorMsg = schemaError instanceof Error ? schemaError.message : String(schemaError);
+        if (errorMsg.includes('personalPhotoId') || errorMsg.includes('businessPhotoId')) {
+          console.warn('⚠️ [LOGIN] personalPhotoId/businessPhotoId columns missing, using fallback query');
+          user = await prisma.user.findUnique({
+            where: { email },
+            select: {
+              id: true,
+              email: true,
+              password: true,
+              name: true,
+              role: true,
+              emailVerified: true,
+              userNumber: true,
+              createdAt: true,
+              updatedAt: true,
+              image: true,
+              personalPhoto: true,
+              businessPhoto: true,
+              stripeCustomerId: true,
+              countryId: true,
+              regionId: true,
+              townId: true,
+              locationDetectedAt: true,
+              locationUpdatedAt: true
+            }
+          });
+        } else {
+          // Re-throw if it's a different error
+          throw schemaError;
         }
-      });
+      }
 
       if (!user) {
         return done(null, false, { message: 'Incorrect email.' });
@@ -63,7 +78,8 @@ passport.use(new LocalStrategy(
         return done(null, false, { message: 'Incorrect password.' });
       }
 
-      return done(null, user);
+      // Type assertion needed because selected fields may not include all User fields
+      return done(null, user as User);
     } catch (error) {
       // Check if it's a database connection error
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
