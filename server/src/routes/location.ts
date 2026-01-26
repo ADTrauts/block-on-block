@@ -51,7 +51,7 @@ router.get('/user-location', authenticateJWT, async (req: Request, res: Response
     const location = await locationService.getUserLocation(userId);
 
     if (!location) {
-      return res.status(404).json({ message: 'User location not found' });
+      return res.status(200).json({ location: null });
     }
 
     const hasLocation = location.country != null && location.region != null && location.town != null;

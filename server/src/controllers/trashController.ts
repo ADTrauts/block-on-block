@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 
 function hasUserId(user: unknown): user is { id: string } | { sub: string } {
   return typeof user === 'object' && user !== null && 
@@ -90,53 +91,78 @@ export async function listTrashedItems(req: Request, res: Response) {
       orderBy: { trashedAt: 'desc' },
     });
 
-    // Get trashed profile photos
-    const trashedProfilePhotos = await prisma.userProfilePhoto.findMany({
-      where: {
+    // Get trashed profile photos (optional – table/column may not exist in all envs)
+    let trashedProfilePhotos: Array<{ id: string; trashedAt: Date | null; originalUrl: string | null; avatarUrl: string | null }> = [];
+    try {
+      trashedProfilePhotos = await prisma.userProfilePhoto.findMany({
+        where: {
+          userId,
+          trashedAt: { not: null },
+        },
+        select: {
+          id: true,
+          trashedAt: true,
+          originalUrl: true,
+          avatarUrl: true,
+        },
+        orderBy: { trashedAt: 'desc' },
+      });
+    } catch (e) {
+      logger.warn('Trash: profile photos query failed (table/column may not exist)', {
+        operation: 'list_trashed_items',
         userId,
-        trashedAt: { not: null },
-      },
-      select: {
-        id: true,
-        trashedAt: true,
-        originalUrl: true,
-        avatarUrl: true,
-      },
-      orderBy: { trashedAt: 'desc' },
-    });
+        error: e instanceof Error ? { message: e.message } : undefined,
+      });
+    }
 
-    // Get trashed messages
-    const trashedMessages = await prisma.message.findMany({
-      where: { 
-        OR: [
-          { senderId: userId },
-          {
-            conversation: {
-              participants: {
-                some: {
-                  userId: userId,
-                  isActive: true
-                }
-              }
-            }
-          }
-        ],
-        deletedAt: { not: null } 
-      },
-      select: {
-        id: true,
-        content: true,
-        deletedAt: true,
-        senderId: true,
-        conversationId: true,
-        conversation: {
-          select: {
-            name: true
-          }
-        }
-      },
-      orderBy: { deletedAt: 'desc' },
-    });
+    // Get trashed messages (optional – schema may differ)
+    let trashedMessages: Array<{
+      id: string;
+      content: string;
+      deletedAt: Date | null;
+      senderId: string;
+      conversationId: string;
+      conversation: { name: string | null };
+    }> = [];
+    try {
+      trashedMessages = await prisma.message.findMany({
+        where: {
+          OR: [
+            { senderId: userId },
+            {
+              conversation: {
+                participants: {
+                  some: {
+                    userId: userId,
+                    isActive: true,
+                  },
+                },
+              },
+            },
+          ],
+          deletedAt: { not: null },
+        },
+        select: {
+          id: true,
+          content: true,
+          deletedAt: true,
+          senderId: true,
+          conversationId: true,
+          conversation: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: { deletedAt: 'desc' },
+      });
+    } catch (e) {
+      logger.warn('Trash: messages query failed (schema may differ)', {
+        operation: 'list_trashed_items',
+        userId,
+        error: e instanceof Error ? { message: e.message } : undefined,
+      });
+    }
 
     // Get trashed AI conversations (with error handling for missing column)
     let trashedAIConversations: Array<{ id: string; title: string | null; trashedAt: Date | null; userId: string }> = [];
@@ -154,9 +180,12 @@ export async function listTrashedItems(req: Request, res: Response) {
         },
         orderBy: { trashedAt: 'desc' },
       });
-    } catch (error) {
-      // Column may not exist yet - migration not run
-      console.warn('AI conversations trash query failed (column may not exist):', error);
+    } catch (e) {
+      logger.warn('Trash: AI conversations query failed (column may not exist)', {
+        operation: 'list_trashed_items',
+        userId,
+        error: e instanceof Error ? { message: e.message } : undefined,
+      });
     }
 
     // Get trashed events (with error handling for missing column)
@@ -189,28 +218,40 @@ export async function listTrashedItems(req: Request, res: Response) {
         },
         orderBy: { trashedAt: 'desc' },
       });
-    } catch (error) {
-      // Column may not exist yet - migration not run
-      console.warn('Events trash query failed (column may not exist):', error);
+    } catch (e) {
+      logger.warn('Trash: events query failed (column may not exist)', {
+        operation: 'list_trashed_items',
+        userId,
+        error: e instanceof Error ? { message: e.message } : undefined,
+      });
     }
 
-    // Get trashed tasks
-    const trashedTasks = await prisma.task.findMany({
-      where: { 
-        trashedAt: { not: null },
-        OR: [
-          { createdById: userId },
-          { assignedToId: userId },
-        ],
-      },
-      select: {
-        id: true,
-        title: true,
-        trashedAt: true,
-        dashboardId: true,
-      },
-      orderBy: { trashedAt: 'desc' },
-    });
+    // Get trashed tasks (optional – table may not exist in all envs)
+    let trashedTasks: Array<{ id: string; title: string; trashedAt: Date | null; dashboardId: string | null }> = [];
+    try {
+      trashedTasks = await prisma.task.findMany({
+        where: {
+          trashedAt: { not: null },
+          OR: [
+            { createdById: userId },
+            { assignedToId: userId },
+          ],
+        },
+        select: {
+          id: true,
+          title: true,
+          trashedAt: true,
+          dashboardId: true,
+        },
+        orderBy: { trashedAt: 'desc' },
+      });
+    } catch (e) {
+      logger.warn('Trash: tasks query failed (table may not exist)', {
+        operation: 'list_trashed_items',
+        userId,
+        error: e instanceof Error ? { message: e.message } : undefined,
+      });
+    }
 
     // Transform all items to a consistent format
     const items = [
@@ -316,16 +357,17 @@ export async function listTrashedItems(req: Request, res: Response) {
     items.sort((a, b) => new Date(b.trashedAt!).getTime() - new Date(a.trashedAt!).getTime());
 
     res.json({ items });
-  } catch (error) {
-    console.error('Error listing trashed items:', error);
-    console.error('Error details:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined,
-      userId: (req.user as any)?.id || (req.user as any)?.sub
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = (req.user as { id?: string; sub?: string } | undefined)?.id ?? (req.user as { sub?: string } | undefined)?.sub;
+    logger.error('Failed to list trashed items', {
+      operation: 'list_trashed_items',
+      userId,
+      error: { message: err.message, stack: err.stack },
     });
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Failed to list trashed items',
-      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : undefined
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
     });
   }
 }

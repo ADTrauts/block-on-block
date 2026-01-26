@@ -114,7 +114,7 @@ export const getInstalledModules = async (req: Request, res: Response) => {
       description: installation.module.description,
       version: installation.module.version,
       category: installation.module.category,
-      developer: installation.module.developer.name || installation.module.developer.email,
+      developer: installation.module.developer?.name || installation.module.developer?.email || 'Unknown',
       rating: installation.module.rating,
       reviewCount: installation.module.reviewCount,
       downloads: installation.module.downloads,
@@ -133,7 +133,7 @@ export const getInstalledModules = async (req: Request, res: Response) => {
       description: module.description,
       version: module.version,
       category: module.category,
-      developer: module.developer.name || module.developer.email,
+      developer: module.developer?.name || module.developer?.email || 'Vssyl',
       rating: module.rating,
       reviewCount: module.reviewCount,
       downloads: module.downloads,
@@ -160,8 +160,14 @@ export const getInstalledModules = async (req: Request, res: Response) => {
     });
 
     res.json({ success: true, data: allModules });
-  } catch (error) {
-    console.error('Error getting installed modules:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = getUserFromRequest(req)?.id;
+    logger.error('Failed to get installed modules', {
+      operation: 'get_installed_modules',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ success: false, error: 'Failed to get installed modules' });
   }
 };
