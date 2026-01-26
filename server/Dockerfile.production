@@ -65,14 +65,16 @@ COPY --from=base /app/shared/package.json ./shared/
 COPY --from=base /app/server/dist ./server/dist
 COPY --from=base /app/server/package.json ./server/
 
-# Copy Prisma schema and build script from base stage
+# Copy Prisma schema, modules, and build script from base stage
+# CRITICAL: Must copy entire prisma directory including modules for runtime schema building
 COPY --from=base /app/prisma/ ./prisma/
 COPY --from=base /app/scripts/build-prisma-schema.js ./scripts/build-prisma-schema.js
 
 # Build Prisma schema from modules (REQUIRED before generate)
+# This ensures schema.prisma is up to date with all module definitions
 RUN node scripts/build-prisma-schema.js
 
-# Generate Prisma client
+# Generate Prisma client (uses the built schema.prisma)
 RUN npx prisma generate
 
 # Create uploads directory

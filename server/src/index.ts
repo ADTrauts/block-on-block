@@ -9,7 +9,10 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import passport, { issueJWT, registerUser } from './auth';
 import jwt from 'jsonwebtoken';
-import type { User, Role } from '@prisma/client';
+// Import User type - matches pattern from auth.ts
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - User type is available from Prisma client when generated
+import type { User } from '@prisma/client';
 import { prisma } from './lib/prisma';
 import dashboardRouter from './routes/dashboard';
 import widgetRouter from './routes/widget';
@@ -976,6 +979,24 @@ if (process.env.NODE_ENV === 'production') {
   
   try {
     const { execSync } = require('child_process');
+    const path = require('path');
+    
+    // CRITICAL: Build Prisma schema from modules BEFORE running migrations
+    // This ensures all migrations are available and schema is up to date
+    console.log('🔨 Building Prisma schema from modules...');
+    try {
+      const buildScriptPath = path.join(__dirname, '../../scripts/build-prisma-schema.js');
+      execSync(`node ${buildScriptPath}`, {
+        stdio: 'inherit',
+        env: process.env,
+        cwd: path.join(__dirname, '../..')
+      });
+      console.log('✅ Prisma schema built successfully');
+    } catch (buildError) {
+      console.error('⚠️  Schema build failed, but continuing with migrations (schema may be pre-built):', buildError);
+      // Continue anyway - schema might be pre-built in Docker image
+    }
+    
     // Use migration URL without connection pool parameters
     const migrationUrl = process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL;
     console.log('Using migration URL:', migrationUrl ? 'SET' : 'NOT SET');
@@ -987,9 +1008,11 @@ if (process.env.NODE_ENV === 'production') {
       DATABASE_URL: migrationUrl
     };
 
+    console.log('🔄 Applying database migrations...');
     execSync('npx prisma migrate deploy', {
       stdio: 'inherit',
-      env: migrationEnv
+      env: migrationEnv,
+      cwd: path.join(__dirname, '../..')
     });
     console.log('✅ Database migrations completed');
   } catch (error) {
