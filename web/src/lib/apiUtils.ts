@@ -230,9 +230,12 @@ export async function authenticatedApiCall<T>(
       console.error('Server error:', {
         status: response.status,
         endpoint,
-        errorData
+        errorData,
+        // Include full error details in development
+        ...(process.env.NODE_ENV === 'development' && { fullError: errorData })
       });
       
+      // Prefer error message from backend, fallback to generic message
       const errorMessage = errorData.error || errorData.message || errorData.details || 'Server error. Please try again later.';
       const error = new Error(errorMessage) as ApiError;
       error.status = response.status;

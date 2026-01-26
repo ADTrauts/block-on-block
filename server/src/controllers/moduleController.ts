@@ -108,7 +108,23 @@ export const getInstalledModules = async (req: Request, res: Response) => {
     });
 
     // Combine explicitly installed modules with built-in modules
-    const installedModules = installations.map(installation => ({
+    const installedModules = installations.map((installation: {
+      module: {
+        id: string;
+        name: string;
+        description: string | null;
+        version: string;
+        category: string;
+        developer: { name: string | null; email: string } | null;
+        rating: number;
+        reviewCount: number;
+        downloads: number;
+        icon: string | null;
+        updatedAt: Date;
+      };
+      configured: unknown;
+      installedAt: Date;
+    }) => ({
       id: installation.module.id,
       name: installation.module.name,
       description: installation.module.description,
@@ -127,7 +143,20 @@ export const getInstalledModules = async (req: Request, res: Response) => {
     }));
 
     // Add built-in modules (mark as built-in and always installed)
-    const builtInModulesFormatted = builtInModules.map(module => ({
+    const builtInModulesFormatted = builtInModules.map((module: {
+      id: string;
+      name: string;
+      description: string | null;
+      version: string;
+      category: string;
+      developer: { name: string | null; email: string } | null;
+      rating: number;
+      reviewCount: number;
+      downloads: number;
+      icon: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }) => ({
       id: module.id,
       name: module.name,
       description: module.description,
@@ -151,9 +180,9 @@ export const getInstalledModules = async (req: Request, res: Response) => {
 
     // Combine all modules, avoiding duplicates (built-in modules take precedence)
     const allModules = [...builtInModulesFormatted];
-    const installedModuleIds = new Set(builtInModulesFormatted.map(m => m.id));
+    const installedModuleIds = new Set(builtInModulesFormatted.map((m: { id: string }) => m.id));
     
-    installedModules.forEach(module => {
+    installedModules.forEach((module: { id: string }) => {
       if (!installedModuleIds.has(module.id)) {
         allModules.push(module);
       }
@@ -248,7 +277,30 @@ export const getMarketplaceModules = async (req: Request, res: Response) => {
       orderBy: orderBy
     });
 
-    const modulesWithStatus = modules.map(module => {
+    const modulesWithStatus = modules.map((module: {
+      id: string;
+      name: string;
+      description: string | null;
+      version: string;
+      category: string;
+      developer: { name: string | null; email: string } | null;
+      rating: number;
+      reviewCount: number;
+      downloads: number;
+      icon: string | null;
+      screenshots: string[];
+      tags: string[];
+      createdAt: Date;
+      updatedAt: Date;
+      pricingTier: string;
+      basePrice: number | null;
+      enterprisePrice: number | null;
+      isProprietary: boolean;
+      revenueSplit: number | null;
+      installations?: Array<{ id: string }>;
+      businessInstallations?: Array<{ id: string }>;
+      subscriptions?: Array<{ status: string; amount: number | null }>;
+    }) => {
       // Check if this is a built-in module for personal scope
       const builtInModuleIds = ['drive', 'chat', 'calendar'];
       const isBuiltInModule = builtInModuleIds.includes(module.id);
@@ -295,9 +347,24 @@ export const getMarketplaceModules = async (req: Request, res: Response) => {
     });
 
     res.json({ success: true, data: modulesWithStatus });
-  } catch (error) {
-    console.error('Error getting marketplace modules:', error);
-    res.status(500).json({ success: false, error: 'Failed to get marketplace modules' });
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = getUserFromRequest(req)?.id;
+    logger.error('Failed to get marketplace modules', {
+      operation: 'get_marketplace_modules',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
+    // Include error message in response for debugging (only in development)
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? err.message 
+      : 'Failed to get marketplace modules';
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage,
+      message: 'Failed to get marketplace modules',
+      ...(process.env.NODE_ENV === 'development' && { details: err.stack })
+    });
   }
 };
 
@@ -426,7 +493,7 @@ export const installModule = async (req: Request, res: Response) => {
         
         // HR module requires business_advanced or enterprise
         const requiredTiers = ['business_advanced', 'enterprise'];
-        const hasRequiredTier = requiredTiers.includes(businessTier);
+        const hasRequiredTier = businessTier ? requiredTiers.includes(businessTier) : false;
         
         if (!hasRequiredTier) {
           logger.warn('Module installation denied: Business tier too low', {

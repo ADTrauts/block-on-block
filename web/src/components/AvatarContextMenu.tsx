@@ -164,7 +164,9 @@ export default function AvatarContextMenu({ className }: AvatarContextMenuProps)
       })();
       await profilePhotosFetchInFlight.current;
     } catch (err) {
-      console.error('Error loading profile photos:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get profile photos';
+      console.error('Error loading profile photos:', errorMessage, err);
+      // Don't throw - allow UI to continue with cached or empty state
     } finally {
       profilePhotosFetchInFlight.current = null;
     }

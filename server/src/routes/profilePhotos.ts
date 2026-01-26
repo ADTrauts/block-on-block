@@ -11,19 +11,22 @@ import {
 
 const router: express.Router = express.Router();
 
+// Apply authentication middleware to all routes
+router.use(authenticateJWT);
+
 // Get user's profile photos
-router.get('/', authenticateJWT, getProfilePhotos);
+router.get('/', getProfilePhotos);
 
 // Upload a profile photo
-router.post('/upload', authenticateJWT, multerUpload, uploadProfilePhoto);
+router.post('/upload', multerUpload, uploadProfilePhoto);
 
 // Assign a library photo as personal or business
-router.post('/assign', authenticateJWT, assignProfilePhoto);
+router.post('/assign', assignProfilePhoto);
 
 // Update avatar rendition (crop params) for a library photo (future enhancement)
-router.post('/:id/avatar', authenticateJWT, updateProfilePhotoAvatar);
+router.post('/:id/avatar', updateProfilePhotoAvatar);
 
 // Remove a profile photo
-router.delete('/remove', authenticateJWT, removeProfilePhoto);
+router.delete('/remove', removeProfilePhoto);
 
 export default router;

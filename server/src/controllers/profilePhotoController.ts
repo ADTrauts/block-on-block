@@ -593,6 +593,14 @@ export async function getProfilePhotos(req: Request, res: Response) {
       userId,
       error: { message: err.message, stack: err.stack },
     });
-    res.status(500).json({ error: 'Failed to get profile photos' });
+    // Include error message in response for debugging (only in development)
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? err.message 
+      : 'Failed to get profile photos';
+    res.status(500).json({ 
+      error: errorMessage,
+      message: 'Failed to get profile photos',
+      ...(process.env.NODE_ENV === 'development' && { details: err.stack })
+    });
   }
 }
