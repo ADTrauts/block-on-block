@@ -5,8 +5,8 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- CreateTable
-CREATE TABLE "employee_hr_profiles" (
+-- CreateTable (idempotent - only create if doesn't exist)
+CREATE TABLE IF NOT EXISTS "employee_hr_profiles" (
     "id" TEXT NOT NULL,
     "employeePositionId" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
@@ -25,8 +25,8 @@ CREATE TABLE "employee_hr_profiles" (
     CONSTRAINT "employee_hr_profiles_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "manager_approval_hierarchy" (
+-- CreateTable (idempotent - only create if doesn't exist)
+CREATE TABLE IF NOT EXISTS "manager_approval_hierarchy" (
     "id" TEXT NOT NULL,
     "employeePositionId" TEXT NOT NULL,
     "managerPositionId" TEXT NOT NULL,
@@ -41,8 +41,8 @@ CREATE TABLE "manager_approval_hierarchy" (
     CONSTRAINT "manager_approval_hierarchy_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "hr_module_settings" (
+-- CreateTable (idempotent - only create if doesn't exist)
+CREATE TABLE IF NOT EXISTS "hr_module_settings" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "timeOffSettings" JSONB,
@@ -55,57 +55,106 @@ CREATE TABLE "hr_module_settings" (
     CONSTRAINT "hr_module_settings_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "employee_hr_profiles_employeePositionId_key" ON "employee_hr_profiles"("employeePositionId");
+-- CreateIndex (idempotent - only create if doesn't exist)
+CREATE UNIQUE INDEX IF NOT EXISTS "employee_hr_profiles_employeePositionId_key" ON "employee_hr_profiles"("employeePositionId");
 
 -- CreateIndex
-CREATE INDEX "employee_hr_profiles_businessId_idx" ON "employee_hr_profiles"("businessId");
+CREATE INDEX IF NOT EXISTS "employee_hr_profiles_businessId_idx" ON "employee_hr_profiles"("businessId");
 
 -- CreateIndex
-CREATE INDEX "employee_hr_profiles_employeePositionId_idx" ON "employee_hr_profiles"("employeePositionId");
+CREATE INDEX IF NOT EXISTS "employee_hr_profiles_employeePositionId_idx" ON "employee_hr_profiles"("employeePositionId");
 
 -- CreateIndex
-CREATE INDEX "employee_hr_profiles_deletedAt_idx" ON "employee_hr_profiles"("deletedAt");
+CREATE INDEX IF NOT EXISTS "employee_hr_profiles_deletedAt_idx" ON "employee_hr_profiles"("deletedAt");
 
 -- CreateIndex
-CREATE INDEX "employee_hr_profiles_employeeType_idx" ON "employee_hr_profiles"("employeeType");
+CREATE INDEX IF NOT EXISTS "employee_hr_profiles_employeeType_idx" ON "employee_hr_profiles"("employeeType");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "manager_approval_hierarchy_employeePositionId_managerPositionId_businessId_key" ON "manager_approval_hierarchy"("employeePositionId", "managerPositionId", "businessId");
+CREATE UNIQUE INDEX IF NOT EXISTS "manager_approval_hierarchy_employeePositionId_managerPositionId_businessId_key" ON "manager_approval_hierarchy"("employeePositionId", "managerPositionId", "businessId");
 
 -- CreateIndex
-CREATE INDEX "manager_approval_hierarchy_businessId_idx" ON "manager_approval_hierarchy"("businessId");
+CREATE INDEX IF NOT EXISTS "manager_approval_hierarchy_businessId_idx" ON "manager_approval_hierarchy"("businessId");
 
 -- CreateIndex
-CREATE INDEX "manager_approval_hierarchy_employeePositionId_idx" ON "manager_approval_hierarchy"("employeePositionId");
+CREATE INDEX IF NOT EXISTS "manager_approval_hierarchy_employeePositionId_idx" ON "manager_approval_hierarchy"("employeePositionId");
 
 -- CreateIndex
-CREATE INDEX "manager_approval_hierarchy_managerPositionId_idx" ON "manager_approval_hierarchy"("managerPositionId");
+CREATE INDEX IF NOT EXISTS "manager_approval_hierarchy_managerPositionId_idx" ON "manager_approval_hierarchy"("managerPositionId");
 
 -- CreateIndex
-CREATE INDEX "manager_approval_hierarchy_active_idx" ON "manager_approval_hierarchy"("active");
+CREATE INDEX IF NOT EXISTS "manager_approval_hierarchy_active_idx" ON "manager_approval_hierarchy"("active");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "hr_module_settings_businessId_key" ON "hr_module_settings"("businessId");
+CREATE UNIQUE INDEX IF NOT EXISTS "hr_module_settings_businessId_key" ON "hr_module_settings"("businessId");
 
 -- CreateIndex
-CREATE INDEX "hr_module_settings_businessId_idx" ON "hr_module_settings"("businessId");
+CREATE INDEX IF NOT EXISTS "hr_module_settings_businessId_idx" ON "hr_module_settings"("businessId");
 
--- AddForeignKey
-ALTER TABLE "employee_hr_profiles" ADD CONSTRAINT "employee_hr_profiles_employeePositionId_fkey" FOREIGN KEY ("employeePositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (idempotent - only add if doesn't exist)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'employee_hr_profiles_employeePositionId_fkey'
+    ) THEN
+        ALTER TABLE "employee_hr_profiles" ADD CONSTRAINT "employee_hr_profiles_employeePositionId_fkey" 
+        FOREIGN KEY ("employeePositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "employee_hr_profiles" ADD CONSTRAINT "employee_hr_profiles_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'employee_hr_profiles_businessId_fkey'
+    ) THEN
+        ALTER TABLE "employee_hr_profiles" ADD CONSTRAINT "employee_hr_profiles_businessId_fkey" 
+        FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_employeePositionId_fkey" FOREIGN KEY ("employeePositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'manager_approval_hierarchy_employeePositionId_fkey'
+    ) THEN
+        ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_employeePositionId_fkey" 
+        FOREIGN KEY ("employeePositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_managerPositionId_fkey" FOREIGN KEY ("managerPositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'manager_approval_hierarchy_managerPositionId_fkey'
+    ) THEN
+        ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_managerPositionId_fkey" 
+        FOREIGN KEY ("managerPositionId") REFERENCES "employee_positions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'manager_approval_hierarchy_businessId_fkey'
+    ) THEN
+        ALTER TABLE "manager_approval_hierarchy" ADD CONSTRAINT "manager_approval_hierarchy_businessId_fkey" 
+        FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "hr_module_settings" ADD CONSTRAINT "hr_module_settings_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'hr_module_settings_businessId_fkey'
+    ) THEN
+        ALTER TABLE "hr_module_settings" ADD CONSTRAINT "hr_module_settings_businessId_fkey" 
+        FOREIGN KEY ("businessId") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
