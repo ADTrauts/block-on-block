@@ -984,23 +984,31 @@ if (process.env.NODE_ENV === 'production') {
     // CRITICAL: Build Prisma schema from modules BEFORE running migrations
     // This ensures all migrations are available and schema is up to date
     console.log('🔨 Building Prisma schema from modules...');
+    const projectRoot = path.join(__dirname, '../..');
+    const buildScriptPath = path.join(projectRoot, 'scripts/build-prisma-schema.js');
+    
     try {
-      const buildScriptPath = path.join(__dirname, '../../scripts/build-prisma-schema.js');
+      console.log('Build script path:', buildScriptPath);
+      console.log('Project root:', projectRoot);
       execSync(`node ${buildScriptPath}`, {
         stdio: 'inherit',
         env: process.env,
-        cwd: path.join(__dirname, '../..')
+        cwd: projectRoot
       });
       console.log('✅ Prisma schema built successfully');
     } catch (buildError) {
-      console.error('⚠️  Schema build failed, but continuing with migrations (schema may be pre-built):', buildError);
+      console.error('⚠️  Schema build failed:', buildError);
+      console.error('⚠️  Continuing with migrations anyway (schema may be pre-built in Docker image)');
       // Continue anyway - schema might be pre-built in Docker image
     }
     
     // Use migration URL without connection pool parameters
     const migrationUrl = process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL;
+    if (!migrationUrl) {
+      throw new Error('DATABASE_URL is required for migrations');
+    }
+    
     console.log('Using migration URL:', migrationUrl ? 'SET' : 'NOT SET');
-    console.log('Migration URL value:', migrationUrl);
     console.log('Migration URL length:', migrationUrl ? migrationUrl.length : 0);
     
     const migrationEnv = {
@@ -1008,18 +1016,63 @@ if (process.env.NODE_ENV === 'production') {
       DATABASE_URL: migrationUrl
     };
 
+    // Verify migrations directory exists
+    const migrationsDir = path.join(projectRoot, 'prisma/migrations');
+    const schemaPath = path.join(projectRoot, 'prisma/schema.prisma');
+    const fs = require('fs');
+    
+    if (!fs.existsSync(schemaPath)) {
+      console.error('❌ Prisma schema not found:', schemaPath);
+      throw new Error(`Prisma schema not found: ${schemaPath}`);
+    }
+    console.log('✅ Prisma schema found:', schemaPath);
+    
+    if (!fs.existsSync(migrationsDir)) {
+      console.error('❌ Migrations directory not found:', migrationsDir);
+      throw new Error(`Migrations directory not found: ${migrationsDir}`);
+    }
+    
+    const migrationFiles = fs.readdirSync(migrationsDir).filter((f: string) => 
+      fs.statSync(path.join(migrationsDir, f)).isDirectory()
+    );
+    console.log(`📁 Found ${migrationFiles.length} migration directories`);
+    if (migrationFiles.length === 0) {
+      console.warn('⚠️  No migrations found - this might be expected for a fresh database');
+    }
+    
     console.log('🔄 Applying database migrations...');
-    execSync('npx prisma migrate deploy', {
-      stdio: 'inherit',
-      env: migrationEnv,
-      cwd: path.join(__dirname, '../..')
-    });
-    console.log('✅ Database migrations completed');
+    console.log('Working directory:', projectRoot);
+    console.log('Prisma schema:', schemaPath);
+    console.log('Prisma migrations directory:', migrationsDir);
+    
+    try {
+      // Use explicit schema path to ensure Prisma finds it
+      execSync(`npx prisma migrate deploy --schema ${schemaPath}`, {
+        stdio: 'inherit',
+        env: migrationEnv,
+        cwd: projectRoot,
+        timeout: 120000 // 2 minute timeout for migrations
+      });
+      console.log('✅ Database migrations completed successfully');
+    } catch (migrationError: unknown) {
+      console.error('❌ Migration command failed');
+      // Log more details about the error
+      if (migrationError instanceof Error) {
+        console.error('Error message:', migrationError.message);
+        if (migrationError.stack) {
+          console.error('Error stack:', migrationError.stack);
+        }
+      } else {
+        console.error('Unknown error:', migrationError);
+      }
+      throw migrationError; // Re-throw to be caught by outer catch
+    }
   } catch (error) {
     console.error('❌ Database migration failed:', error);
-    console.error('⚠️  Continuing without migrations - server will start but database may be out of sync');
+    console.error('⚠️  Server will start but database may be out of sync');
+    console.error('⚠️  Please check logs and run migrations manually if needed');
     // Don't exit - let the server start so we can investigate the migration issue
-    // process.exit(1);
+    // But log the error clearly so it's visible in Cloud Run logs
   }
 }
 
