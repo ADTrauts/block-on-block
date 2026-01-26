@@ -155,6 +155,7 @@ export async function listEventsInRange(req: Request, res: Response) {
   const startAt = new Date(start);
   const endAt = new Date(end);
 
+  try {
   // Find calendars user can see, with optional context filters
   const contextFilters = Array.isArray(contexts) ? contexts : (contexts ? [contexts] : []);
   const requestedCalendarIds = Array.isArray(calendarIds) ? calendarIds : (calendarIds ? [calendarIds] : []);
@@ -333,6 +334,17 @@ export async function listEventsInRange(req: Request, res: Response) {
     }
   }
   res.json({ success: true, data: expanded });
+  } catch (error: unknown) {
+    const err = error as Error;
+    const prismaCode = typeof (error as { code?: string }).code === 'string' ? (error as { code: string }).code : undefined;
+    await logger.error('Calendar listEventsInRange failed', {
+      operation: 'list_events_in_range',
+      userId,
+      error: { message: err.message, stack: err.stack },
+      ...(prismaCode && { prismaCode })
+    });
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to load events' });
+  }
 }
 
 export async function searchEvents(req: Request, res: Response) {

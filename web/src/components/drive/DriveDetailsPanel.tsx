@@ -44,6 +44,10 @@ const formatFileSize = (bytes: number): string => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 };
 
+function isTempUploadId(id: string): boolean {
+  return typeof id === 'string' && id.startsWith('temp-upload-');
+}
+
 const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('en-US', {
     month: 'short',
@@ -146,6 +150,12 @@ export default function DriveDetailsPanel({
       setCodeLanguage(null);
       setImageZoom(1);
       setImagePosition({ x: 0, y: 0 });
+      return;
+    }
+    if (isTempUploadId(item.id)) {
+      setPreviewUrl(null);
+      setTextContent(null);
+      setCodeLanguage(null);
       return;
     }
 

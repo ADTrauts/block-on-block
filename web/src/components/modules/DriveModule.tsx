@@ -87,6 +87,17 @@ interface DriveModuleProps {
   onRegisterDragEndHandler?: (handler: (event: DragEndEvent | null) => Promise<void>) => void;
 }
 
+function isTempUploadId(id: string): boolean {
+  return typeof id === 'string' && id.startsWith('temp-upload-');
+}
+
+const EMPTY_IMAGE_DATA_URL = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="1" height="1"%3E%3C/svg%3E';
+
+function getFileThumbnailUrl(item: DriveItem): string {
+  if (isTempUploadId(item.id)) return EMPTY_IMAGE_DATA_URL;
+  return `/api/drive/files/${item.id}/download`;
+}
+
 // Root drop zone component for moving items back to root
 function RootDropZone({ 
   currentFolder 
@@ -274,7 +285,7 @@ const DraggableItem = React.memo(function DraggableItem({
               {item.mimeType?.startsWith('image/') ? (
                 <div className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
                   <img
-                    src={`/api/drive/files/${item.id}/download`}
+                    src={getFileThumbnailUrl(item)}
                     alt={item.name}
                     className="w-full h-full object-cover"
                     onError={(e) => {
@@ -678,8 +689,15 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
         })
       ]);
 
-      if (!filesResponse.ok || !foldersResponse.ok) {
-        throw new Error('Failed to fetch drive content');
+      if (!filesResponse.ok) {
+        const msg = `Failed to fetch drive files (${filesResponse.status})`;
+        console.error('Drive files fetch failed:', { filesUrl, status: filesResponse.status });
+        throw new Error(msg);
+      }
+      if (!foldersResponse.ok) {
+        const msg = `Failed to fetch drive folders (${foldersResponse.status})`;
+        console.error('Drive folders fetch failed:', { foldersUrl, status: foldersResponse.status });
+        throw new Error(msg);
       }
 
       const filesData = await filesResponse.json();
@@ -922,7 +940,7 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
       return (
         <div className="relative w-full h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
           <img
-            src={`/api/drive/files/${item.id}/download`}
+            src={getFileThumbnailUrl(item)}
             alt={item.name}
             className="w-full h-full object-cover"
             onError={(e) => {
@@ -1040,17 +1058,16 @@ export default function DriveModule({ dashboardId, className = '', refreshTrigge
       setDetailsPanelOpen(true);
       setDetailsPanelCollapsed(false);
       
-      // Create preview URL for images and PDFs
-      if (item.mimeType?.startsWith('image/')) {
-        // For images, use the file URL if available and valid (not localhost), otherwise use download endpoint
+      // Create preview URL for images and PDFs (skip for temp uploads - no backend file yet)
+      if (isTempUploadId(item.id)) {
+        setPreviewUrl(null);
+      } else if (item.mimeType?.startsWith('image/')) {
         if (item.url && !item.url.includes('localhost') && !item.url.includes('127.0.0.1') && item.url.trim() !== '') {
           setPreviewUrl(item.url);
         } else {
-          // Use download endpoint for localhost URLs, missing URLs, or empty URLs
           setPreviewUrl(`/api/drive/files/${item.id}/download`);
         }
       } else if (item.mimeType?.includes('pdf')) {
-        // For PDFs, always use download endpoint
         setPreviewUrl(`/api/drive/files/${item.id}/download`);
       } else {
         setPreviewUrl(null);

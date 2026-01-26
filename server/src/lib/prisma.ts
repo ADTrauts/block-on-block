@@ -89,6 +89,13 @@ if (process.env.DATABASE_URL) {
         throw new Error(`DATABASE_URL format is invalid: ${urlError instanceof Error ? urlError.message : 'Unknown error'}`);
       }
     }
+    // Add connection pool parameters for IP-based URLs if not present (production best practice)
+    if (!dbUrl.includes('connection_limit=')) {
+      const connectionLimit = process.env.NODE_ENV === 'production' ? 20 : 5;
+      const hasParams = dbUrl.includes('?');
+      const separator = hasParams ? '&' : '?';
+      dbUrl = `${dbUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=20&connect_timeout=60`;
+    }
     // If it's Cloud SQL but in the else block, that's fine - Prisma will handle it
   }
   

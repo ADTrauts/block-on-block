@@ -36,6 +36,8 @@ export interface UserLocation {
   locationUpdatedAt: string;
 }
 
+export type UserLocationResponse = { location: UserLocation | null };
+
 // Get all countries
 export async function getCountries(): Promise<Country[]> {
   return authenticatedApiCall<Country[]>('/api/location/countries');
@@ -51,9 +53,10 @@ export async function getTownsByRegion(regionId: string): Promise<Town[]> {
   return authenticatedApiCall<Town[]>(`/api/location/towns/${regionId}`);
 }
 
-// Get user's current location
-export async function getUserLocation(): Promise<UserLocation> {
-  return authenticatedApiCall<UserLocation>('/api/location/user-location');
+// Get user's current location. Returns null when user has no location set.
+export async function getUserLocation(): Promise<UserLocation | null> {
+  const data = await authenticatedApiCall<UserLocationResponse>('/api/location/user-location');
+  return data.location;
 }
 
 // Note: updateUserLocation function removed for security reasons

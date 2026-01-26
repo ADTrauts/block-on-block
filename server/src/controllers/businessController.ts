@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { NotificationService } from '../services/notificationService';
 import { sendBusinessInvitationEmail } from '../services/emailService';
 import { addUsersToScheduleCalendar } from '../services/hrScheduleService';
@@ -62,9 +63,14 @@ const getUserFromRequest = (req: Request) => {
 };
 
 // Helper function to handle errors
-const handleError = (res: Response, error: unknown, message: string = 'Internal server error') => {
+const handleError = (res: Response, error: unknown, message: string = 'Internal server error', operation: string = 'business_controller') => {
   const err = error as Error;
-  console.error('Business Controller Error:', error);
+  const prismaCode = typeof (error as { code?: string }).code === 'string' ? (error as { code: string }).code : undefined;
+  void logger.error(`Business controller error: ${message}`, {
+    operation,
+    error: { message: err.message, stack: err.stack },
+    ...(prismaCode && { prismaCode })
+  }).catch(() => { /* log failure non-fatal */ });
   res.status(500).json({ success: false, error: message });
 };
 
@@ -323,7 +329,7 @@ export const getUserBusinesses = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: businesses });
   } catch (error) {
-    handleError(res, error, 'Failed to fetch businesses');
+    handleError(res, error, 'Failed to fetch businesses', 'get_user_businesses');
   }
 };
 

@@ -35,6 +35,9 @@ interface LogEntry {
   environment: string;
 }
 
+/** Set when DB logging fails due to missing schema (e.g. LogLevel enum). Avoids repeated Prisma errors. */
+let dbLoggingDisabled = false;
+
 class Logger {
   private isDevelopment: boolean;
   private isProduction: boolean;
@@ -71,12 +74,14 @@ class Logger {
   }
 
   private async logToDatabase(entry: LogEntry): Promise<void> {
+    if (dbLoggingDisabled) return;
+
     try {
       // Skip database logging if database is not configured or accessible
       if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('password@localhost')) {
         return; // Silently skip if database URL is placeholder or not configured
       }
-      
+
       // Store log in database for long-term analysis
       await prisma.log.create({
         data: {
@@ -98,17 +103,34 @@ class Logger {
         }
       });
     } catch (error) {
-      // Check if it's a database connection error
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes("Can't reach database") || 
-          errorMessage.includes('localhost:5432') ||
-          errorMessage.includes('empty host') ||
-          errorMessage.includes('database string is invalid') ||
-          errorMessage.includes('PrismaClientInitializationError')) {
-        // Silently skip if database is not available - logs will still go to console
+      const errString = String(error);
+
+      // Disable DB logging permanently when Log table/enums are missing (e.g. migration not applied)
+      if (
+        errorMessage.includes('LogLevel') ||
+        errString.includes('LogLevel') ||
+        errString.includes('42704') ||
+        errorMessage.includes('type "public.LogLevel" does not exist')
+      ) {
+        dbLoggingDisabled = true;
+        console.warn(
+          '[Logger] Database logging disabled: LogLevel enum or logs schema missing. ' +
+            'Run prisma migrate deploy (fix_logging_enums) to restore.'
+        );
         return;
       }
-      // Only log non-connection errors (schema issues, etc.)
+
+      // Skip if database is not available - logs will still go to console
+      if (
+        errorMessage.includes("Can't reach database") ||
+        errorMessage.includes('localhost:5432') ||
+        errorMessage.includes('empty host') ||
+        errorMessage.includes('database string is invalid') ||
+        errorMessage.includes('PrismaClientInitializationError')
+      ) {
+        return;
+      }
       console.error('Failed to log to database:', error);
     }
   }

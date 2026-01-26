@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { locationService } from '../services/locationService';
 import { authenticateJWT } from '../middleware/auth';
+import { logger } from '../lib/logger';
 
 const router: express.Router = express.Router();
 
@@ -45,17 +46,30 @@ router.get('/user-location', authenticateJWT, async (req: Request, res: Response
     if (!req.user) {
       return res.status(401).json({ message: 'User not authenticated' });
     }
-    
-    const userId = req.user.id;
+
+    const userId = (req.user as { id: string }).id;
     const location = await locationService.getUserLocation(userId);
-    
+
     if (!location) {
       return res.status(404).json({ message: 'User location not found' });
     }
-    
-    res.json(location);
-  } catch (error) {
-    console.error('Error fetching user location:', error);
+
+    const hasLocation = location.country != null && location.region != null && location.town != null;
+    if (!hasLocation) {
+      return res.status(200).json({ location: null });
+    }
+
+    return res.status(200).json({ location });
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user
+      ? String((req.user as { id?: string }).id)
+      : undefined;
+    logger.error('User location fetch failed', {
+      operation: 'get_user_location',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ message: 'Failed to fetch user location' });
   }
 });

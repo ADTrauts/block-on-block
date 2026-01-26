@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { storageService } from '../services/storageService';
 import sharp from 'sharp';
+import { logger } from '../lib/logger';
 
 interface RequestWithFile extends Request {
   file?: Express.Multer.File;
@@ -267,8 +268,16 @@ export async function uploadProfilePhoto(req: RequestWithFile, res: Response) {
       }
     });
 
-  } catch (error) {
-    console.error('Error uploading profile photo:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user
+      ? String((req.user as { id?: string; sub?: string }).id ?? (req.user as { sub?: string }).sub)
+      : undefined;
+    logger.error('Profile photo upload failed', {
+      operation: 'upload_profile_photo',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ error: 'Failed to upload profile photo' });
   }
 }
@@ -330,8 +339,14 @@ export async function assignProfilePhoto(req: Request, res: Response) {
         default: user.image,
       },
     });
-  } catch (error) {
-    console.error('Error assigning profile photo:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user ? String((req.user as { id?: string }).id) : undefined;
+    logger.error('Profile photo assign failed', {
+      operation: 'assign_profile_photo',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ error: 'Failed to assign profile photo' });
   }
 }
@@ -417,8 +432,14 @@ export async function updateProfilePhotoAvatar(req: Request, res: Response) {
     }
 
     res.json({ success: true, photo: updatedPhoto });
-  } catch (error) {
-    console.error('Error updating profile photo avatar:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user ? String((req.user as { id?: string }).id) : undefined;
+    logger.error('Profile photo avatar update failed', {
+      operation: 'update_profile_photo_avatar',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ error: 'Failed to update profile photo avatar' });
   }
 }
@@ -501,8 +522,14 @@ export async function removeProfilePhoto(req: Request, res: Response) {
       user: updatedUser
     });
 
-  } catch (error) {
-    console.error('Error removing profile photo:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user ? String((req.user as { id?: string }).id) : undefined;
+    logger.error('Profile photo remove failed', {
+      operation: 'remove_profile_photo',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ error: 'Failed to remove profile photo' });
   }
 }
@@ -558,8 +585,14 @@ export async function getProfilePhotos(req: Request, res: Response) {
       library
     });
 
-  } catch (error) {
-    console.error('Error getting profile photos:', error);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const userId = req.user && typeof req.user === 'object' && 'id' in req.user ? String((req.user as { id?: string }).id) : undefined;
+    logger.error('Profile photos fetch failed', {
+      operation: 'get_profile_photos',
+      userId,
+      error: { message: err.message, stack: err.stack },
+    });
     res.status(500).json({ error: 'Failed to get profile photos' });
   }
 }
