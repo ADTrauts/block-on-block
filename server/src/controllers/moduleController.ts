@@ -180,9 +180,10 @@ export const getInstalledModules = async (req: Request, res: Response) => {
 
     // Combine all modules, avoiding duplicates (built-in modules take precedence)
     const allModules = [...builtInModulesFormatted];
-    const installedModuleIds = new Set(builtInModulesFormatted.map((m: { id: string }) => m.id));
+    type ModuleType = typeof builtInModulesFormatted[0];
+    const installedModuleIds = new Set(builtInModulesFormatted.map((m: ModuleType) => m.id));
     
-    installedModules.forEach((module: { id: string }) => {
+    installedModules.forEach((module: ModuleType) => {
       if (!installedModuleIds.has(module.id)) {
         allModules.push(module);
       }
@@ -277,30 +278,8 @@ export const getMarketplaceModules = async (req: Request, res: Response) => {
       orderBy: orderBy
     });
 
-    const modulesWithStatus = modules.map((module: {
-      id: string;
-      name: string;
-      description: string | null;
-      version: string;
-      category: string;
-      developer: { name: string | null; email: string } | null;
-      rating: number;
-      reviewCount: number;
-      downloads: number;
-      icon: string | null;
-      screenshots: string[];
-      tags: string[];
-      createdAt: Date;
-      updatedAt: Date;
-      pricingTier: string;
-      basePrice: number | null;
-      enterprisePrice: number | null;
-      isProprietary: boolean;
-      revenueSplit: number | null;
-      installations?: Array<{ id: string }>;
-      businessInstallations?: Array<{ id: string }>;
-      subscriptions?: Array<{ status: string; amount: number | null }>;
-    }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const modulesWithStatus = modules.map((module: any) => {
       // Check if this is a built-in module for personal scope
       const builtInModuleIds = ['drive', 'chat', 'calendar'];
       const isBuiltInModule = builtInModuleIds.includes(module.id);
