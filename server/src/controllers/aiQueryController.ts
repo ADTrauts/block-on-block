@@ -246,15 +246,15 @@ export async function getQueryPacks(req: Request, res: Response): Promise<void> 
  * Get current spending status and limit
  */
 export async function getSpendingStatus(req: Request, res: Response): Promise<void> {
+  const userId = (req as any).user?.id;
+  const { businessId } = req.query;
+  const businessIdParam = typeof businessId === 'string' ? businessId : null;
+
   try {
-    const userId = (req as any).user?.id;
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-
-    const { businessId } = req.query;
-    const businessIdParam = typeof businessId === 'string' ? businessId : null;
 
     const status = await AIQueryService.getSpendingStatus(userId, businessIdParam);
 
@@ -263,9 +263,17 @@ export async function getSpendingStatus(req: Request, res: Response): Promise<vo
     const err = error as Error;
     await logger.error('Failed to get spending status', {
       operation: 'ai_query_get_spending',
-      error: { message: err.message, stack: err.stack }
+      error: { message: err.message, stack: err.stack },
+      userId: userId || undefined,
+      businessId: businessIdParam || undefined
     });
-    res.status(500).json({ error: 'Failed to get spending status' });
+    
+    // Include error details in development mode for debugging
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    res.status(500).json({ 
+      error: 'Failed to get spending status',
+      ...(isDevelopment && { details: err.message })
+    });
   }
 }
 

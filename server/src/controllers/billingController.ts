@@ -189,14 +189,24 @@ export const getUserSubscription = async (req: Request, res: Response) => {
 
     res.json({ subscription });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     await logger.error('Failed to get user subscription', {
       operation: 'billing_get_user_subscription',
       error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      }
+        message: errorMessage,
+        stack: errorStack
+      },
+      userId: (req as any).user?.id
     });
-    res.status(500).json({ error: 'Failed to get user subscription' });
+    
+    // Include error details in development mode for debugging
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    res.status(500).json({ 
+      error: 'Failed to get user subscription',
+      ...(isDevelopment && { details: errorMessage })
+    });
   }
 };
 
@@ -619,14 +629,24 @@ export const getInvoices = async (req: Request, res: Response) => {
 
     res.json({ invoices });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     await logger.error('Failed to get invoices', {
       operation: 'billing_get_invoices',
       error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      }
+        message: errorMessage,
+        stack: errorStack
+      },
+      userId: (req as any).user?.id
     });
-    res.status(500).json({ error: 'Failed to get invoices' });
+    
+    // Include error details in development mode for debugging
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    res.status(500).json({ 
+      error: 'Failed to get invoices',
+      ...(isDevelopment && { details: errorMessage })
+    });
   }
 };
 
