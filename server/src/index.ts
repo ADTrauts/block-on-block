@@ -168,9 +168,11 @@ app.use(express.json());
 app.use(passport.initialize() as express.RequestHandler);
 
 // Request timeout middleware - prevents hanging requests
-// Set timeout to 30 seconds for most requests, 2 minutes for file uploads
+// Set timeout to 30 seconds for most requests, 2 minutes for file uploads and AI queries
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const timeoutDuration = req.path.includes('/upload') || req.path.includes('/file') ? 120000 : 30000;
+  const isUpload = req.path.includes('/upload') || req.path.includes('/file');
+  const isAIQuery = req.path.includes('/api/ai/twin') || req.path.includes('/api/ai/chat') || req.path.includes('/api/business-ai/');
+  const timeoutDuration = isUpload || isAIQuery ? 120000 : 30000;
   req.setTimeout(timeoutDuration, () => {
     if (!res.headersSent) {
       res.status(504).json({ error: 'Gateway Timeout', message: 'Request timeout' });

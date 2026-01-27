@@ -26,9 +26,15 @@ pnpm prisma migrate deploy
 ```
 
 **Expected Output:**
-- Should apply 2 new migrations:
-  1. `20260126192000_add_version_to_module_ai_context_registry`
-  2. `20260126200000_add_all_missing_schema_elements`
+- Should apply 1 baseline migration:
+  1. `20260126230000_initial_schema_baseline` (complete schema baseline - all tables, enums, indexes)
+  
+**Note:** If you're doing a clean restart in production (no data), you can reset the database first:
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+Then deploy the migration.
 
 ### Step 3: Verify Production Database
 ```bash
