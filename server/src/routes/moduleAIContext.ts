@@ -283,24 +283,8 @@ router.get(
       });
 
       // Get all registered AI contexts
-      const registeredContexts = await prisma.moduleAIContextRegistry.findMany({
-        select: {
-          moduleId: true,
-          moduleName: true,
-          purpose: true,
-          category: true,
-          keywords: true,
-          patterns: true,
-          concepts: true,
-          entities: true,
-          actions: true,
-          contextProviders: true,
-          relationships: true,
-          version: true,
-          createdAt: true,
-          lastUpdated: true,
-        },
-      });
+      // Query all fields to avoid issues with missing columns
+      const registeredContexts = await prisma.moduleAIContextRegistry.findMany();
 
       // Create a map of registered contexts by moduleId
       const contextMap = new Map(
@@ -310,6 +294,26 @@ router.get(
       // Combine modules with their AI context status
       const modulesWithStatus = allModules.map(module => {
         const aiContext = contextMap.get(module.id);
+        
+        if (!aiContext) {
+          return {
+            moduleId: module.id,
+            moduleName: module.name,
+            description: module.description,
+            category: module.category,
+            status: module.status,
+            version: module.version,
+            createdAt: module.createdAt,
+            updatedAt: module.updatedAt,
+            aiContextRegistered: false,
+            aiContext: null,
+          };
+        }
+        
+        // Store createdAt to avoid TypeScript narrowing issues
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const contextCreatedAt = (aiContext as any).createdAt;
+        const contextLastUpdated = 'lastUpdated' in aiContext ? (aiContext as any).lastUpdated : contextCreatedAt;
         
         return {
           moduleId: module.id,
@@ -321,21 +325,24 @@ router.get(
           createdAt: module.createdAt,
           updatedAt: module.updatedAt,
           // AI Context Status
-          aiContextRegistered: !!aiContext,
-          aiContext: aiContext ? {
-            purpose: aiContext.purpose,
-            category: aiContext.category,
-            keywords: aiContext.keywords || [],
-            patterns: aiContext.patterns || [],
-            concepts: aiContext.concepts || [],
+          aiContextRegistered: true,
+          aiContext: {
+            purpose: aiContext.purpose || '',
+            category: aiContext.category || '',
+            keywords: Array.isArray(aiContext.keywords) ? aiContext.keywords : [],
+            patterns: Array.isArray(aiContext.patterns) ? aiContext.patterns : [],
+            // Handle concepts field - may not exist in all database versions
+            concepts: 'concepts' in aiContext && Array.isArray(aiContext.concepts) ? aiContext.concepts : [],
             entities: aiContext.entities || [],
             actions: aiContext.actions || [],
-            contextProviders: (aiContext.contextProviders as any[]) || [],
-            relationships: aiContext.relationships || [],
-            version: aiContext.version,
-            registeredAt: aiContext.createdAt,
-            lastUpdated: aiContext.lastUpdated,
-          } : null,
+            contextProviders: Array.isArray(aiContext.contextProviders) ? aiContext.contextProviders : (aiContext.contextProviders ? [aiContext.contextProviders] : []),
+            // Handle relationships field - may not exist in all database versions
+            relationships: 'relationships' in aiContext ? (aiContext.relationships || null) : null,
+            // Handle version field - may not exist in all database versions
+            version: 'version' in aiContext ? (aiContext.version || '1.0.0') : '1.0.0',
+            registeredAt: contextCreatedAt,
+            lastUpdated: contextLastUpdated,
+          },
         };
       });
 
@@ -367,10 +374,25 @@ router.get(
       });
     } catch (error: unknown) {
       const err = error as Error;
-      console.error('Error getting module AI status:', error);
+      console.error('Error getting module AI status:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+        error: error
+      });
+      
+      // Log more details in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      }
+      
       res.status(500).json({ 
         success: false,
-        error: err.message 
+        error: err.message || 'Failed to get module AI status',
+        ...(process.env.NODE_ENV === 'development' && { 
+          details: err.stack,
+          errorType: err.name 
+        })
       });
     }
   }

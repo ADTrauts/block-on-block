@@ -195,16 +195,19 @@ export class StorageService {
     }
 
     const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+    // Preserve full directory structure for source path
     const sourceFullPath = path.isAbsolute(sourcePath)
       ? sourcePath
-      : path.join(uploadDir, path.basename(sourcePath));
+      : path.join(uploadDir, sourcePath);
 
     if (!fs.existsSync(sourceFullPath)) {
       throw new Error(`Source file not found: ${sourceFullPath}`);
     }
 
-    const destinationFileName = path.basename(destinationPath);
-    const destinationFullPath = path.join(uploadDir, destinationFileName);
+    // Preserve full directory structure for destination path
+    const destinationFullPath = path.isAbsolute(destinationPath)
+      ? destinationPath
+      : path.join(uploadDir, destinationPath);
     const destinationDir = path.dirname(destinationFullPath);
 
     if (!fs.existsSync(destinationDir)) {
@@ -220,7 +223,7 @@ export class StorageService {
 
     return {
       path: destinationFullPath,
-      url: this.getPublicUrl(destinationFullPath)
+      url: this.getPublicUrl(destinationPath)
     };
   }
 
@@ -246,6 +249,27 @@ export class StorageService {
       const baseUrl = process.env.BACKEND_URL || 
                      process.env.NEXT_PUBLIC_API_BASE_URL || 
                      'https://vssyl-server-235369681725.us-central1.run.app';
+      
+      // Extract relative path from uploads directory
+      // filePath can be either:
+      // 1. A relative path like "profile-photos/user123-avatar.jpg" (from destinationPath)
+      // 2. A full path like "/app/uploads/profile-photos/user123-avatar.jpg" (from stored path)
+      const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+      
+      // If it's already a relative path (no leading slash, contains subdirectories), use it directly
+      if (!path.isAbsolute(filePath) && filePath.includes('/')) {
+        return `${baseUrl}/uploads/${filePath}`;
+      }
+      
+      // If it's a full path, extract the relative path from uploads directory
+      if (path.isAbsolute(filePath)) {
+        const relativePath = path.relative(uploadDir, filePath);
+        // Normalize path separators for URLs (use forward slashes)
+        const urlPath = relativePath.split(path.sep).join('/');
+        return `${baseUrl}/uploads/${urlPath}`;
+      }
+      
+      // Fallback: just the filename (for backward compatibility)
       return `${baseUrl}/uploads/${path.basename(filePath)}`;
     }
   }
@@ -259,7 +283,12 @@ export class StorageService {
       const [exists] = await file.exists();
       return exists;
     } else {
-      return fs.existsSync(filePath);
+      const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+      // Preserve full directory structure - filePath can be relative like "profile-photos/user123-avatar.jpg"
+      const fullPath = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(uploadDir, filePath);
+      return fs.existsSync(fullPath);
     }
   }
 
@@ -280,9 +309,10 @@ export class StorageService {
     }
 
     const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
+    // Preserve full directory structure - filePath can be relative like "profile-photos/user123-avatar.jpg"
     const resolved = path.isAbsolute(filePath)
       ? filePath
-      : path.join(uploadDir, path.basename(filePath));
+      : path.join(uploadDir, filePath);
     if (!fs.existsSync(resolved)) {
       throw new Error(`File not found: ${resolved}`);
     }
@@ -428,7 +458,13 @@ export class StorageService {
     destinationPath: string
   ): Promise<UploadResult> {
     const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
-    const fullPath = path.join(uploadDir, path.basename(destinationPath));
+    
+    // Preserve the full directory structure from destinationPath
+    // destinationPath can be like "profile-photos/user123-avatar.jpg"
+    // We want to store it at uploads/profile-photos/user123-avatar.jpg
+    const fullPath = path.isAbsolute(destinationPath)
+      ? destinationPath
+      : path.join(uploadDir, destinationPath);
     
     // Ensure directory exists
     const dir = path.dirname(fullPath);
@@ -493,7 +529,10 @@ export class StorageService {
   private async deleteFromLocal(filePath: string): Promise<DeleteResult> {
     try {
       const uploadDir = this.config.local?.uploadDir || path.join(__dirname, '../../uploads');
-      const fullPath = path.join(uploadDir, path.basename(filePath));
+      // Preserve full directory structure - filePath can be relative like "profile-photos/user123-avatar.jpg"
+      const fullPath = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(uploadDir, filePath);
       
       if (fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
