@@ -2361,13 +2361,15 @@ export async function serveTaskAttachment(req: Request, res: Response): Promise<
       if (bucketIndex >= 0 && urlParts[bucketIndex + 1]) {
         filePath = urlParts.slice(bucketIndex + 1).join('/');
       } else {
-        return res.status(400).json({ error: 'Invalid GCS URL format' });
+        res.status(400).json({ error: 'Invalid GCS URL format' });
+        return;
       }
     } else if (attachment.url.includes('/uploads/')) {
       // Local URL: /uploads/path
       filePath = attachment.url.split('/uploads/')[1];
     } else {
-      return res.status(400).json({ error: 'Unsupported URL format' });
+      res.status(400).json({ error: 'Unsupported URL format' });
+      return;
     }
 
     // Get file buffer from storage
