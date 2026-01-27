@@ -574,15 +574,52 @@ export async function getProfilePhotos(req: Request, res: Response) {
       },
     });
 
+    // Convert GCS URLs to backend serving URLs if bucket has public access prevention
+    // This allows images to work even when bucket is not publicly accessible
+    const baseUrl = process.env.BACKEND_URL || 
+                   process.env.NEXT_PUBLIC_API_BASE_URL || 
+                   'https://vssyl-server-235369681725.us-central1.run.app';
+
+    const convertToBackendUrl = (url: string | null, photoId: string | null, type: 'avatar' | 'original'): string | null => {
+      if (!url || !photoId) return url;
+      // If it's a GCS URL, convert to backend serving URL
+      if (url.includes('storage.googleapis.com')) {
+        return `${baseUrl}/api/profile-photos/serve/${photoId}?type=${type}`;
+      }
+      // If it's already a backend URL or local URL, return as-is
+      return url;
+    };
+
+    // Convert library URLs
+    const libraryWithBackendUrls = library.map(photo => ({
+      ...photo,
+      avatarUrl: convertToBackendUrl(photo.avatarUrl, photo.id, 'avatar'),
+      originalUrl: convertToBackendUrl(photo.originalUrl, photo.id, 'original'),
+    }));
+
+    // Convert user photo URLs
+    const personalPhotoId = user.personalPhotoId;
+    const businessPhotoId = user.businessPhotoId;
+    const personalPhotoUrl = personalPhotoId 
+      ? convertToBackendUrl(user.personalPhoto, personalPhotoId, 'avatar')
+      : user.personalPhoto;
+    const businessPhotoUrl = businessPhotoId
+      ? convertToBackendUrl(user.businessPhoto, businessPhotoId, 'avatar')
+      : user.businessPhoto;
+
     res.json({
       success: true,
       photos: {
-        personal: user.personalPhoto,
-        business: user.businessPhoto,
+        personal: personalPhotoUrl,
+        business: businessPhotoUrl,
         default: user.image,
       },
-      user,
-      library
+      user: {
+        ...user,
+        personalPhoto: personalPhotoUrl,
+        businessPhoto: businessPhotoUrl,
+      },
+      library: libraryWithBackendUrls
     });
 
   } catch (error: unknown) {
@@ -601,6 +638,91 @@ export async function getProfilePhotos(req: Request, res: Response) {
       error: errorMessage,
       message: 'Failed to get profile photos',
       ...(process.env.NODE_ENV === 'development' && { details: err.stack })
+    });
+  }
+}
+
+/**
+ * Serve a profile photo image file
+ * This endpoint allows serving images even when GCS bucket has public access prevention
+ */
+export async function serveProfilePhoto(req: Request, res: Response) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const userId = (req.user as any).id || (req.user as any).sub;
+    const { photoId } = req.params;
+    const { type = 'avatar' } = req.query; // 'avatar' or 'original'
+
+    if (!photoId) {
+      return res.status(400).json({ error: 'Photo ID is required' });
+    }
+
+    // Find the photo (must belong to the user)
+    const photo = await prisma.userProfilePhoto.findFirst({
+      where: { 
+        id: photoId,
+        userId,
+        trashedAt: null 
+      },
+    });
+
+    if (!photo) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    // Get the file path from the URL
+    const photoUrl = type === 'original' ? photo.originalUrl : photo.avatarUrl;
+    if (!photoUrl) {
+      return res.status(404).json({ error: 'Photo URL not found' });
+    }
+
+    // Extract file path from URL
+    let filePath: string;
+    if (photoUrl.includes('storage.googleapis.com')) {
+      // GCS URL: https://storage.googleapis.com/bucket/path
+      const urlParts = photoUrl.split('/');
+      const bucketIndex = urlParts.findIndex(part => part.includes('storage.googleapis.com'));
+      if (bucketIndex >= 0 && urlParts[bucketIndex + 1]) {
+        filePath = urlParts.slice(bucketIndex + 1).join('/');
+      } else {
+        return res.status(400).json({ error: 'Invalid GCS URL format' });
+      }
+    } else if (photoUrl.includes('/uploads/')) {
+      // Local URL: /uploads/path
+      filePath = photoUrl.split('/uploads/')[1];
+    } else {
+      return res.status(400).json({ error: 'Unsupported URL format' });
+    }
+
+    // Get file buffer from storage
+    const fileBuffer = await storageService.getFileBuffer(filePath);
+
+    // Determine content type
+    const contentType = photoUrl.endsWith('.jpg') || photoUrl.endsWith('.jpeg') 
+      ? 'image/jpeg' 
+      : photoUrl.endsWith('.png') 
+      ? 'image/png' 
+      : 'image/jpeg'; // default
+
+    // Set headers and send file
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    res.setHeader('Content-Length', fileBuffer.length.toString());
+    res.send(fileBuffer);
+
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error('Profile photo serve failed', {
+      operation: 'serve_profile_photo',
+      photoId: req.params.photoId,
+      error: { message: err.message, stack: err.stack },
+    });
+    res.status(500).json({ 
+      error: 'Failed to serve profile photo',
+      message: err.message 
     });
   }
 }

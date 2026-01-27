@@ -239,7 +239,28 @@ export class StorageService {
   }
 
   /**
+   * Get a signed URL for a file (temporary, authenticated access)
+   * For GCS: generates a signed URL that expires after specified duration
+   * For local: returns the public URL (served through backend)
+   */
+  async getSignedUrl(filePath: string, expiresInSeconds: number = 3600): Promise<string> {
+    if (this.config.provider === 'gcs' && this.bucket) {
+      const file = this.bucket.file(filePath);
+      const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + expiresInSeconds * 1000,
+      });
+      return url;
+    } else {
+      // For local storage, return the public URL (served through backend)
+      return this.getPublicUrl(filePath);
+    }
+  }
+
+  /**
    * Get a public URL for a file
+   * Note: For GCS with public access prevention, this will not work.
+   * Use getSignedUrl() or serve through backend endpoint instead.
    */
   getPublicUrl(filePath: string): string {
     if (this.config.provider === 'gcs' && this.config.gcs) {

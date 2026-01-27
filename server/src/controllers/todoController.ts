@@ -529,7 +529,31 @@ export async function getTaskById(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    res.json(task);
+    // Convert GCS URLs to backend serving URLs for attachments if bucket has public access prevention
+    const baseUrl = process.env.BACKEND_URL || 
+                   process.env.NEXT_PUBLIC_API_BASE_URL || 
+                   'https://vssyl-server-235369681725.us-central1.run.app';
+
+    const convertAttachmentUrl = (attachment: { id: string; url: string | null; taskId: string }): string | null => {
+      if (!attachment.url) return null;
+      // If it's a GCS URL, convert to backend serving URL
+      if (attachment.url.includes('storage.googleapis.com')) {
+        return `${baseUrl}/api/todo/tasks/${attachment.taskId}/attachments/${attachment.id}/serve`;
+      }
+      // If it's already a backend URL or local URL, return as-is
+      return attachment.url;
+    };
+
+    // Convert attachment URLs
+    const taskWithConvertedUrls = {
+      ...task,
+      attachments: task.attachments?.map(att => ({
+        ...att,
+        url: convertAttachmentUrl(att)
+      }))
+    };
+
+    res.json(taskWithConvertedUrls);
   } catch (error: unknown) {
     const err = error as Error;
     await logger.error('Failed to get task', {
@@ -2280,6 +2304,94 @@ export async function deleteTaskAttachment(req: Request, res: Response): Promise
       error: { message: err.message, stack: err.stack },
     });
     res.status(500).json({ error: 'Failed to delete attachment' });
+  }
+}
+
+/**
+ * GET /api/todo/tasks/:id/attachments/:attachmentId/serve
+ * Serve a task attachment file
+ * This endpoint allows serving attachments even when GCS bucket has public access prevention
+ */
+export async function serveTaskAttachment(req: Request, res: Response): Promise<void> {
+  try {
+    const userId = (req as AuthenticatedRequest).user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const taskId = req.params.id;
+    const attachmentId = req.params.attachmentId;
+
+    // Verify attachment exists and belongs to task
+    const attachment = await prisma.taskAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        taskId: taskId,
+      },
+      include: {
+        task: true,
+      },
+    });
+
+    if (!attachment) {
+      res.status(404).json({ error: 'Attachment not found' });
+      return;
+    }
+
+    // Verify user has access to task
+    const hasAccess = attachment.task.createdById === userId || 
+                      attachment.task.assignedToId === userId;
+    if (!hasAccess) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    if (!attachment.url) {
+      res.status(404).json({ error: 'Attachment URL not found' });
+      return;
+    }
+
+    // Extract file path from URL
+    let filePath: string;
+    if (attachment.url.includes('storage.googleapis.com')) {
+      // GCS URL: https://storage.googleapis.com/bucket/path
+      const urlParts = attachment.url.split('/');
+      const bucketIndex = urlParts.findIndex(part => part.includes('storage.googleapis.com'));
+      if (bucketIndex >= 0 && urlParts[bucketIndex + 1]) {
+        filePath = urlParts.slice(bucketIndex + 1).join('/');
+      } else {
+        return res.status(400).json({ error: 'Invalid GCS URL format' });
+      }
+    } else if (attachment.url.includes('/uploads/')) {
+      // Local URL: /uploads/path
+      filePath = attachment.url.split('/uploads/')[1];
+    } else {
+      return res.status(400).json({ error: 'Unsupported URL format' });
+    }
+
+    // Get file buffer from storage
+    const { storageService } = await import('../services/storageService');
+    const fileBuffer = await storageService.getFileBuffer(filePath);
+
+    // Determine content type
+    const contentType = attachment.mimeType || 'application/octet-stream';
+
+    // Set headers and send file
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${attachment.name}"`);
+    res.setHeader('Content-Length', fileBuffer.length.toString());
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    res.send(fileBuffer);
+
+  } catch (error: unknown) {
+    const err = error as Error;
+    await logger.error('Failed to serve task attachment', {
+      operation: 'todo_serve_attachment',
+      attachmentId: req.params.attachmentId,
+      error: { message: err.message, stack: err.stack },
+    });
+    res.status(500).json({ error: 'Failed to serve attachment' });
   }
 }
 

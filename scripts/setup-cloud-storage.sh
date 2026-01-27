@@ -82,6 +82,7 @@ gsutil mkdir -p gs://$BUCKET_NAME/uploads
 gsutil mkdir -p gs://$BUCKET_NAME/static
 gsutil mkdir -p gs://$BUCKET_NAME/avatars
 gsutil mkdir -p gs://$BUCKET_NAME/business-logos
+gsutil mkdir -p gs://$BUCKET_NAME/profile-photos
 
 print_success "Folder structure created"
 
@@ -151,7 +152,8 @@ cat > storage-config.json << EOF
     "uploads": "gs://$BUCKET_NAME/uploads",
     "static": "gs://$BUCKET_NAME/static",
     "avatars": "gs://$BUCKET_NAME/avatars",
-    "businessLogos": "gs://$BUCKET_NAME/business-logos"
+    "businessLogos": "gs://$BUCKET_NAME/business-logos",
+    "profilePhotos": "gs://$BUCKET_NAME/profile-photos"
   },
   "cors": {
     "origins": ["https://your-domain.com", "https://vssyl-web-*.run.app"],
@@ -183,3 +185,4 @@ echo "- Uploads: gs://$BUCKET_NAME/uploads"
 echo "- Static: gs://$BUCKET_NAME/static"
 echo "- Avatars: gs://$BUCKET_NAME/avatars"
 echo "- Business Logos: gs://$BUCKET_NAME/business-logos"
+echo "- Profile Photos: gs://$BUCKET_NAME/profile-photos"

@@ -44,6 +44,7 @@ todoRouter.post('/tasks/:id/subtasks/:subtaskId/complete', todoController.comple
 
 // Task attachments
 todoRouter.post('/tasks/:id/attachments', multerUpload, todoController.uploadTaskAttachment);
+todoRouter.get('/tasks/:id/attachments/:attachmentId/serve', todoController.serveTaskAttachment);
 todoRouter.delete('/tasks/:id/attachments/:attachmentId', todoController.deleteTaskAttachment);
 
 // Task dependencies

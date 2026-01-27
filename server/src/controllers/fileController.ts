@@ -438,26 +438,6 @@ export async function downloadFile(req: Request, res: Response) {
       storageProvider: storageService.getProvider()
     });
     
-    // If file has a direct URL that's accessible, use it first (simplest approach)
-    if (file.url && (file.url.startsWith('http://') || file.url.startsWith('https://'))) {
-      // Check if it's a GCS URL or any external URL
-      const isExternalUrl = file.url.includes('storage.googleapis.com') ||
-                           file.url.includes('googleapis.com') ||
-                           file.url.includes('storage.cloud.google.com') ||
-                           file.url.includes('vssyl-storage') ||
-                           !file.url.includes('localhost');
-      
-      if (isExternalUrl) {
-        await logger.info('Using file URL directly for download', {
-          operation: 'file_download_direct_url',
-          fileId: id,
-          fileUrl: file.url
-        });
-        res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-        return res.redirect(file.url);
-      }
-    }
-    
     // Determine file location from URL/path, not just current storage provider setting
     // Check if file URL indicates it's in GCS
     const isGCSFile = file.url && (
@@ -482,10 +462,9 @@ export async function downloadFile(req: Request, res: Response) {
       },
     });
     
+    // For GCS files, always serve through backend (bucket may have public access prevention)
     if (isGCSFile || storageService.getProvider() === 'gcs') {
-      // For Google Cloud Storage, use the public URL from storageService
-      // The file.path should contain the GCS path (e.g., "files/userId-timestamp.pdf")
-      // If file.path is not available, try to extract it from file.url
+      // Extract GCS path from file.path or file.url
       let gcsPath = file.path;
       
       if (!gcsPath && file.url) {
@@ -504,30 +483,50 @@ export async function downloadFile(req: Request, res: Response) {
       }
       
       if (gcsPath) {
-        const publicUrl = storageService.getPublicUrl(gcsPath);
-        
-        await logger.info('Redirecting to GCS public URL for download', {
-          operation: 'file_download_gcs',
+        await logger.info('Serving GCS file through backend', {
+          operation: 'file_download_gcs_backend',
           fileId: id,
           gcsPath,
-          publicUrl,
           originalUrl: file.url
         });
         
-        // Set Content-Disposition header for download
+        // Get file buffer from GCS
+        const fileBuffer = await storageService.getFileBuffer(gcsPath);
+        
+        // Determine content type
+        const contentType = file.type || 'application/octet-stream';
+        
+        // Set headers and send file
+        res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-        return res.redirect(publicUrl);
+        res.setHeader('Content-Length', fileBuffer.length.toString());
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        return res.send(fileBuffer);
       } else {
-        // If we can't determine GCS path, try using the URL directly if it's a GCS URL
-        if (file.url && isGCSFile) {
-          await logger.info('Using file URL directly for GCS download', {
-            operation: 'file_download_gcs_direct',
-            fileId: id,
-            fileUrl: file.url
-          });
-          res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
-          return res.redirect(file.url);
-        }
+        await logger.error('Could not determine GCS path for file', {
+          operation: 'file_download_gcs_path_error',
+          fileId: id,
+          fileUrl: file.url,
+          filePath: file.path
+        });
+        return res.status(500).json({ message: 'Could not determine file location' });
+      }
+    }
+    
+    // For non-GCS external URLs (e.g., other cloud storage), try redirect if accessible
+    if (file.url && (file.url.startsWith('http://') || file.url.startsWith('https://'))) {
+      const isExternalUrl = !file.url.includes('localhost') && 
+                           !file.url.includes('127.0.0.1') &&
+                           !isGCSFile;
+      
+      if (isExternalUrl) {
+        await logger.info('Redirecting to external URL for download', {
+          operation: 'file_download_external_url',
+          fileId: id,
+          fileUrl: file.url
+        });
+        res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+        return res.redirect(file.url);
       }
     }
     

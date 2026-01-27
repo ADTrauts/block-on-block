@@ -13,6 +13,7 @@ import {
   updateProfilePhotoAvatar,
   uploadProfilePhoto,
 } from '../api/profilePhotos';
+import { authenticatedApiCall } from '../lib/apiUtils';
 import { toast } from 'react-hot-toast';
 
 type Slot = 'personal' | 'business';
@@ -135,7 +136,7 @@ export default function ProfilePhotoManager() {
 
   const handleTrash = async (photo: ProfilePhotoLibraryItem) => {
     try {
-      await fetch('/api/trash/items', {
+      await authenticatedApiCall('/api/trash/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

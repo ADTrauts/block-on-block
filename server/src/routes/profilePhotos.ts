@@ -6,6 +6,7 @@ import {
   getProfilePhotos,
   assignProfilePhoto,
   updateProfilePhotoAvatar,
+  serveProfilePhoto,
   multerUpload 
 } from '../controllers/profilePhotoController';
 
@@ -16,6 +17,10 @@ router.use(authenticateJWT);
 
 // Get user's profile photos
 router.get('/', getProfilePhotos);
+
+// Serve profile photo image (authenticated endpoint)
+// This allows images to be served even when bucket has public access prevention
+router.get('/serve/:photoId', serveProfilePhoto);
 
 // Upload a profile photo
 router.post('/upload', multerUpload, uploadProfilePhoto);
