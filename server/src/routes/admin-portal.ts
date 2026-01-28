@@ -1479,14 +1479,23 @@ router.get('/billing/subscriptions', authenticateJWT, requireAdmin, async (req: 
       totalPages: Math.ceil(total / Number(limit))
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     await logger.error('Failed to fetch subscriptions', {
       operation: 'admin_get_subscriptions',
       error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        message: errorMessage,
+        stack: errorStack
       }
     });
-    res.status(500).json({ error: 'Failed to fetch subscriptions' });
+    
+    // Include error details in response for debugging (always include message)
+    res.status(500).json({ 
+      error: 'Failed to fetch subscriptions',
+      details: errorMessage,
+      ...(process.env.NODE_ENV === 'development' && { stack: errorStack })
+    });
   }
 });
 
@@ -1501,14 +1510,23 @@ router.get('/billing/payments', authenticateJWT, requireAdmin, async (req: Reque
     });
     res.json(result);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     await logger.error('Failed to fetch payments', {
       operation: 'admin_get_payments',
       error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        message: errorMessage,
+        stack: errorStack
       }
     });
-    res.status(500).json({ error: 'Failed to fetch payments' });
+    
+    // Include error details in response for debugging (always include message)
+    res.status(500).json({ 
+      error: 'Failed to fetch payments',
+      details: errorMessage,
+      ...(process.env.NODE_ENV === 'development' && { stack: errorStack })
+    });
   }
 });
 
@@ -1523,14 +1541,23 @@ router.get('/billing/payouts', authenticateJWT, requireAdmin, async (req: Reques
     });
     res.json(result);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     await logger.error('Failed to fetch developer payouts', {
       operation: 'admin_get_developer_payouts',
       error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        message: errorMessage,
+        stack: errorStack
       }
     });
-    res.status(500).json({ error: 'Failed to fetch developer payouts' });
+    
+    // Include error details in response for debugging (always include message)
+    res.status(500).json({ 
+      error: 'Failed to fetch developer payouts',
+      details: errorMessage,
+      ...(process.env.NODE_ENV === 'development' && { stack: errorStack })
+    });
   }
 });
 
