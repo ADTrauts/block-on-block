@@ -68,10 +68,10 @@ router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Reques
       revenueLast30Days,
       revenuePrevious30Days
     ] = await Promise.all([
-      prisma.user.count(),
+      prisma.user.count().catch(() => 0),
       prisma.user.count({
         where: { createdAt: { gte: thirtyDaysAgo } }
-      }),
+      }).catch(() => 0),
       prisma.user.count({
         where: {
           createdAt: {
@@ -79,11 +79,11 @@ router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Reques
             lt: thirtyDaysAgo
           }
         }
-      }),
-      prisma.business.count(),
+      }).catch(() => 0),
+      prisma.business.count().catch(() => 0),
       prisma.business.count({
         where: { createdAt: { gte: thirtyDaysAgo } }
-      }),
+      }).catch(() => 0),
       prisma.business.count({
         where: {
           createdAt: {
@@ -91,18 +91,18 @@ router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Reques
             lt: thirtyDaysAgo
           }
         }
-      }),
+      }).catch(() => 0),
       prisma.moduleSubscription.aggregate({
         _sum: { amount: true },
         where: { status: 'active' }
-      }),
+      }).catch(() => ({ _sum: { amount: null } })),
       prisma.moduleSubscription.aggregate({
         _sum: { amount: true },
         where: {
           status: 'active',
           createdAt: { gte: thirtyDaysAgo }
         }
-      }),
+      }).catch(() => ({ _sum: { amount: null } })),
       prisma.moduleSubscription.aggregate({
         _sum: { amount: true },
         where: {
@@ -112,7 +112,7 @@ router.get('/dashboard/stats', authenticateJWT, requireAdmin, async (req: Reques
             lt: thirtyDaysAgo
           }
         }
-      })
+      }).catch(() => ({ _sum: { amount: null } }))
     ]);
 
     // Calculate growth trends (percentage change)
@@ -1448,7 +1448,7 @@ router.get('/billing/subscriptions', authenticateJWT, requireAdmin, async (req: 
     const { StripeSyncService } = await import('../services/stripeSyncService');
     const subscriptionsWithUrls = subscriptions.map(sub => ({
       ...sub,
-      userEmail: sub.user.email,
+      userEmail: sub.user?.email || 'Unknown',
       stripeUrls: {
         subscription: StripeSyncService.getStripeSubscriptionUrl(sub.stripeSubscriptionId),
         customer: StripeSyncService.getStripeCustomerUrl(sub.stripeCustomerId)
@@ -1499,48 +1499,12 @@ router.get('/billing/payments', authenticateJWT, requireAdmin, async (req: Reque
 router.get('/billing/payouts', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
-
-    const where: Record<string, unknown> = {};
-    if (status) where.payoutStatus = status;
-
-    const [payouts, total] = await Promise.all([
-      prisma.developerRevenue.findMany({
-        where,
-        skip,
-        take: Number(limit),
-        orderBy: { createdAt: 'desc' },
-        include: {
-          developer: {
-            select: { email: true, name: true }
-          },
-          module: {
-            select: { name: true }
-          }
-        }
-      }),
-      prisma.developerRevenue.count({ where })
-    ]);
-
-    res.json({
-      payouts: payouts.map(payout => ({
-        id: payout.id,
-        developerId: payout.developerId,
-        developerName: payout.developer.name || payout.developer.email,
-        amount: payout.developerRevenue,
-        status: payout.payoutStatus,
-        requestedAt: payout.createdAt,
-        paidAt: payout.payoutDate,
-        commissionRate: payout.commissionRate || 0.30,
-        commissionType: payout.commissionType || 'standard',
-        totalRevenue: payout.totalRevenue,
-        platformRevenue: payout.platformRevenue,
-        isFirstYear: payout.isFirstYear ?? true,
-      })),
-      total,
+    const result = await AdminService.getDeveloperPayouts({
       page: Number(page),
-      totalPages: Math.ceil(total / Number(limit))
+      limit: Number(limit),
+      status: status as string
     });
+    res.json(result);
   } catch (error) {
     await logger.error('Failed to fetch developer payouts', {
       operation: 'admin_get_developer_payouts',

@@ -574,20 +574,32 @@ export async function getProfilePhotos(req: Request, res: Response) {
       },
     });
 
-    // Convert GCS URLs to backend serving URLs if bucket has public access prevention
-    // This allows images to work even when bucket is not publicly accessible
+    // Convert all URLs to backend serving URLs for consistent, authenticated access
+    // This ensures images work regardless of storage provider or public access settings
     const baseUrl = process.env.BACKEND_URL || 
                    process.env.NEXT_PUBLIC_API_BASE_URL || 
                    'https://vssyl-server-235369681725.us-central1.run.app';
 
     const convertToBackendUrl = (url: string | null, photoId: string | null, type: 'avatar' | 'original'): string | null => {
       if (!url || !photoId) return url;
-      // If it's a GCS URL, convert to backend serving URL
+      
+      // If it's already a backend serving URL, return as-is
+      if (url.includes('/api/profile-photos/serve/')) {
+        return url;
+      }
+      
+      // Convert GCS URLs to backend serving URL
       if (url.includes('storage.googleapis.com')) {
         return `${baseUrl}/api/profile-photos/serve/${photoId}?type=${type}`;
       }
-      // If it's already a backend URL or local URL, return as-is
-      return url;
+      
+      // Convert local storage URLs (both full URLs and relative paths) to backend serving URL
+      if (url.includes('/uploads/') || url.startsWith('/uploads/')) {
+        return `${baseUrl}/api/profile-photos/serve/${photoId}?type=${type}`;
+      }
+      
+      // For any other URL format, convert to backend serving URL as fallback
+      return `${baseUrl}/api/profile-photos/serve/${photoId}?type=${type}`;
     };
 
     // Convert library URLs
@@ -691,8 +703,12 @@ export async function serveProfilePhoto(req: Request, res: Response) {
         return res.status(400).json({ error: 'Invalid GCS URL format' });
       }
     } else if (photoUrl.includes('/uploads/')) {
-      // Local URL: /uploads/path
-      filePath = photoUrl.split('/uploads/')[1];
+      // Local URL: can be either:
+      // - Full URL: https://vssyl-server-235369681725.us-central1.run.app/uploads/profile-photos/...
+      // - Relative URL: /uploads/profile-photos/...
+      // Extract the path after /uploads/
+      const uploadsIndex = photoUrl.indexOf('/uploads/');
+      filePath = photoUrl.substring(uploadsIndex + '/uploads/'.length);
     } else {
       return res.status(400).json({ error: 'Unsupported URL format' });
     }

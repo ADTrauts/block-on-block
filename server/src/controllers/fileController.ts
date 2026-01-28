@@ -157,10 +157,16 @@ export async function listFiles(req: Request, res: Response) {
     
     const files = await prisma.$queryRawUnsafe(query, ...params) as Array<any>;
     
-    // Add full URLs to all files
+    // Convert file URLs to download endpoint for consistent, authenticated access
+    // This ensures images work regardless of storage provider or public access settings
+    const baseUrl = process.env.BACKEND_URL || 
+                   process.env.NEXT_PUBLIC_API_BASE_URL || 
+                   'https://vssyl-server-235369681725.us-central1.run.app';
+    
     const filesWithFullUrls = files.map((file: Record<string, any>) => ({
       ...file,
-      url: `${process.env.BACKEND_URL || 'https://vssyl-server-235369681725.us-central1.run.app'}${file.url}`
+      // Always use download endpoint for file access (handles both GCS and local storage)
+      url: `${baseUrl}/api/drive/files/${file.id}/download`
     }));
     
     // Return array directly to match folders API format

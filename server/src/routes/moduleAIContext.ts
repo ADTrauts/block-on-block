@@ -312,8 +312,11 @@ router.get(
         
         // Store createdAt to avoid TypeScript narrowing issues
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const contextCreatedAt = (aiContext as any).createdAt;
-        const contextLastUpdated = 'lastUpdated' in aiContext ? (aiContext as any).lastUpdated : contextCreatedAt;
+        const contextCreatedAt = (aiContext as any).createdAt || new Date();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const contextLastUpdated = ('lastUpdated' in aiContext && (aiContext as any).lastUpdated) 
+          ? (aiContext as any).lastUpdated 
+          : contextCreatedAt;
         
         return {
           moduleId: module.id,
@@ -333,11 +336,22 @@ router.get(
             patterns: Array.isArray(aiContext.patterns) ? aiContext.patterns : [],
             // Handle concepts field - may not exist in all database versions
             concepts: 'concepts' in aiContext && Array.isArray(aiContext.concepts) ? aiContext.concepts : [],
-            entities: aiContext.entities || [],
-            actions: aiContext.actions || [],
-            contextProviders: Array.isArray(aiContext.contextProviders) ? aiContext.contextProviders : (aiContext.contextProviders ? [aiContext.contextProviders] : []),
+            // Handle entities field - JSON field, could be array, object, or null
+            entities: aiContext.entities != null 
+              ? (Array.isArray(aiContext.entities) ? aiContext.entities : (typeof aiContext.entities === 'object' ? [aiContext.entities] : []))
+              : [],
+            // Handle actions field - JSON field, could be array, object, or null
+            actions: aiContext.actions != null
+              ? (Array.isArray(aiContext.actions) ? aiContext.actions : (typeof aiContext.actions === 'object' ? [aiContext.actions] : []))
+              : [],
+            // Handle contextProviders field - JSON field, could be array, object, or null
+            contextProviders: aiContext.contextProviders != null
+              ? (Array.isArray(aiContext.contextProviders) 
+                  ? aiContext.contextProviders 
+                  : (typeof aiContext.contextProviders === 'object' ? [aiContext.contextProviders] : []))
+              : [],
             // Handle relationships field - may not exist in all database versions
-            relationships: 'relationships' in aiContext ? (aiContext.relationships || null) : null,
+            relationships: 'relationships' in aiContext && aiContext.relationships != null ? aiContext.relationships : null,
             // Handle version field - may not exist in all database versions
             version: 'version' in aiContext ? (aiContext.version || '1.0.0') : '1.0.0',
             registeredAt: contextCreatedAt,
