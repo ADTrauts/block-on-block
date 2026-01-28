@@ -975,11 +975,13 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Run database migrations in production
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Running database migrations...');
-  console.log('DATABASE_MIGRATE_URL:', process.env.DATABASE_MIGRATE_URL ? 'SET' : 'NOT SET');
-  console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
-  
-  try {
+  // Wrap in async IIFE to use await
+  (async () => {
+    console.log('🔄 Running database migrations...');
+    console.log('DATABASE_MIGRATE_URL:', process.env.DATABASE_MIGRATE_URL ? 'SET' : 'NOT SET');
+    console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    
+    try {
     const { execSync } = require('child_process');
     const path = require('path');
     
@@ -1004,14 +1006,44 @@ if (process.env.NODE_ENV === 'production') {
       // Continue anyway - schema might be pre-built in Docker image
     }
     
-    // Use migration URL without connection pool parameters
-    const migrationUrl = process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL;
+    // Use migration URL with connection pool parameters
+    // Migrations need their own connection pool to avoid conflicts with Prisma client
+    let migrationUrl = process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL;
     if (!migrationUrl) {
       throw new Error('DATABASE_URL is required for migrations');
     }
     
+    // Ensure migration URL has connection pool parameters
+    // Use a lower connection limit for migrations (5) to avoid exhausting the pool
+    // The Prisma client uses 20 connections, so migrations get 5 dedicated connections
+    if (!migrationUrl.includes('connection_limit=')) {
+      const hasParams = migrationUrl.includes('?');
+      const separator = hasParams ? '&' : '?';
+      migrationUrl = `${migrationUrl}${separator}connection_limit=5&pool_timeout=30&connect_timeout=60`;
+    } else {
+      // If it already has connection_limit, ensure it's reasonable for migrations
+      // Replace with a lower limit to avoid conflicts
+      migrationUrl = migrationUrl.replace(/connection_limit=\d+/, 'connection_limit=5');
+      if (!migrationUrl.includes('pool_timeout=')) {
+        migrationUrl += '&pool_timeout=30';
+      }
+      if (!migrationUrl.includes('connect_timeout=')) {
+        migrationUrl += '&connect_timeout=60';
+      }
+    }
+    
     console.log('Using migration URL:', migrationUrl ? 'SET' : 'NOT SET');
     console.log('Migration URL length:', migrationUrl ? migrationUrl.length : 0);
+    
+    // Disconnect Prisma client before running migrations to free up connections
+    // This prevents connection pool exhaustion
+    try {
+      console.log('🔌 Disconnecting Prisma client before migrations...');
+      await prisma.$disconnect();
+      console.log('✅ Prisma client disconnected');
+    } catch (disconnectError) {
+      console.warn('⚠️  Could not disconnect Prisma client (may not be connected):', disconnectError instanceof Error ? disconnectError.message : String(disconnectError));
+    }
     
     const migrationEnv = {
       ...process.env,
@@ -1067,20 +1099,48 @@ if (process.env.NODE_ENV === 'production') {
     
     // Now run migrations
     try {
-      execSync(`npx prisma migrate deploy --schema ${schemaPath}`, {
-        stdio: 'inherit',
+      // Capture stdout and stderr to see actual Prisma errors
+      const output = execSync(`npx prisma migrate deploy --schema ${schemaPath}`, {
+        stdio: 'pipe',
+        encoding: 'utf-8',
         env: migrationEnv,
         cwd: projectRoot,
         timeout: 120000
       });
       console.log('✅ Database migrations completed successfully');
+      if (output) {
+        console.log('Migration output:', output);
+      }
     } catch (migrationError: unknown) {
       const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
       const errorStack = migrationError instanceof Error ? migrationError.stack : undefined;
+      
+      // Extract actual Prisma error from execSync error
+      // execSync throws an error with stdout and stderr properties when stdio is 'pipe'
+      const execError = migrationError as { stdout?: string | Buffer; stderr?: string | Buffer; status?: number; signal?: string | null };
+      const prismaOutput = execError.stdout ? String(execError.stdout) : '';
+      const prismaError = execError.stderr ? String(execError.stderr) : '';
+      
       console.error('❌ Migration command failed after resolution attempt');
       console.error('Error message:', errorMessage);
-      console.error('Error stack:', errorStack);
-      console.error('Full error object:', JSON.stringify(migrationError, Object.getOwnPropertyNames(migrationError)));
+      console.error('Error status:', execError.status);
+      console.error('Error signal:', execError.signal);
+      if (errorStack) {
+        console.error('Error stack:', errorStack);
+      }
+      if (prismaOutput) {
+        console.error('=== Prisma stdout ===');
+        console.error(prismaOutput);
+        console.error('=== End stdout ===');
+      }
+      if (prismaError) {
+        console.error('=== Prisma stderr ===');
+        console.error(prismaError);
+        console.error('=== End stderr ===');
+      }
+      // Also log full error for debugging
+      console.error('Full error keys:', Object.keys(execError));
+      
       // Log to structured logger for better visibility in Cloud Logging
       logger.error('Database migration failed on startup', {
         operation: 'migration_startup_failed',
@@ -1088,21 +1148,42 @@ if (process.env.NODE_ENV === 'production') {
           message: errorMessage,
           stack: errorStack
         },
+        prismaOutput: prismaOutput || 'No stdout',
+        prismaError: prismaError || 'No stderr',
+        status: execError.status,
+        signal: execError.signal,
         environment: process.env.NODE_ENV,
-        databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
-        errorDetails: String(migrationError)
+        databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET'
       }).catch(() => {
         // Ignore logger errors
       });
       // Don't throw - let server start anyway so we can investigate
+    } finally {
+      // Reconnect Prisma client after migrations (whether they succeeded or failed)
+      try {
+        console.log('🔌 Reconnecting Prisma client after migrations...');
+        await prisma.$connect();
+        console.log('✅ Prisma client reconnected');
+      } catch (reconnectError) {
+        console.warn('⚠️  Could not reconnect Prisma client:', reconnectError instanceof Error ? reconnectError.message : String(reconnectError));
+        // This is okay - Prisma will connect on first query
+      }
     }
   } catch (error) {
     console.error('❌ Database migration failed:', error);
     console.error('⚠️  Server will start but database may be out of sync');
     console.error('⚠️  Please check logs and run migrations manually if needed');
+    
+    // Ensure Prisma client is connected even if migrations failed
+    try {
+      await prisma.$connect();
+    } catch (reconnectError) {
+      // Ignore - Prisma will connect on first query
+    }
     // Don't exit - let the server start so we can investigate the migration issue
     // But log the error clearly so it's visible in Cloud Run logs
   }
+  })(); // End async IIFE
 }
 
 // Initialize HTTP server
