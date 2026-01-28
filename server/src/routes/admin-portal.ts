@@ -1447,8 +1447,25 @@ router.get('/billing/subscriptions', authenticateJWT, requireAdmin, async (req: 
     // Add Stripe URLs to each subscription
     const { StripeSyncService } = await import('../services/stripeSyncService');
     const subscriptionsWithUrls = subscriptions.map(sub => ({
-      ...sub,
+      id: sub.id,
+      userId: sub.userId,
+      businessId: sub.businessId,
+      tier: sub.tier,
+      status: sub.status,
+      currentPeriodStart: sub.currentPeriodStart.toISOString(),
+      currentPeriodEnd: sub.currentPeriodEnd.toISOString(),
+      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+      stripeSubscriptionId: sub.stripeSubscriptionId,
+      stripeCustomerId: sub.stripeCustomerId,
+      lastSyncedAt: sub.lastSyncedAt?.toISOString() || null,
+      stripeMetadata: sub.stripeMetadata || null,
+      employeeCount: sub.employeeCount,
+      includedEmployees: sub.includedEmployees,
+      additionalEmployeeCost: sub.additionalEmployeeCost,
+      createdAt: sub.createdAt.toISOString(),
+      updatedAt: sub.updatedAt.toISOString(),
       userEmail: sub.user?.email || 'Unknown',
+      userName: sub.user?.name || null,
       stripeUrls: {
         subscription: StripeSyncService.getStripeSubscriptionUrl(sub.stripeSubscriptionId),
         customer: StripeSyncService.getStripeCustomerUrl(sub.stripeCustomerId)
@@ -3468,6 +3485,219 @@ router.post('/performance/alerts/configure', authenticateJWT, requireAdmin, asyn
       }
     });
     res.status(500).json({ error: 'Failed to configure performance alert' });
+  }
+});
+
+// Database schema diagnostic endpoint
+router.get('/database/schema-check', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // Check critical tables that are causing 500 errors
+    const criticalTables = [
+      'pricing_configs',
+      'price_changes',
+      'module_ai_context_registry',
+      'subscriptions',
+      'invoices',
+      'developer_revenues',
+      'content_reports',
+      'security_events',
+      'module_subscriptions'
+    ];
+
+    const tableChecks = await Promise.all(
+      criticalTables.map(async (tableName) => {
+        try {
+          const result = await prisma.$queryRaw<Array<{table_name: string}>>`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = ${tableName};
+          `;
+          return {
+            table: tableName,
+            exists: result.length > 0,
+            error: null
+          };
+        } catch (error) {
+          return {
+            table: tableName,
+            exists: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
+        }
+      })
+    );
+
+    // Check migration status
+    let migrationStatus = 'unknown';
+    let appliedMigrations = 0;
+    try {
+      const migrations = await prisma.$queryRaw<Array<{migration_name: string}>>`
+        SELECT migration_name 
+        FROM _prisma_migrations 
+        ORDER BY finished_at DESC 
+        LIMIT 10;
+      `;
+      appliedMigrations = migrations.length;
+      migrationStatus = 'connected';
+    } catch (error) {
+      migrationStatus = 'error';
+    }
+
+    // Get all tables for reference
+    let allTables: string[] = [];
+    try {
+      const tables = await prisma.$queryRaw<Array<{table_name: string}>>`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        ORDER BY table_name;
+      `;
+      allTables = tables.map(t => t.table_name);
+    } catch (error) {
+      // Ignore error
+    }
+
+    await logger.info('Admin checked database schema', {
+      operation: 'admin_database_schema_check',
+      adminId: adminUser.id
+    });
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'unknown',
+      databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+      criticalTables: tableChecks,
+      migrationStatus,
+      appliedMigrations,
+      allTables: allTables.slice(0, 50), // Limit to first 50 for readability
+      totalTables: allTables.length,
+      missingTables: tableChecks.filter(t => !t.exists).map(t => t.table)
+    });
+  } catch (error) {
+    await logger.error('Failed to check database schema', {
+      operation: 'admin_database_schema_check',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check database schema',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Manual migration trigger endpoint
+router.post('/database/run-migrations', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const { execSync } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+
+    const projectRoot = path.join(__dirname, '../..');
+    const schemaPath = path.join(projectRoot, 'prisma/schema.prisma');
+    const migrationsDir = path.join(projectRoot, 'prisma/migrations');
+
+    // Verify paths exist
+    if (!fs.existsSync(schemaPath)) {
+      return res.status(500).json({ 
+        success: false,
+        error: 'Prisma schema not found',
+        path: schemaPath
+      });
+    }
+
+    if (!fs.existsSync(migrationsDir)) {
+      return res.status(500).json({ 
+        success: false,
+        error: 'Migrations directory not found',
+        path: migrationsDir
+      });
+    }
+
+    // Build schema first
+    const buildScriptPath = path.join(projectRoot, 'scripts/build-prisma-schema.js');
+    try {
+      execSync(`node ${buildScriptPath}`, {
+        stdio: 'pipe',
+        env: process.env,
+        cwd: projectRoot,
+        timeout: 30000
+      });
+    } catch (buildError) {
+      await logger.warn('Schema build failed, continuing anyway', {
+        operation: 'admin_run_migrations',
+        error: {
+          message: buildError instanceof Error ? buildError.message : 'Unknown error',
+          stack: buildError instanceof Error ? buildError.stack : undefined,
+        }
+      });
+    }
+
+    // Run migrations
+    const migrationUrl = process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL;
+    const migrationEnv = {
+      ...process.env,
+      DATABASE_URL: migrationUrl
+    };
+
+    let migrationOutput = '';
+    let migrationSuccess = false;
+    try {
+      const output = execSync(`npx prisma migrate deploy --schema ${schemaPath}`, {
+        stdio: 'pipe',
+        env: migrationEnv,
+        cwd: projectRoot,
+        timeout: 120000,
+        encoding: 'utf-8'
+      });
+      migrationOutput = output.toString();
+      migrationSuccess = true;
+    } catch (migrationError: unknown) {
+      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      migrationOutput = errorMessage;
+      migrationSuccess = false;
+    }
+
+    await logger.info('Admin triggered manual migration', {
+      operation: 'admin_run_migrations',
+      adminId: adminUser.id,
+      success: migrationSuccess
+    });
+
+    res.json({
+      success: migrationSuccess,
+      message: migrationSuccess ? 'Migrations applied successfully' : 'Migration failed',
+      output: migrationOutput,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await logger.error('Failed to run migrations', {
+      operation: 'admin_run_migrations',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to run migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 

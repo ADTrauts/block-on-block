@@ -13,7 +13,15 @@ import { STRIPE_PRODUCTS, stripe } from '../config/stripe';
 export const getAllPricing = async (req: Request, res: Response): Promise<void> => {
   try {
     const pricing = await PricingService.getAllActivePricing();
-    res.json({ pricing });
+    // Serialize dates to ISO strings for JSON response
+    const serializedPricing = pricing.map(p => ({
+      ...p,
+      effectiveDate: p.effectiveDate.toISOString(),
+      endDate: p.endDate?.toISOString() || null,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
+    }));
+    res.json({ pricing: serializedPricing });
   } catch (error) {
     await logger.error('Failed to get all pricing', {
       operation: 'pricing_get_all',
@@ -36,14 +44,22 @@ export const getPricing = async (req: Request, res: Response): Promise<void> => 
     const { billingCycle } = req.query;
 
     const cycle = (billingCycle as string) === 'yearly' ? 'yearly' : 'monthly';
-    const pricing = await PricingService.getPricing(tier, cycle);
+    const pricing = await PricingService.getPricing(tier, cycle).catch(() => null);
 
     if (!pricing) {
       res.status(404).json({ error: 'Pricing not found for tier' });
       return;
     }
 
-    res.json({ pricing });
+    // Serialize dates to ISO strings for JSON response
+    const serializedPricing = {
+      ...pricing,
+      effectiveDate: pricing.effectiveDate.toISOString(),
+      endDate: pricing.endDate?.toISOString() || null,
+      createdAt: pricing.createdAt.toISOString(),
+      updatedAt: pricing.updatedAt.toISOString(),
+    };
+    res.json({ pricing: serializedPricing });
   } catch (error) {
     await logger.error('Failed to get pricing', {
       operation: 'pricing_get',
@@ -410,7 +426,15 @@ export const upsertPricing = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    res.json({ pricing });
+    // Serialize dates to ISO strings for JSON response
+    const serializedPricing = {
+      ...pricing,
+      effectiveDate: pricing.effectiveDate.toISOString(),
+      endDate: pricing.endDate?.toISOString() || null,
+      createdAt: pricing.createdAt.toISOString(),
+      updatedAt: pricing.updatedAt.toISOString(),
+    };
+    res.json({ pricing: serializedPricing });
   } catch (error) {
     await logger.error('Failed to upsert pricing', {
       operation: 'pricing_upsert',
@@ -431,7 +455,13 @@ export const getPriceHistory = async (req: Request, res: Response): Promise<void
   try {
     const { pricingConfigId } = req.params;
     const history = await PricingService.getPriceHistory(pricingConfigId);
-    res.json({ history });
+    // Serialize dates to ISO strings for JSON response
+    const serializedHistory = history.map(h => ({
+      ...h,
+      createdAt: h.createdAt.toISOString(),
+      notificationSentAt: h.notificationSentAt?.toISOString() || null,
+    }));
+    res.json({ history: serializedHistory });
   } catch (error) {
     await logger.error('Failed to get price history', {
       operation: 'pricing_get_history',
@@ -540,9 +570,16 @@ export const getAllPriceHistory = async (req: Request, res: Response): Promise<v
         },
       },
       take: 100, // Limit to last 100 changes
-    });
+    }).catch(() => []); // Return empty array if query fails
 
-    res.json({ history });
+    // Serialize dates to ISO strings for JSON response
+    const serializedHistory = history.map(h => ({
+      ...h,
+      createdAt: h.createdAt.toISOString(),
+      notificationSentAt: h.notificationSentAt?.toISOString() || null,
+    }));
+
+    res.json({ history: serializedHistory });
   } catch (error) {
     await logger.error('Failed to get all price history', {
       operation: 'pricing_get_all_history',

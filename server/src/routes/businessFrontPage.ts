@@ -18,11 +18,24 @@ router.use(authenticateJWT);
 router.get('/:businessId/config', async (req, res) => {
   try {
     const { businessId } = req.params;
+    
+    if (!businessId) {
+      return res.status(400).json({ error: 'Business ID is required' });
+    }
+    
     const config = await businessFrontPageService.getOrCreateConfig(businessId);
     res.json(config);
-  } catch (error) {
-    console.error('Error fetching front page config:', error);
-    res.status(500).json({ error: 'Failed to fetch front page configuration' });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error fetching front page config:', {
+      error: err.message,
+      stack: err.stack,
+      businessId: req.params.businessId
+    });
+    res.status(500).json({ 
+      error: 'Failed to fetch front page configuration',
+      message: err.message 
+    });
   }
 });
 

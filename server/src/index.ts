@@ -1076,8 +1076,24 @@ if (process.env.NODE_ENV === 'production') {
       console.log('✅ Database migrations completed successfully');
     } catch (migrationError: unknown) {
       const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      const errorStack = migrationError instanceof Error ? migrationError.stack : undefined;
       console.error('❌ Migration command failed after resolution attempt');
       console.error('Error message:', errorMessage);
+      console.error('Error stack:', errorStack);
+      console.error('Full error object:', JSON.stringify(migrationError, Object.getOwnPropertyNames(migrationError)));
+      // Log to structured logger for better visibility in Cloud Logging
+      logger.error('Database migration failed on startup', {
+        operation: 'migration_startup_failed',
+        error: {
+          message: errorMessage,
+          stack: errorStack
+        },
+        environment: process.env.NODE_ENV,
+        databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+        errorDetails: String(migrationError)
+      }).catch(() => {
+        // Ignore logger errors
+      });
       // Don't throw - let server start anyway so we can investigate
     }
   } catch (error) {

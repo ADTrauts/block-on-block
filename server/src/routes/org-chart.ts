@@ -708,4 +708,50 @@ router.post('/employees/validate', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/org-chart/:businessId
+ * Get complete org chart structure for a business (alias for structure endpoint)
+ * NOTE: This route must be placed at the end to avoid conflicts with more specific routes
+ */
+router.get('/:businessId', async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    
+    if (!businessId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Business ID is required' 
+      });
+    }
+    
+    const structure = await orgChartService.getOrgChartStructure(businessId);
+    
+    // Transform the response to match frontend expectations
+    const response = {
+      success: true,
+      tiers: structure.tiers,
+      departments: structure.departments,
+      positions: structure.positions,
+      hierarchy: {
+        departments: structure.departments,
+        positions: structure.positions
+      }
+    };
+    
+    res.json(response);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error fetching org chart:', {
+      error: err.message,
+      stack: err.stack,
+      businessId: req.params.businessId
+    });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch org chart',
+      message: err.message
+    });
+  }
+});
+
 export default router;

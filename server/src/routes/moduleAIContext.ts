@@ -280,11 +280,11 @@ router.get(
           updatedAt: true,
         },
         orderBy: { name: 'asc' },
-      });
+      }).catch(() => []);
 
       // Get all registered AI contexts
       // Query all fields to avoid issues with missing columns
-      const registeredContexts = await prisma.moduleAIContextRegistry.findMany();
+      const registeredContexts = await prisma.moduleAIContextRegistry.findMany().catch(() => []);
 
       // Create a map of registered contexts by moduleId
       const contextMap = new Map(

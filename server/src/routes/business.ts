@@ -28,6 +28,7 @@ router.get('/', getUserBusinesses);
 router.get('/:id/setup-status', getBusinessSetupStatus);
 router.get('/:id', getBusiness);
 router.put('/:id', updateBusiness);
+router.patch('/:id', updateBusiness); // PATCH support for partial updates
 
 // Logo management routes
 router.post('/:id/logo', uploadLogo);

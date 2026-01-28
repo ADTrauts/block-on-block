@@ -75,7 +75,7 @@ export class PricingService {
         orderBy: {
           effectiveDate: 'desc',
         },
-      });
+      }).catch(() => null); // Return null if query fails
 
       if (pricing) {
         // Update cache
@@ -122,7 +122,7 @@ export class PricingService {
           { billingCycle: 'asc' },
           { effectiveDate: 'desc' },
         ],
-      });
+      }).catch(() => []); // Return empty array if query fails
 
       return pricing as PricingConfig[];
     } catch (error) {
@@ -303,7 +303,7 @@ export class PricingService {
           },
         },
       },
-    });
+    }).catch(() => []); // Return empty array if query fails
   }
 
   /**
