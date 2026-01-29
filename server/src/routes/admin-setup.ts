@@ -312,14 +312,14 @@ router.post('/fix-migrations', async (req: Request, res: Response) => {
   try {
     console.log('🔧 Fixing failed migrations...');
     
-    // Find failed migrations
+    // Find failed migrations (WHERE finished_at IS NULL)
     const failedMigrations = await prisma.$queryRaw<Array<{
       id: string;
       migration_name: string;
     }>>`
       SELECT id, migration_name
       FROM "_prisma_migrations"
-      WHERE finished_at IS NULL AND rolled_back_at IS NULL;
+      WHERE finished_at IS NULL;
     `;
 
     if (failedMigrations.length === 0) {
@@ -354,6 +354,74 @@ router.post('/fix-migrations', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to fix migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// TEMPORARY: Delete duplicate migration records (remove after use)
+router.delete('/fix-migrations/duplicates', async (req: Request, res: Response) => {
+  try {
+    console.log('🧹 Cleaning up duplicate migration records...');
+    
+    // Find duplicates (same migration_name, keep the successful one)
+    const duplicates = await prisma.$queryRaw<Array<{
+      id: string;
+      migration_name: string;
+      finished_at: Date | null;
+    }>>`
+      SELECT m1.id, m1.migration_name, m1.finished_at
+      FROM "_prisma_migrations" m1
+      WHERE EXISTS (
+        SELECT 1 FROM "_prisma_migrations" m2 
+        WHERE m2.migration_name = m1.migration_name 
+        AND m2.id != m1.id
+      )
+      ORDER BY migration_name, finished_at DESC NULLS LAST;
+    `;
+
+    // Group by migration name and keep only the first (successful) one
+    const toDelete: string[] = [];
+    const seen = new Set<string>();
+    
+    for (const dup of duplicates) {
+      if (seen.has(dup.migration_name)) {
+        // This is a duplicate - delete it
+        toDelete.push(dup.id);
+        console.log(`🗑️ Marking for deletion: ${dup.migration_name} (id: ${dup.id})`);
+      } else {
+        // First occurrence - keep it
+        seen.add(dup.migration_name);
+        console.log(`✅ Keeping: ${dup.migration_name} (id: ${dup.id})`);
+      }
+    }
+
+    if (toDelete.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No duplicate migrations found',
+        deleted: []
+      });
+    }
+
+    // Delete duplicates
+    for (const id of toDelete) {
+      await prisma.$executeRaw`
+        DELETE FROM "_prisma_migrations" WHERE id = ${id};
+      `;
+    }
+
+    return res.json({
+      success: true,
+      message: `Deleted ${toDelete.length} duplicate migration record(s)`,
+      deletedIds: toDelete
+    });
+
+  } catch (error) {
+    console.error('❌ Error cleaning duplicates:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to clean duplicates',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
