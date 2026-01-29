@@ -4174,7 +4174,11 @@ router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Re
       (async () => {
         if (!stripeKey || stripeKey.length < 10) return;
         const Stripe = require('stripe');
-        const stripe = new Stripe(stripeKey, { apiVersion: '2025-08-27.basil', timeout: TIMEOUT_MS });
+        // Use default API version (SDK version) and longer timeout
+        const stripe = new Stripe(stripeKey, { 
+          timeout: 10000, // 10 second timeout
+          maxNetworkRetries: 1 // Reduce retries for faster feedback
+        });
         await withTimeout(stripe.customers.list({ limit: 1 }), TIMEOUT_MS, 'Stripe API timeout');
         integrations.stripe.status = 'healthy';
       })(),
@@ -4224,7 +4228,7 @@ router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Re
       })()
     ]);
 
-    // Process results and capture errors
+    // Process results and capture errors with full details
     const checkNames = ['stripe', 'openai', 'anthropic', 'database', 'storage'];
     checks.forEach((result, index) => {
       const name = checkNames[index];
@@ -4236,7 +4240,17 @@ router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Re
           } else {
             integrations[name].status = 'error';
           }
-          integrations[name].error = error instanceof Error ? error.message : String(error);
+          // Capture full error details
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorCode = (error as any)?.code || (error as any)?.type || null;
+          const errorStatus = (error as any)?.statusCode || (error as any)?.status || null;
+          integrations[name].error = errorMessage;
+          integrations[name].details = {
+            ...integrations[name].details,
+            errorCode,
+            errorStatus,
+            errorType: error?.constructor?.name || 'Unknown'
+          };
         }
       }
     });
