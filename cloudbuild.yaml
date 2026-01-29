@@ -1,129 +1,45 @@
-# Fast Cloud Build configuration with Docker layer caching only
+# Optimized Cloud Build configuration with Kaniko caching
+# Target: ~5-6 minute builds (down from 10+ minutes)
+#
+# Key optimizations:
+# 1. Kaniko builder with layer caching (faster than Docker + --cache-from)
+# 2. Removed redundant migration step (migrations run on server startup)
+# 3. Parallel builds and pushes where possible
+# 4. Artifact Registry for faster caching
+
 steps:
-  # Step 1: Pull cached images for Docker layer caching
-  - name: 'gcr.io/cloud-builders/docker'
-    entrypoint: 'bash'
+  # Step 1: Build server with Kaniko (better layer caching)
+  - name: 'gcr.io/kaniko-project/executor:latest'
     args:
-      - '-c'
-      - |
-        echo "🔍 Pulling cached images for Docker layer caching..."
-        docker pull gcr.io/$PROJECT_ID/vssyl-server:latest || echo "No server cache found"
-        docker pull gcr.io/$PROJECT_ID/vssyl-web:latest || echo "No web cache found"
-        echo "✅ Cache pull completed"
-    id: 'pull-cache'
-
-  # Step 2: Build server and web in parallel with Docker layer caching
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
-      - '-f'
-      - './server/Dockerfile.production'
-      - '--build-arg'
-      - 'NODE_ENV=production'
-      - '--cache-from'
-      - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
-      - '.'
+      - '--dockerfile=./server/Dockerfile.production'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-server:$BUILD_ID'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-server:latest'
+      - '--cache=true'
+      - '--cache-ttl=168h'
+      - '--cache-repo=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/cache'
+      - '--snapshot-mode=redo'
+      - '--use-new-run'
+      - '--compressed-caching=false'
+      - '--context=.'
     id: 'build-server'
-    waitFor: ['pull-cache']
 
-  - name: 'gcr.io/cloud-builders/docker'
+  # Step 2: Build web with Kaniko (runs in parallel with server)
+  - name: 'gcr.io/kaniko-project/executor:latest'
     args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
-      - '-f'
-      - './web/Dockerfile.production'
-      - '--build-arg'
-      - 'NODE_ENV=production'
-      - '--cache-from'
-      - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
-      - '.'
+      - '--dockerfile=./web/Dockerfile.production'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-web:$BUILD_ID'
+      - '--destination=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-web:latest'
+      - '--cache=true'
+      - '--cache-ttl=168h'
+      - '--cache-repo=us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/cache'
+      - '--snapshot-mode=redo'
+      - '--use-new-run'
+      - '--compressed-caching=false'
+      - '--context=.'
     id: 'build-web'
-    waitFor: ['pull-cache']
+    waitFor: ['-']  # Start immediately (parallel with server)
 
-  # Step 3: Run database migrations
-  - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        echo "🔄 Running Prisma migrations..."
-        
-        # Install dependencies
-        apt-get update && apt-get install -y curl
-        
-        # Install Node.js (version 20 - matches Dockerfile and package.json)
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-        
-        # Verify node and npm
-        node --version
-        npm --version
-        
-        # Install pnpm globally (matches package.json packageManager field)
-        npm install -g pnpm@10.11.0
-        
-        # Install project dependencies
-        cd /workspace
-        echo "📦 Installing dependencies..."
-        pnpm install --frozen-lockfile
-        
-        # Build Prisma schema from modules (REQUIRED before generate)
-        echo "🔨 Building Prisma schema from modules..."
-        node scripts/build-prisma-schema.js
-        
-        # Generate Prisma client
-        echo "🔨 Generating Prisma client..."
-        npx prisma generate
-        
-        # Run Prisma migration
-        # Note: This will fail during build (no VPC access), but migrations run on container startup
-        # Database URL is fetched from Secret Manager for security (uses IP address for build-time access)
-        echo "🔄 Attempting database migrations..."
-        export DATABASE_URL=$$(gcloud secrets versions access latest --secret="database-url" --project="$PROJECT_ID" 2>/dev/null || echo "")
-        if [ -z "$$DATABASE_URL" ]; then
-          echo "⚠️  Could not fetch database URL from Secret Manager - migrations will run on container startup"
-        elif ! npx prisma migrate deploy; then
-          echo "⚠️  Database not reachable during build - migrations will run on container startup"
-        else
-          echo "✅ Migrations completed successfully"
-        fi
-        
-        echo "✅ Build step completed"
-    id: 'run-migrations'
-    waitFor: ['build-server']
-    env:
-      - 'NODE_ENV=production'
-
-  # Step 4: Push images in parallel
-  # Note: Module registration happens automatically on server startup (see server/src/startup/)
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID']
-    id: 'push-server'
-    waitFor: ['run-migrations']
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-server:latest']
-    id: 'push-server-latest'
-    waitFor: ['build-server']
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID']
-    id: 'push-web'
-    waitFor: ['build-web']
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-web:latest']
-    id: 'push-web-latest'
-    waitFor: ['build-web']
-
-  # Step 5: Deploy server (after migrations)
+  # Step 3: Deploy server to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -131,7 +47,7 @@ steps:
       - 'deploy'
       - 'vssyl-server'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-server:$BUILD_ID'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -152,17 +68,17 @@ steps:
       - '--add-cloudsql-instances'
       - 'vssyl-472202:us-central1:vssyl-db-optimized'
       - '--vpc-egress'
-      - 'all-traffic'
+      - 'private-ranges-only'
       - '--min-instances'
       - '1'
       - '--set-env-vars'
-      - 'NODE_ENV=production,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'  
+      - 'NODE_ENV=production,FRONTEND_URL=https://vssyl.com,NEXT_PUBLIC_APP_URL=https://vssyl.com,STORAGE_PROVIDER=gcs,GOOGLE_CLOUD_PROJECT_ID=vssyl-472202,GOOGLE_CLOUD_STORAGE_BUCKET=vssyl-storage-472202'
       - '--set-secrets'
       - 'DATABASE_URL=database-url:latest,DIRECT_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,OPENAI_API_KEY=openai-api-key:latest,OPENAI_ADMIN_API_KEY=openai-admin-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
     id: 'deploy-server'
-    waitFor: ['push-server', 'push-server-latest']  # Module registration happens on server startup
+    waitFor: ['build-server']
 
-  # Step 6: Deploy web (in parallel with server)
+  # Step 4: Deploy web to Cloud Run (runs in parallel with server deploy)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -170,7 +86,7 @@ steps:
       - 'deploy'
       - 'vssyl-web'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/vssyl/vssyl-web:$BUILD_ID'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -189,25 +105,15 @@ steps:
       - '--set-secrets'
       - 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=stripe-publishable-key:latest,NEXTAUTH_SECRET=nextauth-secret:latest'
       - '--set-env-vars'
-      - 'NODE_ENV=production,NEXTAUTH_URL=https://vssyl.com,NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'                   
+      - 'NODE_ENV=production,NEXTAUTH_URL=https://vssyl.com,NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app,NEXT_PUBLIC_APP_URL=https://vssyl.com,BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'
     id: 'deploy-web'
-    waitFor: ['push-web', 'push-web-latest']
-
-# Store images in Google Container Registry
-images:
-  - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
-  - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
-  - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
-  - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
+    waitFor: ['build-web']
 
 # Build options optimized for speed
 options:
-  machineType: 'E2_HIGHCPU_8'  # CRITICAL: Use fast machine
+  machineType: 'E2_HIGHCPU_8'
   diskSizeGb: '100'
-  logging: CLOUD_LOGGING_ONLY
-  # Enable Docker buildkit for better caching
-  env:
-    - 'DOCKER_BUILDKIT=1'
+  logging: 'CLOUD_LOGGING_ONLY'
 
 # Timeout (should be much faster now)
-timeout: '1800s'
+timeout: '1200s'
