@@ -5,6 +5,15 @@ const nextConfig = {
     serverComponentsExternalPackages: ['@prisma/client'],
     // Improve build stability
     optimizePackageImports: ['lucide-react', '@heroicons/react'],
+    // Enable Turbo bundler for faster builds (up to 700x faster HMR, 4x faster builds)
+    turbo: {
+      rules: {
+        '*.svg': {
+          loaders: ['@svgr/webpack'],
+          as: '*.js',
+        },
+      },
+    },
   },
   // Improve build performance and stability
   swcMinify: true,

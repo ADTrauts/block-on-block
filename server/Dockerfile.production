@@ -1,8 +1,9 @@
 # Multi-stage build for production server with optimized caching
+# Optimized for Kaniko layer caching - layers ordered by change frequency
 FROM node:20-alpine AS base
 
-# Install pnpm (this layer rarely changes)
-RUN npm install -g pnpm
+# Install pnpm globally (this layer rarely changes)
+RUN npm install -g pnpm@10.11.0
 
 # Set working directory
 WORKDIR /app
@@ -12,7 +13,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY shared/package.json ./shared/
 COPY server/package.json ./server/
 
-# Install dependencies (this layer is cached unless package files change)
+# Install ALL dependencies (cached unless package files change)
 RUN pnpm install --frozen-lockfile
 
 # Copy Prisma schema and build script (changes less frequently than source code)
@@ -40,11 +41,11 @@ COPY server/ ./server/
 # Build server (this layer rebuilds when server code changes)
 RUN cd server && pnpm build
 
-# Production stage
+# Production stage - minimal image
 FROM node:20-alpine AS production
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.11.0
 
 # Set working directory
 WORKDIR /app
@@ -54,7 +55,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY shared/package.json ./shared/
 COPY server/package.json ./server/
 
-# Install production dependencies including Prisma
+# Install dependencies (including Prisma which is needed at runtime)
 RUN pnpm install --frozen-lockfile
 
 # Copy built shared package
