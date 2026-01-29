@@ -4081,6 +4081,228 @@ router.get('/performance/export', authenticateJWT, requireAdmin, async (req: Req
   }
 });
 
+// ============================================================================
+// INTEGRATION STATUS & DIAGNOSTICS
+// ============================================================================
+
+/**
+ * GET /api/admin-portal/integrations/status
+ * Comprehensive diagnostic endpoint for all external integrations
+ * Tests Stripe, OpenAI, and Anthropic connectivity
+ */
+router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const integrations: Record<string, {
+      configured: boolean;
+      status: 'healthy' | 'error' | 'not_configured' | 'unknown';
+      error?: string;
+      details?: Record<string, unknown>;
+    }> = {};
+
+    // 1. Check Stripe Integration
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    integrations.stripe = {
+      configured: !!stripeKey,
+      status: 'not_configured',
+      details: {
+        keyPrefix: stripeKey ? stripeKey.substring(0, 12) + '...' : null,
+        isTestMode: stripeKey?.startsWith('sk_test_') || false,
+        isLiveMode: stripeKey?.startsWith('sk_live_') || false,
+        webhookConfigured: !!process.env.STRIPE_WEBHOOK_SECRET
+      }
+    };
+
+    if (stripeKey) {
+      try {
+        const Stripe = require('stripe');
+        const stripe = new Stripe(stripeKey, { apiVersion: '2025-08-27.basil' });
+        // Test Stripe by listing 1 customer (minimal API call)
+        await stripe.customers.list({ limit: 1 });
+        integrations.stripe.status = 'healthy';
+      } catch (error) {
+        integrations.stripe.status = 'error';
+        integrations.stripe.error = error instanceof Error ? error.message : 'Unknown error';
+      }
+    }
+
+    // 2. Check OpenAI Integration
+    const openaiKey = process.env.OPENAI_API_KEY;
+    integrations.openai = {
+      configured: !!openaiKey,
+      status: 'not_configured',
+      details: {
+        keyPrefix: openaiKey ? openaiKey.substring(0, 10) + '...' : null,
+        adminKeyConfigured: !!process.env.OPENAI_ADMIN_API_KEY
+      }
+    };
+
+    if (openaiKey) {
+      try {
+        const OpenAI = require('openai');
+        const client = new OpenAI({ apiKey: openaiKey });
+        // Test by listing models (lightweight API call)
+        await client.models.list();
+        integrations.openai.status = 'healthy';
+      } catch (error) {
+        integrations.openai.status = 'error';
+        integrations.openai.error = error instanceof Error ? error.message : 'Unknown error';
+      }
+    }
+
+    // 3. Check Anthropic Integration
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    integrations.anthropic = {
+      configured: !!anthropicKey,
+      status: 'not_configured',
+      details: {
+        keyPrefix: anthropicKey ? anthropicKey.substring(0, 10) + '...' : null
+      }
+    };
+
+    if (anthropicKey) {
+      try {
+        const Anthropic = require('@anthropic-ai/sdk');
+        const client = new Anthropic({ apiKey: anthropicKey });
+        // Test with a minimal message (Anthropic doesn't have a list endpoint)
+        await client.messages.create({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'Hi' }]
+        });
+        integrations.anthropic.status = 'healthy';
+      } catch (error) {
+        integrations.anthropic.status = 'error';
+        integrations.anthropic.error = error instanceof Error ? error.message : 'Unknown error';
+      }
+    }
+
+    // 4. Check Database Connection
+    integrations.database = {
+      configured: !!process.env.DATABASE_URL,
+      status: 'unknown',
+      details: {
+        urlConfigured: !!process.env.DATABASE_URL,
+        directUrlConfigured: !!process.env.DIRECT_URL
+      }
+    };
+
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      integrations.database.status = 'healthy';
+    } catch (error) {
+      integrations.database.status = 'error';
+      integrations.database.error = error instanceof Error ? error.message : 'Unknown error';
+    }
+
+    // 5. Check Google Cloud Storage
+    integrations.storage = {
+      configured: process.env.STORAGE_PROVIDER === 'gcs',
+      status: 'unknown',
+      details: {
+        provider: process.env.STORAGE_PROVIDER || 'local',
+        bucket: process.env.GOOGLE_CLOUD_STORAGE_BUCKET || null,
+        projectId: process.env.GOOGLE_CLOUD_PROJECT_ID || null
+      }
+    };
+
+    if (process.env.STORAGE_PROVIDER === 'gcs') {
+      try {
+        const { Storage } = require('@google-cloud/storage');
+        const storage = new Storage();
+        const bucket = storage.bucket(process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
+        await bucket.exists();
+        integrations.storage.status = 'healthy';
+      } catch (error) {
+        integrations.storage.status = 'error';
+        integrations.storage.error = error instanceof Error ? error.message : 'Unknown error';
+      }
+    } else {
+      integrations.storage.status = 'healthy'; // Local storage always works
+    }
+
+    // Calculate overall status
+    const statuses = Object.values(integrations).map(i => i.status);
+    const overallStatus = statuses.every(s => s === 'healthy') 
+      ? 'healthy' 
+      : statuses.some(s => s === 'error') 
+        ? 'degraded' 
+        : 'partial';
+
+    // Log the check
+    await logger.info('Integration status check performed', {
+      operation: 'admin_integration_status_check',
+      adminId: adminUser.id,
+      overallStatus
+    });
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      overallStatus,
+      integrations,
+      recommendations: generateRecommendations(integrations)
+    });
+
+  } catch (error) {
+    await logger.error('Failed to check integration status', {
+      operation: 'admin_integration_status_check',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      error: 'Failed to check integration status',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * Helper function to generate recommendations based on integration status
+ */
+function generateRecommendations(integrations: Record<string, { configured: boolean; status: string; error?: string }>): string[] {
+  const recommendations: string[] = [];
+
+  if (!integrations.stripe?.configured) {
+    recommendations.push('Stripe: Add STRIPE_SECRET_KEY to GCP Secret Manager as "stripe-secret-key"');
+  } else if (integrations.stripe?.status === 'error') {
+    recommendations.push(`Stripe: Fix API key - ${integrations.stripe.error}`);
+  }
+
+  if (!integrations.openai?.configured) {
+    recommendations.push('OpenAI: Add OPENAI_API_KEY to GCP Secret Manager as "openai-api-key"');
+  } else if (integrations.openai?.status === 'error') {
+    recommendations.push(`OpenAI: Fix API key - ${integrations.openai.error}`);
+  }
+
+  if (!integrations.anthropic?.configured) {
+    recommendations.push('Anthropic: Add ANTHROPIC_API_KEY to GCP Secret Manager as "anthropic-api-key"');
+  } else if (integrations.anthropic?.status === 'error') {
+    recommendations.push(`Anthropic: Fix API key - ${integrations.anthropic.error}`);
+  }
+
+  if (integrations.database?.status === 'error') {
+    recommendations.push('Database: Check DATABASE_URL connection string and VPC connectivity');
+  }
+
+  if (integrations.storage?.status === 'error') {
+    recommendations.push('Storage: Check GCS bucket permissions and service account');
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('All integrations are healthy!');
+  }
+
+  return recommendations;
+}
+
 // Security routes
 router.use('/security', authenticateJWT, requireAdmin, adminSecurityRoutes);
 
