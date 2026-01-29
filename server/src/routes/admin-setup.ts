@@ -265,4 +265,98 @@ router.get('/all-users', async (req: Request, res: Response) => {
   }
 });
 
+// TEMPORARY: Fix failed migrations (remove after use)
+router.get('/fix-migrations', async (req: Request, res: Response) => {
+  try {
+    console.log('🔧 Checking migration status...');
+    
+    // Get current migration status
+    const migrations = await prisma.$queryRaw<Array<{
+      id: string;
+      migration_name: string;
+      started_at: Date;
+      finished_at: Date | null;
+    }>>`
+      SELECT id, migration_name, started_at, finished_at
+      FROM "_prisma_migrations"
+      ORDER BY started_at DESC;
+    `;
+
+    const failedMigrations = migrations.filter(m => !m.finished_at);
+
+    return res.json({
+      success: true,
+      totalMigrations: migrations.length,
+      failedCount: failedMigrations.length,
+      migrations: migrations.map(m => ({
+        name: m.migration_name,
+        status: m.finished_at ? 'applied' : 'failed',
+        startedAt: m.started_at,
+        finishedAt: m.finished_at
+      })),
+      failedMigrations: failedMigrations.map(m => m.migration_name)
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking migrations:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// TEMPORARY: Mark failed migrations as applied (remove after use)
+router.post('/fix-migrations', async (req: Request, res: Response) => {
+  try {
+    console.log('🔧 Fixing failed migrations...');
+    
+    // Find failed migrations
+    const failedMigrations = await prisma.$queryRaw<Array<{
+      id: string;
+      migration_name: string;
+    }>>`
+      SELECT id, migration_name
+      FROM "_prisma_migrations"
+      WHERE finished_at IS NULL AND rolled_back_at IS NULL;
+    `;
+
+    if (failedMigrations.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No failed migrations found',
+        fixed: []
+      });
+    }
+
+    // Mark each failed migration as applied
+    const fixed: string[] = [];
+    for (const migration of failedMigrations) {
+      await prisma.$executeRaw`
+        UPDATE "_prisma_migrations"
+        SET finished_at = NOW(),
+            logs = COALESCE(logs, '') || E'\n[SETUP FIX] Marked as applied at ' || NOW()::text
+        WHERE id = ${migration.id};
+      `;
+      fixed.push(migration.migration_name);
+      console.log(`✅ Fixed migration: ${migration.migration_name}`);
+    }
+
+    return res.json({
+      success: true,
+      message: `Fixed ${fixed.length} failed migration(s)`,
+      fixed
+    });
+
+  } catch (error) {
+    console.error('❌ Error fixing migrations:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fix migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;
