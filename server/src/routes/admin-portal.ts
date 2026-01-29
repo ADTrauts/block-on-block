@@ -4086,150 +4086,166 @@ router.get('/performance/export', authenticateJWT, requireAdmin, async (req: Req
 // ============================================================================
 
 /**
+ * Helper: Run a promise with a timeout
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutError: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(timeoutError)), ms))
+  ]);
+}
+
+/**
  * GET /api/admin-portal/integrations/status
  * Comprehensive diagnostic endpoint for all external integrations
- * Tests Stripe, OpenAI, and Anthropic connectivity
+ * Tests Stripe, OpenAI, and Anthropic connectivity (with timeouts)
  */
 router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  const TIMEOUT_MS = 5000; // 5 second timeout for each check
+  
   try {
     const adminUser = req.user;
     if (!adminUser) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    // Get all env vars upfront
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+    // Initialize results structure
     const integrations: Record<string, {
       configured: boolean;
-      status: 'healthy' | 'error' | 'not_configured' | 'unknown';
+      status: 'healthy' | 'error' | 'not_configured' | 'timeout';
       error?: string;
       details?: Record<string, unknown>;
-    }> = {};
-
-    // 1. Check Stripe Integration
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    integrations.stripe = {
-      configured: !!stripeKey,
-      status: 'not_configured',
-      details: {
-        keyPrefix: stripeKey ? stripeKey.substring(0, 12) + '...' : null,
-        isTestMode: stripeKey?.startsWith('sk_test_') || false,
-        isLiveMode: stripeKey?.startsWith('sk_live_') || false,
-        webhookConfigured: !!process.env.STRIPE_WEBHOOK_SECRET
+    }> = {
+      stripe: {
+        configured: !!(stripeKey && stripeKey.length > 10),
+        status: 'not_configured',
+        details: {
+          keyPrefix: stripeKey ? stripeKey.substring(0, 12) + '...' : null,
+          keyLength: stripeKey?.length || 0,
+          isTestMode: stripeKey?.startsWith('sk_test_') || false,
+          isLiveMode: stripeKey?.startsWith('sk_live_') || false,
+          webhookConfigured: !!process.env.STRIPE_WEBHOOK_SECRET
+        }
+      },
+      openai: {
+        configured: !!(openaiKey && openaiKey.length > 10),
+        status: 'not_configured',
+        details: {
+          keyPrefix: openaiKey ? openaiKey.substring(0, 10) + '...' : null,
+          keyLength: openaiKey?.length || 0,
+          adminKeyConfigured: !!process.env.OPENAI_ADMIN_API_KEY
+        }
+      },
+      anthropic: {
+        configured: !!(anthropicKey && anthropicKey.length > 10),
+        status: 'not_configured',
+        details: {
+          keyPrefix: anthropicKey ? anthropicKey.substring(0, 10) + '...' : null,
+          keyLength: anthropicKey?.length || 0
+        }
+      },
+      database: {
+        configured: !!process.env.DATABASE_URL,
+        status: 'not_configured',
+        details: {
+          urlConfigured: !!process.env.DATABASE_URL,
+          directUrlConfigured: !!process.env.DIRECT_URL
+        }
+      },
+      storage: {
+        configured: process.env.STORAGE_PROVIDER === 'gcs',
+        status: 'not_configured',
+        details: {
+          provider: process.env.STORAGE_PROVIDER || 'local',
+          bucket: process.env.GOOGLE_CLOUD_STORAGE_BUCKET || null,
+          projectId: process.env.GOOGLE_CLOUD_PROJECT_ID || null
+        }
       }
     };
 
-    if (stripeKey) {
-      try {
+    // Run all checks in parallel with timeouts
+    const checks = await Promise.allSettled([
+      // 1. Stripe check
+      (async () => {
+        if (!stripeKey || stripeKey.length < 10) return;
         const Stripe = require('stripe');
-        const stripe = new Stripe(stripeKey, { apiVersion: '2025-08-27.basil' });
-        // Test Stripe by listing 1 customer (minimal API call)
-        await stripe.customers.list({ limit: 1 });
+        const stripe = new Stripe(stripeKey, { apiVersion: '2025-08-27.basil', timeout: TIMEOUT_MS });
+        await withTimeout(stripe.customers.list({ limit: 1 }), TIMEOUT_MS, 'Stripe API timeout');
         integrations.stripe.status = 'healthy';
-      } catch (error) {
-        integrations.stripe.status = 'error';
-        integrations.stripe.error = error instanceof Error ? error.message : 'Unknown error';
-      }
-    }
-
-    // 2. Check OpenAI Integration
-    const openaiKey = process.env.OPENAI_API_KEY;
-    integrations.openai = {
-      configured: !!openaiKey,
-      status: 'not_configured',
-      details: {
-        keyPrefix: openaiKey ? openaiKey.substring(0, 10) + '...' : null,
-        adminKeyConfigured: !!process.env.OPENAI_ADMIN_API_KEY
-      }
-    };
-
-    if (openaiKey) {
-      try {
+      })(),
+      
+      // 2. OpenAI check
+      (async () => {
+        if (!openaiKey || openaiKey.length < 10) return;
         const OpenAI = require('openai');
-        const client = new OpenAI({ apiKey: openaiKey });
-        // Test by listing models (lightweight API call)
-        await client.models.list();
+        const client = new OpenAI({ apiKey: openaiKey, timeout: TIMEOUT_MS });
+        await withTimeout(client.models.list(), TIMEOUT_MS, 'OpenAI API timeout');
         integrations.openai.status = 'healthy';
-      } catch (error) {
-        integrations.openai.status = 'error';
-        integrations.openai.error = error instanceof Error ? error.message : 'Unknown error';
-      }
-    }
-
-    // 3. Check Anthropic Integration
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    integrations.anthropic = {
-      configured: !!anthropicKey,
-      status: 'not_configured',
-      details: {
-        keyPrefix: anthropicKey ? anthropicKey.substring(0, 10) + '...' : null
-      }
-    };
-
-    if (anthropicKey) {
-      try {
-        const Anthropic = require('@anthropic-ai/sdk');
-        const client = new Anthropic({ apiKey: anthropicKey });
-        // Test with a minimal message (Anthropic doesn't have a list endpoint)
-        await client.messages.create({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 10,
-          messages: [{ role: 'user', content: 'Hi' }]
-        });
-        integrations.anthropic.status = 'healthy';
-      } catch (error) {
-        integrations.anthropic.status = 'error';
-        integrations.anthropic.error = error instanceof Error ? error.message : 'Unknown error';
-      }
-    }
-
-    // 4. Check Database Connection
-    integrations.database = {
-      configured: !!process.env.DATABASE_URL,
-      status: 'unknown',
-      details: {
-        urlConfigured: !!process.env.DATABASE_URL,
-        directUrlConfigured: !!process.env.DIRECT_URL
-      }
-    };
-
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      integrations.database.status = 'healthy';
-    } catch (error) {
-      integrations.database.status = 'error';
-      integrations.database.error = error instanceof Error ? error.message : 'Unknown error';
-    }
-
-    // 5. Check Google Cloud Storage
-    integrations.storage = {
-      configured: process.env.STORAGE_PROVIDER === 'gcs',
-      status: 'unknown',
-      details: {
-        provider: process.env.STORAGE_PROVIDER || 'local',
-        bucket: process.env.GOOGLE_CLOUD_STORAGE_BUCKET || null,
-        projectId: process.env.GOOGLE_CLOUD_PROJECT_ID || null
-      }
-    };
-
-    if (process.env.STORAGE_PROVIDER === 'gcs') {
-      try {
+      })(),
+      
+      // 3. Anthropic check - just verify key format, don't make API call (costs money)
+      (async () => {
+        if (!anthropicKey || anthropicKey.length < 10) return;
+        // Anthropic keys start with 'sk-ant-'
+        if (anthropicKey.startsWith('sk-ant-')) {
+          integrations.anthropic.status = 'healthy';
+          integrations.anthropic.details = {
+            ...integrations.anthropic.details,
+            keyFormat: 'valid'
+          };
+        } else {
+          integrations.anthropic.status = 'error';
+          integrations.anthropic.error = 'Invalid key format (should start with sk-ant-)';
+        }
+      })(),
+      
+      // 4. Database check
+      (async () => {
+        await withTimeout(prisma.$queryRaw`SELECT 1`, TIMEOUT_MS, 'Database connection timeout');
+        integrations.database.status = 'healthy';
+      })(),
+      
+      // 5. Storage check
+      (async () => {
+        if (process.env.STORAGE_PROVIDER !== 'gcs') {
+          integrations.storage.status = 'healthy'; // Local storage always works
+          return;
+        }
         const { Storage } = require('@google-cloud/storage');
         const storage = new Storage();
         const bucket = storage.bucket(process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
-        await bucket.exists();
+        await withTimeout(bucket.exists(), TIMEOUT_MS, 'GCS connection timeout');
         integrations.storage.status = 'healthy';
-      } catch (error) {
-        integrations.storage.status = 'error';
-        integrations.storage.error = error instanceof Error ? error.message : 'Unknown error';
+      })()
+    ]);
+
+    // Process results and capture errors
+    const checkNames = ['stripe', 'openai', 'anthropic', 'database', 'storage'];
+    checks.forEach((result, index) => {
+      const name = checkNames[index];
+      if (result.status === 'rejected') {
+        const error = result.reason;
+        if (integrations[name].configured) {
+          if (error.message?.includes('timeout')) {
+            integrations[name].status = 'timeout';
+          } else {
+            integrations[name].status = 'error';
+          }
+          integrations[name].error = error instanceof Error ? error.message : String(error);
+        }
       }
-    } else {
-      integrations.storage.status = 'healthy'; // Local storage always works
-    }
+    });
 
     // Calculate overall status
     const statuses = Object.values(integrations).map(i => i.status);
     const overallStatus = statuses.every(s => s === 'healthy') 
       ? 'healthy' 
-      : statuses.some(s => s === 'error') 
+      : statuses.some(s => s === 'error' || s === 'timeout') 
         ? 'degraded' 
         : 'partial';
 
@@ -4267,32 +4283,32 @@ router.get('/integrations/status', authenticateJWT, requireAdmin, async (req: Re
 /**
  * Helper function to generate recommendations based on integration status
  */
-function generateRecommendations(integrations: Record<string, { configured: boolean; status: string; error?: string }>): string[] {
+function generateRecommendations(integrations: Record<string, { configured: boolean; status: string; error?: string; details?: Record<string, unknown> }>): string[] {
   const recommendations: string[] = [];
 
   if (!integrations.stripe?.configured) {
     recommendations.push('Stripe: Add STRIPE_SECRET_KEY to GCP Secret Manager as "stripe-secret-key"');
-  } else if (integrations.stripe?.status === 'error') {
-    recommendations.push(`Stripe: Fix API key - ${integrations.stripe.error}`);
+  } else if (integrations.stripe?.status === 'error' || integrations.stripe?.status === 'timeout') {
+    recommendations.push(`Stripe: ${integrations.stripe.error || 'Check API key validity'}`);
   }
 
   if (!integrations.openai?.configured) {
     recommendations.push('OpenAI: Add OPENAI_API_KEY to GCP Secret Manager as "openai-api-key"');
-  } else if (integrations.openai?.status === 'error') {
-    recommendations.push(`OpenAI: Fix API key - ${integrations.openai.error}`);
+  } else if (integrations.openai?.status === 'error' || integrations.openai?.status === 'timeout') {
+    recommendations.push(`OpenAI: ${integrations.openai.error || 'Check API key validity'}`);
   }
 
   if (!integrations.anthropic?.configured) {
     recommendations.push('Anthropic: Add ANTHROPIC_API_KEY to GCP Secret Manager as "anthropic-api-key"');
   } else if (integrations.anthropic?.status === 'error') {
-    recommendations.push(`Anthropic: Fix API key - ${integrations.anthropic.error}`);
+    recommendations.push(`Anthropic: ${integrations.anthropic.error || 'Check API key validity'}`);
   }
 
-  if (integrations.database?.status === 'error') {
+  if (integrations.database?.status === 'error' || integrations.database?.status === 'timeout') {
     recommendations.push('Database: Check DATABASE_URL connection string and VPC connectivity');
   }
 
-  if (integrations.storage?.status === 'error') {
+  if (integrations.storage?.status === 'error' || integrations.storage?.status === 'timeout') {
     recommendations.push('Storage: Check GCS bucket permissions and service account');
   }
 
