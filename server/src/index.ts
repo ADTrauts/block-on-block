@@ -1078,26 +1078,10 @@ if (process.env.NODE_ENV === 'production') {
     console.log('Working directory:', projectRoot);
     console.log('Prisma schema:', schemaPath);
     console.log('Prisma migrations directory:', migrationsDir);
-    
-    // Always attempt to resolve the known failed migration first
-    // This is safe - if the migration already succeeded, resolve will mark it as applied
-    // If it actually failed, we'll try to resolve it and then run migrations
-    console.log('🔧 Checking for failed migrations and attempting resolution...');
-    try {
-      execSync(`npx prisma migrate resolve --applied 20251026_add_hr_module_schema --schema ${schemaPath}`, {
-        stdio: 'inherit',
-        env: migrationEnv,
-        cwd: projectRoot,
-        timeout: 30000
-      });
-      console.log('✅ Failed migration resolved (or already resolved)');
-    } catch (resolveError: unknown) {
-      // If resolve fails, it might mean the migration doesn't exist or is in a different state
-      // That's okay - we'll try to run migrations anyway
-      console.log('⚠️  Could not resolve migration (may not be needed):', resolveError instanceof Error ? resolveError.message : String(resolveError));
-    }
-    
-    // Now run migrations
+    console.log('📁 Migrations to apply:', migrationFiles.join(', ') || '(none)');
+
+    // Run migrations (no resolve step - we only have baseline after clean DB reset)
+    // On a fresh DB this applies 20260126230000_initial_schema_baseline
     try {
       // Capture stdout and stderr to see actual Prisma errors
       const output = execSync(`npx prisma migrate deploy --schema ${schemaPath}`, {

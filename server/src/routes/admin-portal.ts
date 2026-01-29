@@ -1424,59 +1424,56 @@ router.post('/analytics/custom-report', authenticateJWT, requireAdmin, async (re
 router.get('/billing/subscriptions', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const result = await AdminService.getSubscriptions({
+      page: Number(page),
+      limit: Number(limit),
+      status: status as string
+    });
 
-    const where: Record<string, unknown> = {};
-    if (status) where.status = status;
+    if (result.schemaOutOfSync) {
+      return res.json({
+        subscriptions: [],
+        total: 0,
+        page: Number(page),
+        totalPages: 0,
+        schemaOutOfSync: true
+      });
+    }
 
-    const [subscriptions, total] = await Promise.all([
-      prisma.subscription.findMany({
-        where,
-        skip,
-        take: Number(limit),
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: { email: true, name: true }
-          }
-        }
-      }),
-      prisma.subscription.count({ where })
-    ]);
-
-    // Add Stripe URLs to each subscription
+    // Add Stripe URLs and serialize dates
     const { StripeSyncService } = await import('../services/stripeSyncService');
-    const subscriptionsWithUrls = subscriptions.map(sub => ({
+    const subscriptionsWithUrls = result.subscriptions.map((sub: Record<string, unknown>) => ({
       id: sub.id,
       userId: sub.userId,
       businessId: sub.businessId,
       tier: sub.tier,
       status: sub.status,
-      currentPeriodStart: sub.currentPeriodStart.toISOString(),
-      currentPeriodEnd: sub.currentPeriodEnd.toISOString(),
+      currentPeriodStart: (sub.currentPeriodStart as Date).toISOString(),
+      currentPeriodEnd: (sub.currentPeriodEnd as Date).toISOString(),
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       stripeSubscriptionId: sub.stripeSubscriptionId,
       stripeCustomerId: sub.stripeCustomerId,
-      lastSyncedAt: sub.lastSyncedAt?.toISOString() || null,
-      stripeMetadata: sub.stripeMetadata || null,
-      employeeCount: sub.employeeCount,
-      includedEmployees: sub.includedEmployees,
-      additionalEmployeeCost: sub.additionalEmployeeCost,
-      createdAt: sub.createdAt.toISOString(),
-      updatedAt: sub.updatedAt.toISOString(),
-      userEmail: sub.user?.email || 'Unknown',
-      userName: sub.user?.name || null,
+      lastSyncedAt: (sub.lastSyncedAt as Date | null)?.toISOString() ?? null,
+      stripeMetadata: sub.stripeMetadata ?? null,
+      employeeCount: sub.employeeCount ?? null,
+      includedEmployees: sub.includedEmployees ?? null,
+      additionalEmployeeCost: sub.additionalEmployeeCost ?? null,
+      createdAt: (sub.createdAt as Date).toISOString(),
+      updatedAt: (sub.updatedAt as Date).toISOString(),
+      userEmail: (sub.user as { email?: string | null } | null)?.email ?? 'Unknown',
+      userName: (sub.user as { name?: string | null } | null)?.name ?? null,
       stripeUrls: {
-        subscription: StripeSyncService.getStripeSubscriptionUrl(sub.stripeSubscriptionId),
-        customer: StripeSyncService.getStripeCustomerUrl(sub.stripeCustomerId)
+        subscription: StripeSyncService.getStripeSubscriptionUrl(sub.stripeSubscriptionId as string),
+        customer: StripeSyncService.getStripeCustomerUrl(sub.stripeCustomerId as string)
       }
     }));
 
     res.json({
       subscriptions: subscriptionsWithUrls,
-      total,
-      page: Number(page),
-      totalPages: Math.ceil(total / Number(limit))
+      total: result.total,
+      page: result.page,
+      totalPages: result.totalPages,
+      schemaOutOfSync: false
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -3723,6 +3720,321 @@ router.post('/database/run-migrations', authenticateJWT, requireAdmin, async (re
     res.status(500).json({ 
       success: false,
       error: 'Failed to run migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// View all migrations and their status
+router.get('/database/migrations', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    // Query the _prisma_migrations table
+    const migrations = await prisma.$queryRaw<Array<{
+      id: string;
+      migration_name: string;
+      started_at: Date;
+      finished_at: Date | null;
+      checksum: string;
+      applied_steps_count: number;
+      rolled_back_at: Date | null;
+      logs: string | null;
+    }>>`
+      SELECT id, migration_name, started_at, finished_at, checksum, applied_steps_count, rolled_back_at, logs
+      FROM "_prisma_migrations"
+      ORDER BY started_at DESC;
+    `;
+
+    // Determine status for each migration
+    const migrationsWithStatus = migrations.map(m => ({
+      ...m,
+      status: m.rolled_back_at 
+        ? 'rolled_back' 
+        : m.finished_at 
+          ? 'applied' 
+          : 'failed',
+      startedAt: m.started_at,
+      finishedAt: m.finished_at,
+      rolledBackAt: m.rolled_back_at
+    }));
+
+    const failedMigrations = migrationsWithStatus.filter(m => m.status === 'failed');
+    const appliedMigrations = migrationsWithStatus.filter(m => m.status === 'applied');
+
+    await logger.info('Admin viewed migration status', {
+      operation: 'admin_view_migrations',
+      adminId: adminUser.id,
+      totalMigrations: migrations.length,
+      failedCount: failedMigrations.length
+    });
+
+    res.json({
+      success: true,
+      totalMigrations: migrations.length,
+      appliedCount: appliedMigrations.length,
+      failedCount: failedMigrations.length,
+      migrations: migrationsWithStatus,
+      failedMigrations: failedMigrations.map(m => m.migration_name),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await logger.error('Failed to view migrations', {
+      operation: 'admin_view_migrations',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to view migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Fix failed migrations by marking them as applied
+router.post('/database/migrations/fix-failed', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const { migrationName } = req.body;
+
+    // Find failed migrations
+    const failedMigrations = await prisma.$queryRaw<Array<{
+      id: string;
+      migration_name: string;
+      started_at: Date;
+    }>>`
+      SELECT id, migration_name, started_at
+      FROM "_prisma_migrations"
+      WHERE finished_at IS NULL AND rolled_back_at IS NULL;
+    `;
+
+    if (failedMigrations.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No failed migrations found',
+        fixed: []
+      });
+    }
+
+    // If a specific migration name is provided, only fix that one
+    const migrationsToFix = migrationName 
+      ? failedMigrations.filter(m => m.migration_name === migrationName)
+      : failedMigrations;
+
+    if (migrationsToFix.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `Migration ${migrationName} not found or not in failed state`,
+        failedMigrations: failedMigrations.map(m => m.migration_name)
+      });
+    }
+
+    // Mark each failed migration as applied by setting finished_at
+    const fixed: string[] = [];
+    for (const migration of migrationsToFix) {
+      await prisma.$executeRaw`
+        UPDATE "_prisma_migrations"
+        SET finished_at = NOW(),
+            logs = COALESCE(logs, '') || E'\n[ADMIN FIX] Marked as applied by admin at ' || NOW()::text
+        WHERE id = ${migration.id};
+      `;
+      fixed.push(migration.migration_name);
+    }
+
+    await logger.info('Admin fixed failed migrations', {
+      operation: 'admin_fix_migrations',
+      adminId: adminUser.id,
+      fixedMigrations: fixed
+    });
+
+    res.json({
+      success: true,
+      message: `Fixed ${fixed.length} failed migration(s)`,
+      fixed,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await logger.error('Failed to fix migrations', {
+      operation: 'admin_fix_migrations',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fix migrations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Delete orphaned or problematic migration records
+router.post('/database/migrations/delete', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const { migrationName, deleteAll } = req.body;
+
+    if (!migrationName && !deleteAll) {
+      return res.status(400).json({
+        success: false,
+        error: 'Either migrationName or deleteAll must be provided'
+      });
+    }
+
+    let deleted: string[] = [];
+
+    if (deleteAll) {
+      // Nuclear option: delete all migration records (use with caution!)
+      const allMigrations = await prisma.$queryRaw<Array<{ migration_name: string }>>`
+        SELECT migration_name FROM "_prisma_migrations";
+      `;
+      
+      await prisma.$executeRaw`DELETE FROM "_prisma_migrations";`;
+      deleted = allMigrations.map(m => m.migration_name);
+
+      await logger.warn('Admin deleted ALL migration records', {
+        operation: 'admin_delete_all_migrations',
+        adminId: adminUser.id,
+        deletedCount: deleted.length
+      });
+    } else {
+      // Delete specific migration record
+      const migration = await prisma.$queryRaw<Array<{ id: string; migration_name: string }>>`
+        SELECT id, migration_name FROM "_prisma_migrations"
+        WHERE migration_name = ${migrationName};
+      `;
+
+      if (migration.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `Migration ${migrationName} not found`
+        });
+      }
+
+      await prisma.$executeRaw`
+        DELETE FROM "_prisma_migrations"
+        WHERE migration_name = ${migrationName};
+      `;
+      deleted = [migrationName];
+
+      await logger.info('Admin deleted migration record', {
+        operation: 'admin_delete_migration',
+        adminId: adminUser.id,
+        migrationName
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Deleted ${deleted.length} migration record(s)`,
+      deleted,
+      warning: deleteAll 
+        ? 'All migration records deleted. Run migrations again to re-apply them.' 
+        : undefined,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await logger.error('Failed to delete migration', {
+      operation: 'admin_delete_migration',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to delete migration',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Reset migrations and mark baseline as applied (for fresh database starts)
+router.post('/database/migrations/reset-baseline', authenticateJWT, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminUser = req.user;
+    if (!adminUser) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const projectRoot = path.join(__dirname, '../..');
+    const migrationsDir = path.join(projectRoot, 'prisma/migrations');
+
+    // Get all migration directories
+    const migrationDirs = fs.readdirSync(migrationsDir)
+      .filter((f: string) => fs.statSync(path.join(migrationsDir, f)).isDirectory())
+      .sort();
+
+    // Clear existing migration records
+    await prisma.$executeRaw`DELETE FROM "_prisma_migrations";`;
+
+    // Insert fresh records for each migration, marking them as applied
+    const applied: string[] = [];
+    for (const migrationName of migrationDirs) {
+      const migrationPath = path.join(migrationsDir, migrationName, 'migration.sql');
+      
+      if (fs.existsSync(migrationPath)) {
+        // Read the migration file to get its checksum
+        const content = fs.readFileSync(migrationPath, 'utf-8');
+        const crypto = require('crypto');
+        const checksum = crypto.createHash('sha256').update(content).digest('hex');
+
+        // Insert the migration record as applied
+        await prisma.$executeRaw`
+          INSERT INTO "_prisma_migrations" (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
+          VALUES (
+            ${crypto.randomUUID()},
+            ${checksum},
+            ${migrationName},
+            NOW(),
+            NOW(),
+            1
+          );
+        `;
+        applied.push(migrationName);
+      }
+    }
+
+    await logger.info('Admin reset migrations to baseline', {
+      operation: 'admin_reset_baseline',
+      adminId: adminUser.id,
+      appliedMigrations: applied
+    });
+
+    res.json({
+      success: true,
+      message: `Reset migration table and marked ${applied.length} migrations as applied`,
+      appliedMigrations: applied,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    await logger.error('Failed to reset migrations', {
+      operation: 'admin_reset_baseline',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to reset migrations',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }

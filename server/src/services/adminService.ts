@@ -1024,6 +1024,12 @@ export class AdminService {
   // FINANCIAL MANAGEMENT
   // ============================================================================
 
+  /** Detect Prisma errors from missing columns (production DB schema drift) */
+  private static isSchemaDriftError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    return msg.includes('does not exist in the current database');
+  }
+
   static async getSubscriptions(params: {
     page?: number;
     limit?: number;
@@ -1035,27 +1041,45 @@ export class AdminService {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
 
-    const [subscriptions, total] = await Promise.all([
-      prisma.subscription.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: { email: true, name: true }
+    try {
+      const [subscriptions, total] = await Promise.all([
+        prisma.subscription.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: {
+              select: { email: true, name: true }
+            }
           }
-        }
-      }),
-      prisma.subscription.count({ where })
-    ]);
+        }),
+        prisma.subscription.count({ where })
+      ]);
 
-    return {
-      subscriptions,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit)
-    };
+      return {
+        subscriptions,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        schemaOutOfSync: false
+      };
+    } catch (error) {
+      if (AdminService.isSchemaDriftError(error)) {
+        await logger.warn('Subscriptions query failed (schema drift)', {
+          operation: 'admin_get_subscriptions',
+          message: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          subscriptions: [],
+          total: 0,
+          page,
+          totalPages: 0,
+          schemaOutOfSync: true
+        };
+      }
+      throw error;
+    }
   }
 
   // Note: Payment model was removed, so we'll return empty data for now
@@ -1099,7 +1123,7 @@ export class AdminService {
         payments: payments.map(payment => {
           const stripeUrls = {
             invoice: StripeSyncService.getStripeInvoiceUrl(payment.stripeInvoiceId),
-            charge: payment.stripeChargeId 
+            charge: payment.stripeChargeId
               ? `https://dashboard.stripe.com/${process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'live' : 'test'}/payments/${payment.stripeChargeId}`
               : null,
             customer: StripeSyncService.getStripeCustomerUrl(payment.stripeCustomerId)
@@ -1128,9 +1152,23 @@ export class AdminService {
         }),
         total,
         page,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit),
+        schemaOutOfSync: false
       };
     } catch (error) {
+      if (AdminService.isSchemaDriftError(error)) {
+        await logger.warn('Payments query failed (schema drift)', {
+          operation: 'admin_get_payments',
+          message: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          payments: [],
+          total: 0,
+          page: params.page ?? 1,
+          totalPages: 0,
+          schemaOutOfSync: true
+        };
+      }
       await logger.error('Failed to get payments', {
         operation: 'admin_get_payments',
         error: {
@@ -1197,9 +1235,23 @@ export class AdminService {
         })),
         total,
         page,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit),
+        schemaOutOfSync: false
       };
     } catch (error) {
+      if (AdminService.isSchemaDriftError(error)) {
+        await logger.warn('Developer payouts query failed (schema drift)', {
+          operation: 'admin_get_developer_payouts',
+          message: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          payouts: [],
+          total: 0,
+          page: params.page ?? 1,
+          totalPages: 0,
+          schemaOutOfSync: true
+        };
+      }
       await logger.error('Failed to get developer payouts', {
         operation: 'admin_get_developer_payouts',
         error: {
