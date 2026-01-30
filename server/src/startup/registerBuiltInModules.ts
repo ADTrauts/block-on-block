@@ -13,9 +13,8 @@
  * - Creates Module records if they don't exist (fixes production issue)
  */
 
-import { PrismaClient } from '@prisma/client';
-import type { ModuleAIContext } from '../../../shared/src/types/module-ai-context';
 import { prisma } from '../lib/prisma';
+import type { ModuleAIContext } from 'shared/types/module-ai-context';
 
 // ============================================================================
 // BUILT-IN MODULE DEFINITIONS (for creating Module records)
@@ -26,7 +25,7 @@ interface BuiltInModuleDefinition {
   name: string;
   description: string;
   version: string;
-  category: 'PRODUCTIVITY' | 'COMMUNICATION' | 'BUSINESS' | 'ANALYTICS' | 'DEVELOPMENT' | 'ENTERTAINMENT' | 'EDUCATION' | 'FINANCE' | 'HEALTH' | 'OTHER';
+  category: 'PRODUCTIVITY' | 'COMMUNICATION' | 'ANALYTICS' | 'DEVELOPMENT' | 'ENTERTAINMENT' | 'EDUCATION' | 'FINANCE' | 'HEALTH' | 'OTHER';
   tags: string[];
   icon?: string;
   pricingTier: string;
@@ -68,7 +67,7 @@ const BUILT_IN_MODULE_DEFINITIONS: BuiltInModuleDefinition[] = [
     name: 'HR Management',
     description: 'Complete human resources management system for employee lifecycle, attendance, payroll, and performance management',
     version: '1.0.0',
-    category: 'BUSINESS',
+    category: 'PRODUCTIVITY',
     tags: ['hr', 'employees', 'attendance', 'payroll', 'performance'],
     icon: 'users',
     pricingTier: 'premium',
@@ -78,7 +77,7 @@ const BUILT_IN_MODULE_DEFINITIONS: BuiltInModuleDefinition[] = [
     name: 'Employee Scheduling',
     description: 'Employee shift scheduling and workforce planning for businesses with shift management, availability, and swap requests',
     version: '1.0.0',
-    category: 'BUSINESS',
+    category: 'PRODUCTIVITY',
     tags: ['scheduling', 'shifts', 'workforce', 'staffing'],
     icon: 'clock',
     pricingTier: 'premium',
@@ -741,7 +740,7 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
       const registered = await prisma.moduleAIContextRegistry.findMany({
         select: { moduleId: true },
       });
-      registered.forEach(r => registeredModuleIds.add(r.moduleId));
+      registered.forEach((r: { moduleId: string }) => registeredModuleIds.add(r.moduleId));
       console.log(`📋 Found ${registryCount} already registered AI contexts`);
     }
 
