@@ -2,19 +2,98 @@
  * STARTUP MODULE REGISTRATION
  * 
  * This module runs automatically when the server starts.
- * It checks if the Module AI Context Registry is empty and registers
- * built-in modules if needed.
+ * It ensures built-in modules exist in the Module table and 
+ * registers their AI context in the ModuleAIContextRegistry.
  * 
  * This is the PROPER way to handle registration because:
  * - Server has full database access
  * - Runs in production environment
  * - Non-blocking (doesn't prevent server startup)
  * - Can retry on server restart
+ * - Creates Module records if they don't exist (fixes production issue)
  */
 
 import { PrismaClient } from '@prisma/client';
 import type { ModuleAIContext } from '../../../shared/src/types/module-ai-context';
 import { prisma } from '../lib/prisma';
+
+// ============================================================================
+// BUILT-IN MODULE DEFINITIONS (for creating Module records)
+// ============================================================================
+
+interface BuiltInModuleDefinition {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: 'PRODUCTIVITY' | 'COMMUNICATION' | 'BUSINESS' | 'ANALYTICS' | 'DEVELOPMENT' | 'ENTERTAINMENT' | 'EDUCATION' | 'FINANCE' | 'HEALTH' | 'OTHER';
+  tags: string[];
+  icon?: string;
+  pricingTier: string;
+}
+
+const BUILT_IN_MODULE_DEFINITIONS: BuiltInModuleDefinition[] = [
+  {
+    id: 'drive',
+    name: 'File Hub',
+    description: 'File management and storage system with folder organization and sharing',
+    version: '1.0.0',
+    category: 'PRODUCTIVITY',
+    tags: ['files', 'storage', 'documents', 'sharing'],
+    icon: 'folder',
+    pricingTier: 'free',
+  },
+  {
+    id: 'chat',
+    name: 'Chat',
+    description: 'Real-time messaging and communication system',
+    version: '1.0.0',
+    category: 'COMMUNICATION',
+    tags: ['messaging', 'communication', 'chat'],
+    icon: 'message-circle',
+    pricingTier: 'free',
+  },
+  {
+    id: 'calendar',
+    name: 'Calendar',
+    description: 'Calendar and scheduling system with events and reminders',
+    version: '1.0.0',
+    category: 'PRODUCTIVITY',
+    tags: ['calendar', 'scheduling', 'events', 'reminders'],
+    icon: 'calendar',
+    pricingTier: 'free',
+  },
+  {
+    id: 'hr',
+    name: 'HR Management',
+    description: 'Complete human resources management system for employee lifecycle, attendance, payroll, and performance management',
+    version: '1.0.0',
+    category: 'BUSINESS',
+    tags: ['hr', 'employees', 'attendance', 'payroll', 'performance'],
+    icon: 'users',
+    pricingTier: 'premium',
+  },
+  {
+    id: 'scheduling',
+    name: 'Employee Scheduling',
+    description: 'Employee shift scheduling and workforce planning for businesses with shift management, availability, and swap requests',
+    version: '1.0.0',
+    category: 'BUSINESS',
+    tags: ['scheduling', 'shifts', 'workforce', 'staffing'],
+    icon: 'clock',
+    pricingTier: 'premium',
+  },
+  {
+    id: 'todo',
+    name: 'To-Do',
+    description: 'AI-powered task and to-do management with prioritization, scheduling, and context-aware features',
+    version: '1.0.0',
+    category: 'PRODUCTIVITY',
+    tags: ['tasks', 'todo', 'productivity', 'planning'],
+    icon: 'check-square',
+    pricingTier: 'free',
+  },
+];
 
 // ============================================================================
 // BUILT-IN MODULE AI CONTEXTS
@@ -472,33 +551,125 @@ const BUILT_IN_MODULES: Array<{ moduleId: string; moduleName: string; aiContext:
 // ============================================================================
 
 /**
- * Register a single module's AI context
+ * Get or find a system admin user to use as module developer
+ * Built-in modules need a developer ID - we use the first admin user
  */
-async function registerModule(moduleId: string, moduleName: string, aiContext: ModuleAIContext): Promise<boolean> {
+async function getSystemDeveloperId(): Promise<string | null> {
   try {
-    console.log(`   📝 Registering: ${moduleName}...`);
+    // First, try to find an existing admin user
+    const adminUser = await prisma.user.findFirst({
+      where: { role: 'ADMIN' },
+      select: { id: true },
+    });
 
-    // Check if module exists in the modules table
-    const module = await prisma.module.findUnique({
+    if (adminUser) {
+      return adminUser.id;
+    }
+
+    // If no admin, find any user (fallback for fresh installations)
+    const anyUser = await prisma.user.findFirst({
+      select: { id: true },
+    });
+
+    return anyUser?.id || null;
+  } catch (error) {
+    console.error('   ❌ Error finding system developer:', error);
+    return null;
+  }
+}
+
+/**
+ * Ensure a built-in module exists in the Module table
+ * Creates it if missing
+ */
+async function ensureModuleExists(moduleId: string, developerId: string): Promise<boolean> {
+  try {
+    // Check if module already exists
+    const existingModule = await prisma.module.findUnique({
       where: { id: moduleId },
     });
 
-    if (!module) {
-      console.log(`   ⚠️  Module '${moduleId}' not found in database, skipping...`);
+    if (existingModule) {
+      return true;
+    }
+
+    // Find module definition
+    const moduleDef = BUILT_IN_MODULE_DEFINITIONS.find(m => m.id === moduleId);
+    if (!moduleDef) {
+      console.log(`   ⚠️  No module definition found for '${moduleId}'`);
       return false;
     }
 
-    // Check if already registered
+    // Create the module
+    console.log(`   📦 Creating Module record for '${moduleDef.name}'...`);
+    await prisma.module.create({
+      data: {
+        id: moduleDef.id,
+        name: moduleDef.name,
+        description: moduleDef.description,
+        version: moduleDef.version,
+        category: moduleDef.category,
+        tags: moduleDef.tags,
+        icon: moduleDef.icon,
+        screenshots: [],
+        developerId: developerId,
+        status: 'APPROVED',
+        downloads: 0,
+        rating: 0,
+        reviewCount: 0,
+        manifest: {
+          entryPoint: `/${moduleDef.id}`,
+          permissions: [`${moduleDef.id}:read`, `${moduleDef.id}:write`],
+          isBuiltIn: true,
+        },
+        dependencies: [],
+        permissions: [`${moduleDef.id}:read`, `${moduleDef.id}:write`],
+        pricingTier: moduleDef.pricingTier,
+        basePrice: 0,
+        enterprisePrice: 0,
+        isProprietary: false,
+      },
+    });
+
+    console.log(`   ✅ Module '${moduleDef.name}' created successfully`);
+    return true;
+  } catch (error) {
+    console.error(`   ❌ Error creating module '${moduleId}':`, error);
+    return false;
+  }
+}
+
+/**
+ * Register a single module's AI context
+ * Now also ensures the Module record exists first
+ */
+async function registerModule(
+  moduleId: string, 
+  moduleName: string, 
+  aiContext: ModuleAIContext,
+  developerId: string
+): Promise<boolean> {
+  try {
+    console.log(`   📝 Registering: ${moduleName}...`);
+
+    // Step 1: Ensure the module exists in the Module table
+    const moduleCreated = await ensureModuleExists(moduleId, developerId);
+    if (!moduleCreated) {
+      console.log(`   ⚠️  Could not ensure Module '${moduleId}' exists, skipping AI context...`);
+      return false;
+    }
+
+    // Step 2: Check if AI context already registered
     const existing = await prisma.moduleAIContextRegistry.findUnique({
       where: { moduleId },
     });
 
     if (existing) {
-      console.log(`   ✅ ${moduleName} already registered`);
+      console.log(`   ✅ ${moduleName} AI context already registered`);
       return true;
     }
 
-    // Register the module
+    // Step 3: Register the AI context
     await prisma.moduleAIContextRegistry.create({
       data: {
         moduleId,
@@ -517,7 +688,7 @@ async function registerModule(moduleId: string, moduleName: string, aiContext: M
       },
     });
 
-    console.log(`   ✅ ${moduleName} registered successfully`);
+    console.log(`   ✅ ${moduleName} AI context registered successfully`);
     return true;
   } catch (error) {
     console.error(`   ❌ Error registering ${moduleName}:`, error);
@@ -528,6 +699,8 @@ async function registerModule(moduleId: string, moduleName: string, aiContext: M
 /**
  * Main function - checks and registers built-in modules
  * This is called during server startup
+ * 
+ * Now also creates Module records if they don't exist (fixes production issue)
  */
 export async function registerBuiltInModulesOnStartup(): Promise<void> {
   try {
@@ -552,6 +725,16 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
       throw dbError;
     }
 
+    // Get a system developer ID (needed to create Module records)
+    const developerId = await getSystemDeveloperId();
+    if (!developerId) {
+      console.log('⚠️  No users found in database - cannot create Module records');
+      console.log('   Module registration will be skipped');
+      console.log('   Create a user first, then manually trigger: POST /api/admin/modules/ai/register-built-ins\n');
+      return;
+    }
+    console.log(`📋 Using developer ID: ${developerId.substring(0, 8)}...`);
+
     // Get list of already registered module IDs
     const registeredModuleIds = new Set<string>();
     if (registryCount > 0) {
@@ -559,7 +742,7 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
         select: { moduleId: true },
       });
       registered.forEach(r => registeredModuleIds.add(r.moduleId));
-      console.log(`📋 Found ${registryCount} already registered modules`);
+      console.log(`📋 Found ${registryCount} already registered AI contexts`);
     }
 
     // Check which modules need registration
@@ -577,36 +760,15 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
 
     // Register each missing built-in module
     let successCount = 0;
-    let skipCount = 0;
     let errorCount = 0;
 
     for (const { moduleId, moduleName, aiContext } of modulesToRegister) {
       try {
-        const success = await registerModule(moduleId, moduleName, aiContext);
+        const success = await registerModule(moduleId, moduleName, aiContext, developerId);
         if (success) {
           successCount++;
         } else {
-          // Check if it was skipped (module doesn't exist) or error
-          try {
-            const moduleExists = await prisma.module.findUnique({ where: { id: moduleId } });
-            if (!moduleExists) {
-              skipCount++;
-            } else {
-              errorCount++;
-            }
-          } catch (dbError) {
-            // Database connection lost during registration
-            const errorMessage = dbError instanceof Error ? dbError.message : 'Unknown database error';
-            if (errorMessage.includes("Can't reach database") || errorMessage.includes('localhost:5432')) {
-              console.log('\n⚠️  Database connection lost during registration');
-              console.log('   Partial registration completed');
-              console.log(`   ✅ Registered: ${successCount}`);
-              console.log(`   ⚠️  Skipped: ${skipCount}`);
-              console.log('   You can manually trigger registration via: POST /api/admin/modules/ai/register-built-ins\n');
-              return;
-            }
-            throw dbError;
-          }
+          errorCount++;
         }
       } catch (dbError) {
         // Database connection lost during registration
@@ -615,26 +777,25 @@ export async function registerBuiltInModulesOnStartup(): Promise<void> {
           console.log('\n⚠️  Database connection lost during registration');
           console.log('   Partial registration completed');
           console.log(`   ✅ Registered: ${successCount}`);
-          console.log(`   ⚠️  Skipped: ${skipCount}`);
           console.log('   You can manually trigger registration via: POST /api/admin/modules/ai/register-built-ins\n');
           return;
         }
-        throw dbError;
+        console.error(`   ❌ Error registering ${moduleName}:`, dbError);
+        errorCount++;
       }
     }
 
     console.log('\n📊 Registration Summary:');
     console.log(`   ✅ Newly Registered: ${successCount}`);
-    console.log(`   ✅ Already Registered: ${registryCount}`);
-    if (skipCount > 0) console.log(`   ⚠️  Skipped: ${skipCount} (modules not found in database)`);
+    console.log(`   ✅ Previously Registered: ${registryCount}`);
     if (errorCount > 0) console.log(`   ❌ Errors: ${errorCount}`);
     console.log('');
 
     if (successCount > 0) {
       console.log(`✅ Successfully registered ${successCount} new module(s)!`);
       console.log(`   Total registered modules: ${registryCount + successCount}\n`);
-    } else if (skipCount > 0 || errorCount > 0) {
-      console.warn('⚠️  Some modules could not be registered. Check database for module entries.\n');
+    } else if (errorCount > 0) {
+      console.warn('⚠️  Some modules could not be registered. Check logs for details.\n');
     } else {
       console.log('✅ All built-in modules are already registered.\n');
     }

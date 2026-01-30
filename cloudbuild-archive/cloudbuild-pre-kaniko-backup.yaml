@@ -1,0 +1,187 @@
+# Simple but effective Cloud Build with Docker layer caching
+# This version focuses on reliable Docker layer caching without complex Cloud Storage
+steps:
+  # Step 1: Build shared package first (needed by both server and web)
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "📦 Installing dependencies and building shared package..."
+        
+        # Install pnpm
+        npm install -g pnpm
+        
+        # Install dependencies
+        pnpm install --frozen-lockfile
+        
+        # Build shared package
+        cd shared && pnpm build
+        
+        echo "✅ Shared package built"
+    id: 'build-shared'
+
+  # Step 2: Build server and web in parallel with aggressive Docker caching
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
+      - '-f'
+      - './server/Dockerfile.fast'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '--progress=plain'
+      - '.'
+    id: 'build-server'
+    waitFor: ['build-shared']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
+      - '-f'
+      - './web/Dockerfile.fast'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '--progress=plain'
+      - '.'
+    id: 'build-web'
+    waitFor: ['build-shared']
+
+  # Step 3: Push images in parallel
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID']
+    id: 'push-server'
+    waitFor: ['build-server']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-server:latest']
+    id: 'push-server-latest'
+    waitFor: ['build-server']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID']
+    id: 'push-web'
+    waitFor: ['build-web']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/vssyl-web:latest']
+    id: 'push-web-latest'
+    waitFor: ['build-web']
+
+  # Step 4: Deploy services in parallel
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'vssyl-server'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '5000'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--max-instances'
+      - '10'
+      - '--add-cloudsql-instances'
+      - 'vssyl-472202:us-central1:vssyl-db'
+      - '--vpc-egress'
+      - 'all-traffic'
+      - '--network'
+      - 'default'
+      - '--subnet'
+      - 'default'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+      - '--set-env-vars'
+      - 'DATABASE_URL=postgresql://vssyl_user:Arthur%26George116%21%21@172.30.0.4:5432/vssyl_production?connection_limit=20&pool_timeout=20'
+      - '--set-env-vars'
+      - 'DIRECT_URL=postgresql://vssyl_user:Arthur%26George116%21%21@172.30.0.4:5432/vssyl_production?connection_limit=20&pool_timeout=20'
+      - '--set-env-vars'
+      - 'JWT_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI='
+      - '--set-env-vars'
+      - 'JWT_REFRESH_SECRET=/NkIB2sn75WZyqsWOmevzv1wgn9zHuFgmi9x8DTmVG4='
+      - '--set-env-vars'
+      - 'FRONTEND_URL=https://vssyl.com'
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_APP_URL=https://vssyl.com'
+    id: 'deploy-server'
+    waitFor: ['push-server', 'push-server-latest']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'vssyl-web'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '3000'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '20'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+      - '--set-env-vars'
+      - 'NEXTAUTH_URL=https://vssyl.com'
+      - '--set-env-vars'
+      - 'NEXTAUTH_SECRET=OhTXx5RiJu1YOzqGta56ZnN9tTap29sVlvOQMUnGGiI='
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_API_URL=https://vssyl-server-235369681725.us-central1.run.app'
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_API_BASE_URL=https://vssyl-server-235369681725.us-central1.run.app'
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_WS_URL=wss://vssyl-server-235369681725.us-central1.run.app'
+      - '--set-env-vars'
+      - 'NEXT_PUBLIC_APP_URL=https://vssyl.com'
+      - '--set-env-vars'
+      - 'BACKEND_URL=https://vssyl-server-235369681725.us-central1.run.app'
+    id: 'deploy-web'
+    waitFor: ['push-web', 'push-web-latest']
+
+# Store images in Google Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/vssyl-server:$BUILD_ID'
+  - 'gcr.io/$PROJECT_ID/vssyl-server:latest'
+  - 'gcr.io/$PROJECT_ID/vssyl-web:$BUILD_ID'
+  - 'gcr.io/$PROJECT_ID/vssyl-web:latest'
+
+# Build options for faster builds
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 100
+  logging: CLOUD_LOGGING_ONLY
+
+# Timeout
+timeout: '1200s'
