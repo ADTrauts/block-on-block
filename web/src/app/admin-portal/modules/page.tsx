@@ -321,24 +321,42 @@ export default function AdminModulesPage() {
   }, []);
 
   const handleRegisterMissingModules = useCallback(async () => {
+    console.log('='.repeat(60));
+    console.log('🚀 Starting module registration...');
     setRegistering(true);
     setAiContextError(null);
     
     try {
       const response = await adminApiService.registerBuiltInModules();
       
+      console.log('📊 Registration response:', response);
+      
       if (response.error) {
+        console.error('❌ Registration error:', response.error);
         setAiContextError(`Registration failed: ${response.error}`);
         return;
       }
       
-      // Reload data after registration
-      await loadAIContextData();
+      const data = response.data;
+      console.log('✅ Registration successful:');
+      console.log('   - Registered count:', data?.registeredCount);
+      console.log('   - New registrations:', data?.newRegistrations);
+      console.log('   - Total modules:', data?.totalModules);
+      console.log('   - Built-in status:', data?.builtInModuleStatus);
+      console.log('   - All module IDs:', data?.allModuleIds);
       
-      // Show success message
-      alert('Module registration completed! Check the summary above for details.');
+      // Reload data after registration
+      console.log('🔄 Reloading AI context data...');
+      await loadAIContextData();
+      console.log('✅ Data reloaded');
+      console.log('='.repeat(60));
+      
+      // Show success message with details
+      const newRegs = data?.newRegistrations || 0;
+      const totalRegs = data?.registeredCount || 0;
+      alert(`Module registration completed!\n\nNew registrations: ${newRegs}\nTotal registered: ${totalRegs}\n\nCheck the console for detailed status.`);
     } catch (err) {
-      console.error('Error registering modules:', err);
+      console.error('❌ Error registering modules:', err);
       setAiContextError('Failed to register modules. Please try again.');
     } finally {
       setRegistering(false);

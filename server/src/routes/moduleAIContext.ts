@@ -606,22 +606,37 @@ router.post(
   requireRole('ADMIN'),
   async (req: Request, res: Response) => {
     try {
-      console.log('🤖 Admin-triggered manual module registration starting...');
+      console.log('='.repeat(60));
+      console.log('🤖 ADMIN-TRIGGERED MODULE REGISTRATION');
+      console.log('='.repeat(60));
+      
+      // Get count BEFORE registration
+      const beforeCount = await prisma.moduleAIContextRegistry.count();
+      console.log(`📊 Registry count BEFORE registration: ${beforeCount}`);
       
       // Import and call the startup registration function
       const { registerBuiltInModulesOnStartup } = await import('../startup/registerBuiltInModules');
       
       // Call the registration function
+      console.log('🚀 Calling registerBuiltInModulesOnStartup()...');
       await registerBuiltInModulesOnStartup();
+      console.log('✅ registerBuiltInModulesOnStartup() completed');
       
       // Get detailed status AFTER registration
       const registryEntries = await prisma.moduleAIContextRegistry.findMany({
         select: { moduleId: true, moduleName: true, createdAt: true },
       });
       
+      const afterCount = registryEntries.length;
+      console.log(`📊 Registry count AFTER registration: ${afterCount}`);
+      console.log(`📊 New registrations: ${afterCount - beforeCount}`);
+      
       const allModules = await prisma.module.findMany({
         select: { id: true, name: true, status: true },
       });
+      
+      console.log(`📊 Total modules in Module table: ${allModules.length}`);
+      console.log(`📊 Module IDs: ${allModules.map((m: { id: string }) => m.id).join(', ')}`);
       
       // Check which built-in modules exist and which are registered
       const builtInIds = ['drive', 'chat', 'calendar', 'hr', 'scheduling', 'todo'];
@@ -638,12 +653,17 @@ router.post(
         };
       });
       
-      console.log('📊 Registration status:', JSON.stringify(moduleStatus, null, 2));
+      console.log('📊 Built-in module status:');
+      moduleStatus.forEach((m: { moduleId: string; moduleExists: boolean; registryExists: boolean }) => {
+        console.log(`   - ${m.moduleId}: module=${m.moduleExists ? 'EXISTS' : 'MISSING'}, registry=${m.registryExists ? 'REGISTERED' : 'NOT_REGISTERED'}`);
+      });
+      console.log('='.repeat(60));
       
       res.json({
         success: true,
         message: 'Module registration completed',
-        registeredCount: registryEntries.length,
+        registeredCount: afterCount,
+        newRegistrations: afterCount - beforeCount,
         totalModules: allModules.length,
         builtInModuleStatus: moduleStatus,
         allModuleIds: allModules.map((m: { id: string }) => m.id),
