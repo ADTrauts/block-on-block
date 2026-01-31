@@ -286,14 +286,17 @@ router.get(
       // Query all fields to avoid issues with missing columns
       const registeredContexts = await prisma.moduleAIContextRegistry.findMany().catch(() => []);
 
+      // Define type for registry entries
+      type RegistryEntry = typeof registeredContexts[number];
+
       // Create a map of registered contexts by moduleId
-      const contextMap = new Map(
-        registeredContexts.map(ctx => [ctx.moduleId, ctx])
+      const contextMap = new Map<string, RegistryEntry>(
+        registeredContexts.map((ctx: RegistryEntry) => [ctx.moduleId, ctx])
       );
 
       // Combine modules with their AI context status
-      const modulesWithStatus = allModules.map(module => {
-        const aiContext = contextMap.get(module.id);
+      const modulesWithStatus = allModules.map((module: typeof allModules[number]) => {
+        const aiContext: RegistryEntry | undefined = contextMap.get(module.id);
         
         if (!aiContext) {
           return {
@@ -311,12 +314,8 @@ router.get(
         }
         
         // Store createdAt to avoid TypeScript narrowing issues
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const contextCreatedAt = (aiContext as any).createdAt || new Date();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const contextLastUpdated = ('lastUpdated' in aiContext && (aiContext as any).lastUpdated) 
-          ? (aiContext as any).lastUpdated 
-          : contextCreatedAt;
+        const contextCreatedAt = aiContext.createdAt || new Date();
+        const contextLastUpdated = aiContext.lastUpdated || contextCreatedAt;
         
         return {
           moduleId: module.id,
@@ -334,8 +333,7 @@ router.get(
             category: aiContext.category || '',
             keywords: Array.isArray(aiContext.keywords) ? aiContext.keywords : [],
             patterns: Array.isArray(aiContext.patterns) ? aiContext.patterns : [],
-            // Handle concepts field - may not exist in all database versions
-            concepts: 'concepts' in aiContext && Array.isArray(aiContext.concepts) ? aiContext.concepts : [],
+            concepts: Array.isArray(aiContext.concepts) ? aiContext.concepts : [],
             // Handle entities field - JSON field, could be array, object, or null
             entities: aiContext.entities != null 
               ? (Array.isArray(aiContext.entities) ? aiContext.entities : (typeof aiContext.entities === 'object' ? [aiContext.entities] : []))
@@ -350,10 +348,9 @@ router.get(
                   ? aiContext.contextProviders 
                   : (typeof aiContext.contextProviders === 'object' ? [aiContext.contextProviders] : []))
               : [],
-            // Handle relationships field - may not exist in all database versions
-            relationships: 'relationships' in aiContext && aiContext.relationships != null ? aiContext.relationships : null,
-            // Handle version field - may not exist in all database versions
-            version: 'version' in aiContext ? (aiContext.version || '1.0.0') : '1.0.0',
+            // Handle relationships field
+            relationships: aiContext.relationships != null ? aiContext.relationships : null,
+            version: aiContext.version || '1.0.0',
             registeredAt: contextCreatedAt,
             lastUpdated: contextLastUpdated,
           },
@@ -361,8 +358,8 @@ router.get(
       });
 
       // Calculate summary
-      const registeredCount = modulesWithStatus.filter(m => m.aiContextRegistered).length;
-      const notRegisteredCount = modulesWithStatus.filter(m => !m.aiContextRegistered).length;
+      const registeredCount = modulesWithStatus.filter((m: { aiContextRegistered: boolean }) => m.aiContextRegistered).length;
+      const notRegisteredCount = modulesWithStatus.filter((m: { aiContextRegistered: boolean }) => !m.aiContextRegistered).length;
       
       // Determine health status
       let healthStatus: 'good' | 'warning' | 'critical' = 'good';
@@ -469,11 +466,33 @@ router.get(
         ],
       });
 
+      // Define type for metric entry
+      type MetricEntry = typeof metrics[number];
+      
+      // Define type for module performance aggregation
+      interface ModulePerformanceData {
+        moduleId: string;
+        moduleName: string;
+        moduleCategory: string;
+        metrics: MetricEntry[];
+        totals: {
+          queries: number;
+          successfulQueries: number;
+          failedQueries: number;
+          totalLatency: number;
+          queryCount: number;
+        };
+        averageLatency?: number;
+        successRate?: number;
+      }
+
       // Group by module and calculate aggregates
-      const modulePerformance = metrics.reduce((acc: Record<string, any>, metric: Record<string, any>) => {
+      const modulePerformance: Record<string, ModulePerformanceData> = {};
+      
+      metrics.forEach((metric: MetricEntry) => {
         const moduleId = metric.moduleId;
-        if (!acc[moduleId]) {
-          acc[moduleId] = {
+        if (!modulePerformance[moduleId]) {
+          modulePerformance[moduleId] = {
             moduleId,
             moduleName: metric.module.name,
             moduleCategory: metric.module.category,
@@ -488,18 +507,17 @@ router.get(
           };
         }
 
-        acc[moduleId].metrics.push(metric);
-        acc[moduleId].totals.queries += metric.totalQueries;
-        acc[moduleId].totals.successfulQueries += metric.successfulQueries;
-        acc[moduleId].totals.failedQueries += metric.failedQueries;
-        acc[moduleId].totals.totalLatency += metric.averageLatency * metric.totalQueries;
-        acc[moduleId].totals.queryCount += metric.totalQueries;
-
-        return acc;
-      }, {});
+        modulePerformance[moduleId].metrics.push(metric);
+        modulePerformance[moduleId].totals.queries += metric.totalQueries;
+        modulePerformance[moduleId].totals.successfulQueries += metric.successfulQueries;
+        modulePerformance[moduleId].totals.failedQueries += metric.failedQueries;
+        modulePerformance[moduleId].totals.totalLatency += metric.averageLatency * metric.totalQueries;
+        modulePerformance[moduleId].totals.queryCount += metric.totalQueries;
+      });
 
       // Calculate averages
-      Object.values(modulePerformance).forEach((module: Record<string, any>) => {
+      const modulePerformanceValues = Object.values(modulePerformance);
+      modulePerformanceValues.forEach((module: ModulePerformanceData) => {
         module.averageLatency =
           module.totals.queryCount > 0
             ? module.totals.totalLatency / module.totals.queryCount
@@ -513,7 +531,7 @@ router.get(
       res.json({
         startDate,
         endDate: new Date(),
-        modules: Object.values(modulePerformance),
+        modules: modulePerformanceValues,
       });
     } catch (error: unknown) {
       const err = error as Error;
@@ -607,9 +625,9 @@ router.post(
       
       // Check which built-in modules exist and which are registered
       const builtInIds = ['drive', 'chat', 'calendar', 'hr', 'scheduling', 'todo'];
-      const moduleStatus = builtInIds.map(id => {
-        const moduleExists = allModules.find(m => m.id === id);
-        const registryExists = registryEntries.find(r => r.moduleId === id);
+      const moduleStatus = builtInIds.map((id: string) => {
+        const moduleExists = allModules.find((m: { id: string; name: string; status: string }) => m.id === id);
+        const registryExists = registryEntries.find((r: { moduleId: string }) => r.moduleId === id);
         return {
           moduleId: id,
           moduleExists: !!moduleExists,
@@ -628,7 +646,7 @@ router.post(
         registeredCount: registryEntries.length,
         totalModules: allModules.length,
         builtInModuleStatus: moduleStatus,
-        allModuleIds: allModules.map(m => m.id),
+        allModuleIds: allModules.map((m: { id: string }) => m.id),
       });
     } catch (error: unknown) {
       const err = error as Error;
