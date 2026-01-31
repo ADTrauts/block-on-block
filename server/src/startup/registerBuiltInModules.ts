@@ -649,27 +649,41 @@ async function registerModule(
   developerId: string
 ): Promise<boolean> {
   try {
-    console.log(`   📝 Registering: ${moduleName}...`);
+    console.log(`   📝 Registering: ${moduleName} (ID: ${moduleId})...`);
 
     // Step 1: Ensure the module exists in the Module table
+    console.log(`      Step 1: Checking if Module '${moduleId}' exists...`);
     const moduleCreated = await ensureModuleExists(moduleId, developerId);
     if (!moduleCreated) {
       console.log(`   ⚠️  Could not ensure Module '${moduleId}' exists, skipping AI context...`);
       return false;
     }
+    console.log(`      Step 1: Module '${moduleId}' exists ✓`);
 
     // Step 2: Check if AI context already registered
+    console.log(`      Step 2: Checking if AI context already registered...`);
     const existing = await prisma.moduleAIContextRegistry.findUnique({
       where: { moduleId },
     });
 
     if (existing) {
-      console.log(`   ✅ ${moduleName} AI context already registered`);
+      console.log(`   ✅ ${moduleName} AI context already registered (created: ${existing.createdAt})`);
       return true;
     }
+    console.log(`      Step 2: No existing registration found ✓`);
 
     // Step 3: Register the AI context
-    await prisma.moduleAIContextRegistry.create({
+    console.log(`      Step 3: Creating AI context registry entry...`);
+    console.log(`         - purpose: ${aiContext.purpose?.substring(0, 50)}...`);
+    console.log(`         - category: ${aiContext.category}`);
+    console.log(`         - keywords: ${aiContext.keywords?.length || 0} keywords`);
+    console.log(`         - patterns: ${aiContext.patterns?.length || 0} patterns`);
+    console.log(`         - concepts: ${aiContext.concepts?.length || 0} concepts`);
+    console.log(`         - entities: ${(aiContext.entities as any)?.length || 0} entities`);
+    console.log(`         - actions: ${(aiContext.actions as any)?.length || 0} actions`);
+    console.log(`         - contextProviders: ${(aiContext.contextProviders as any)?.length || 0} providers`);
+    
+    const created = await prisma.moduleAIContextRegistry.create({
       data: {
         moduleId,
         moduleName,
@@ -687,10 +701,16 @@ async function registerModule(
       },
     });
 
-    console.log(`   ✅ ${moduleName} AI context registered successfully`);
+    console.log(`   ✅ ${moduleName} AI context registered successfully (ID: ${created.id})`);
     return true;
   } catch (error) {
     console.error(`   ❌ Error registering ${moduleName}:`, error);
+    // Log full error details
+    if (error instanceof Error) {
+      console.error(`      Error name: ${error.name}`);
+      console.error(`      Error message: ${error.message}`);
+      console.error(`      Error stack: ${error.stack}`);
+    }
     return false;
   }
 }

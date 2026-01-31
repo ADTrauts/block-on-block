@@ -591,30 +591,52 @@ router.post(
       console.log('🤖 Admin-triggered manual module registration starting...');
       
       // Import and call the startup registration function
-      // This will check which modules are missing and register only those
       const { registerBuiltInModulesOnStartup } = await import('../startup/registerBuiltInModules');
       
       // Call the registration function
       await registerBuiltInModulesOnStartup();
       
-      // Get updated status
-      const registryCount = await prisma.moduleAIContextRegistry.count();
-      const allModules = await prisma.module.findMany({
-        select: { id: true },
+      // Get detailed status AFTER registration
+      const registryEntries = await prisma.moduleAIContextRegistry.findMany({
+        select: { moduleId: true, moduleName: true, createdAt: true },
       });
+      
+      const allModules = await prisma.module.findMany({
+        select: { id: true, name: true, status: true },
+      });
+      
+      // Check which built-in modules exist and which are registered
+      const builtInIds = ['drive', 'chat', 'calendar', 'hr', 'scheduling', 'todo'];
+      const moduleStatus = builtInIds.map(id => {
+        const moduleExists = allModules.find(m => m.id === id);
+        const registryExists = registryEntries.find(r => r.moduleId === id);
+        return {
+          moduleId: id,
+          moduleExists: !!moduleExists,
+          moduleStatus: moduleExists?.status || 'NOT_FOUND',
+          moduleName: moduleExists?.name || 'NOT_FOUND',
+          registryExists: !!registryExists,
+          registryCreatedAt: registryExists?.createdAt || null,
+        };
+      });
+      
+      console.log('📊 Registration status:', JSON.stringify(moduleStatus, null, 2));
       
       res.json({
         success: true,
         message: 'Module registration completed',
-        registeredCount: registryCount,
+        registeredCount: registryEntries.length,
         totalModules: allModules.length,
+        builtInModuleStatus: moduleStatus,
+        allModuleIds: allModules.map(m => m.id),
       });
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error in manual module registration:', error);
       res.status(500).json({ 
         success: false,
-        error: err.message 
+        error: err.message,
+        stack: err.stack,
       });
     }
   }
